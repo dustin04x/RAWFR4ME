@@ -1,226 +1,372 @@
 # RAWFRAME
 
-**Terminal-native HTTP interception and security-testing workbench.**
+**Terminal-native HTTP interception and security testing workbench.**
 
-RAWFRAME is an open-source, terminal-first workbench for authorized HTTP proxying, interception, inspection, and traffic history — without leaving the terminal. It is **not** a complete Burp Suite replacement.
+RAWFRAME is an open-source Rust workspace for authorized HTTP/1.1 testing from the terminal. It provides a local forward proxy, opaque HTTPS tunnelling, opt-in TLS interception, an in-memory traffic history, and a live request workbench inside a keyboard-driven TUI. It is built for testers who want a compact terminal workflow with explicit scope and visible request lifecycle state.
 
-> **Status: Milestone 4 (HTTPS interception).** HTTP/1.1 forwarding and opaque HTTPS `CONNECT` tunnelling work with real proxy events. Opt-in TLS interception can decrypt authorized `CONNECT` sessions into the existing HTTP interception workbench (HTTP/1.1 only). Intercepted requests can be paused, inspected, forwarded unchanged or modified, dropped, timed out, or cancelled through the same queue/history pipeline as HTTP.
-> **Not implemented:** SQLite persistence/sessions/export, Repeater transmission, Intruder, and Decoder (planned placeholders). Opaque `CONNECT` remains the default; TLS interception is off unless explicitly enabled.
+The current release is **0.2.0**. Milestones 1–4 are complete: core application, HTTP proxy, HTTP interception, and HTTPS TLS interception. Opaque `CONNECT` tunnelling is the default. Persistence, functional Repeater transmission, Intruder, Decoder, HTTP/2, and WebSocket support are not implemented.
 
 RAWFRAME is intended **only** for systems you own or are explicitly authorized to test.
 
+![RAWFRAME Proxy workspace while listening](docs/screenshots/140x40_02_listening.png)
+
 ## Screenshots
 
-Captured from real PTY sessions of the current TUI.
+Captured from real PTY sessions of the current TUI at 140×40. These are terminal captures, not mockups.
 
-| Listening (140×40) | Live paused interception (140×40) |
+| Live interception paused for review | Modified and unchanged requests forwarded |
 | --- | --- |
-| ![Proxy listening](docs/screenshots/140x40_02_listening.png) | ![Live paused interception](docs/screenshots/140x40_04_live_paused.png) |
+| ![Paused request in the interception workbench](docs/screenshots/140x40_04_live_paused.png) | ![Modified and forwarded requests](docs/screenshots/140x40_08_modified.png) |
 
-| Modified & forwarded (140×40) | Dropped request + inspector (140×40) |
+| Decrypted HTTPS request | TLS settings and local CA fingerprint |
 | --- | --- |
-| ![Modified and forwarded](docs/screenshots/140x40_08_modified.png) | ![Dropped request inspector](docs/screenshots/140x40_10_dropped_inspector.png) |
+| ![Decrypted HTTPS traffic in the Proxy workspace](docs/screenshots/tls/140x40_07_decrypted_https.png) | ![HTTPS TLS interception settings and CA fingerprint](docs/screenshots/tls/140x40_06_ca_path_and_fingerprint.png) |
 
-| Scope/policy blocked + inspector (140×40) | Narrow layout (100×30 / 80×24) |
+| Scope-blocked request with explanation |
+| --- |
+| ![Request blocked by scope policy](docs/screenshots/140x40_13_scope_blocked_inspector.png) |
+
+## Features
+
+### Implemented
+
+**Proxy and destination policy**
+
+- HTTP/1.1 forward proxying with streamed request and response bodies.
+- Opaque HTTPS `CONNECT` tunnelling with bidirectional relay and half-close.
+- IPv4, IPv6, and hostname destinations with absolute-form and `Host` validation.
+- End-to-end header preservation, including duplicates and `Set-Cookie`, with hop-by-hop filtering.
+- Default-deny scope by exact host, leading wildcard, scheme, and port.
+- Resolve-once DNS with address validation for loopback, private, link-local, metadata, and reserved ranges.
+- Body caps, connection limits, connect/response/idle timeouts, and bounded event and command queues.
+
+**HTTPS TLS interception**
+
+- Opt-in HTTP/1.1 TLS interception; opaque `CONNECT` remains the default.
+- Local certificate authority with explicit creation, fingerprint display, and public-certificate export.
+- Per-host leaf certificates with a bounded cache.
+- Separate upstream TLS session with mandatory certificate-chain and hostname verification.
+- Decrypted requests enter the same interception queue, history, and lifecycle as HTTP traffic.
+- Enabling or disabling interception applies to new `CONNECT` sessions; established sessions keep their configuration until close.
+- No certificate-pinning bypass.
+
+**Request interception**
+
+- Pause matching requests before upstream contact.
+- Inspect the raw request and forward it unchanged or modified after validation.
+- Drop paused requests without fabricating an upstream response.
+- Bounded pending queue, interception timeout, cancellation on disable/stop, and lifecycle tracking.
+
+**Terminal interface**
+
+- Proxy, HTTP History, Repeater, and Settings workspaces.
+- Request/response inspector with raw, headers, and body views.
+- Keyboard navigation, mouse support, command palette, and resizable panes.
+- Live engine state, TLS state, queue state, and source provenance.
+- Sensitive-header redaction and terminal-safe rendering of captured text.
+- Repeater is currently an offline request editor with parse validation and multiple tabs; Send reports that transmission is unavailable.
+
+### Planned, not implemented
+
+- Functional Repeater transmission and response capture/comparison.
+- SQLite persistence, projects, sessions, durable history, and export.
+- Decoder, Intruder, and advanced traffic analysis.
+- HTTP/2, HTTP/3, and WebSocket interception.
+- HTTP proxy authentication and per-client rate limits.
+
+## Architecture
+
+RAWFRAME is a five-crate Cargo workspace. Dependency flow is one-way; the TUI never opens sockets and the proxy never depends on the TUI.
+
+| Crate | Responsibility |
 | --- | --- |
-| ![Scope blocked inspector](docs/screenshots/140x40_13_scope_blocked_inspector.png) | ![100x30 interception](docs/screenshots/100x30_04_live_paused.png) ![80x24 interception](docs/screenshots/80x24_04_live_paused.png) |
+| `rawframe-core` | Domain models, configuration, scope rules, lifecycle, filters, bounded event/command contracts, terminal-safety primitives, and labelled fixtures. No network or terminal I/O. |
+| `rawframe-http` | Authored HTTP/1.x document parser used by Repeater and tests. This is not the live proxy wire implementation. |
+| `rawframe-proxy` | Tokio/Hyper listener, HTTP forwarding, opaque `CONNECT` relay, TLS interception, destination policy, body guards, limits, and graceful shutdown. |
+| `rawframe-tui` | Ratatui/Crossterm application, workspaces, inspector, editor, layouts, input handling, and terminal lifecycle. |
+| `rawframe-cli` | Composition root: CLI validation, logging, Tokio runtime, proxy worker, and TUI loop. |
 
-HTTPS interception evidence from the real-binary PTY harness (`scripts/tui_tls_pty.py`):
-
-| TLS off: CONNECT opaque (140×40) | TLS on: decrypted HTTPS (140×40) |
-| --- | --- |
-| ![Opaque CONNECT](docs/screenshots/tls/140x40_04_opaque_tunnel_before_enable.png) | ![Decrypted HTTPS](docs/screenshots/tls/140x40_07_decrypted_https.png) |
-
-| CA path/fingerprint in Settings (140×40) | Upstream verification failure (140×40) |
-| --- | --- |
-| ![CA fingerprint](docs/screenshots/tls/140x40_06_ca_path_and_fingerprint.png) | ![Upstream verification failure](docs/screenshots/tls/140x40_08_upstream_verify_failure.png) |
-
-| Invalid CA refused (80×24) | New CONNECT opaque after disable (140×40) |
-| --- | --- |
-| ![Invalid CA refused](docs/screenshots/tls/80x24_11_invalid_ca_not_replaced.png) | ![Opaque after disable](docs/screenshots/tls/140x40_10_new_connect_opaque_after_disable.png) |
-
-## What works today
-
-| Area | Status |
-| --- | --- |
-| Cargo workspace, shared models, bounded event bus, command boundary | Implemented |
-| HTTP/1.1 forward proxy with streaming request/response bodies | Implemented |
-| IPv4/IPv6/hostname destinations; absolute-form and `Host` validation | Implemented |
-| End-to-end header preservation (including duplicates, `Set-Cookie`); hop-by-hop filtering | Implemented |
-| Opaque HTTPS `CONNECT` tunnelling with bidirectional half-close | Implemented |
-| Default-deny scope (host/wildcard/scheme/port), DNS resolve-once address policy | Implemented |
-| Request/response size, connection, connect, response, and idle limits | Implemented |
-| Live HTTP capture, CONNECT metadata, failures/counts, start/stop with real lifecycle state | Implemented |
-| HTTP interception: pause, inspect/edit raw request, forward unchanged/modified, drop (validated) | Implemented (engine + TUI workbench integration) |
-| TUI: Proxy, HTTP History, Repeater workspace, Settings; inspector, keyboard/mouse, palette, contextual actions | Implemented |
-| Live vs simulated traffic separation (labelled fixtures) | Implemented |
-| Lifecycle-aware states (paused/forwarded/modified/dropped/blocked/failed/timed out/cancelled) | Implemented |
-| Sensitive-header redaction and terminal-escape/bidi sanitization | Implemented |
-| Opt-in HTTPS TLS interception (HTTP/1.1), local CA, per-host leaf certs, verified upstream TLS | Implemented |
-| SQLite persistence, sessions, export | **Not implemented** |
-| Repeater transmission | **Not implemented** |
-| Intruder, Decoder | **Planned placeholders** |
-
-Simulated fixtures use the reserved `.test` domain and never leave the machine. Live captures carry `LIVE` source badges and are distinguished from fixtures in the UI.
-
-## Requirements
-
-- Rust **1.88+** (edition 2024)
-- Terminal **≥ 64×18** (108+ columns recommended for the inspector)
-- Truecolor terminal and a monospace font with box-drawing coverage recommended (e.g. JetBrains Mono)
-- Linux, macOS, and Windows terminals supported by Crossterm (mouse/truecolor depend on terminal)
-
-## Build and quality gates
-
-```bash
-cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-# or
-./scripts/check.sh
+```mermaid
+flowchart LR
+    client[HTTP client / browser] -->|HTTP or CONNECT| proxy[rawframe-proxy]
+    cli[rawframe-cli] --> tui[rawframe-tui]
+    cli --> proxy
+    tui --> http[rawframe-http]
+    tui --> core[rawframe-core]
+    proxy --> core
+    http --> core
 ```
 
-## Run
+### Request lifecycle
+
+1. The client connects to the local proxy listener.
+2. The proxy parses the destination and validates it against scope and address policy.
+3. HTTP requests are forwarded upstream or paused by the interception queue.
+4. HTTPS `CONNECT` is relayed as an opaque tunnel unless TLS interception is explicitly enabled.
+5. Intercepted HTTPS traffic is terminated locally, decrypted, and handled through the existing HTTP interception lifecycle.
+6. Upstream TLS certificate-chain and hostname verification remains mandatory for intercepted sessions.
+
+`rawframe-cli` owns the Tokio runtime and spawns `rawframe_proxy::run_service`. The TUI exchanges commands and events through bounded channels, polls without blocking, and renders captured traffic and lifecycle state.
+
+See [docs/architecture.md](docs/architecture.md) for the full data flow, module map, and design decisions.
+
+## Security model
+
+TLS interception is security-sensitive. RAWFRAME keeps it explicit and bounded.
+
+- **Opt-in interception.** Opaque `CONNECT` is the default. TLS interception is off unless enabled with `--tls-intercept` or the Settings toggle.
+- **Explicit CA trust.** RAWFRAME never installs its CA automatically. The operator must export the public certificate and trust it in the client or dedicated test profile.
+- **Protected private key.** CA material is stored locally under `$XDG_DATA_HOME/rawframe/ca` or `~/.local/share/rawframe/ca`. On Unix, the key is `0600` and the directory is `0700`. The private key is never exported, logged, or published in events or history.
+- **No verification bypass.** Upstream certificate-chain and hostname verification cannot be disabled. `--tls-upstream-ca` replaces the trust roots for a lab; it does not weaken verification.
+- **Scope before connection.** Scope is checked before DNS resolution or any upstream socket is opened. A denial is recorded as blocked and never forwarded.
+- **Resolve-once address policy.** Every resolved address is validated before connection. Loopback and private upstreams require `--allow-private-upstreams`; link-local, metadata, multicast, documentation, and reserved ranges remain blocked.
+- **Loopback by default.** Remote binding requires both a non-loopback `--bind` and `--allow-remote-bind`. There is no proxy authentication; protect any remote listener with host firewalls or a trusted network.
+- **Bounded failure.** Bodies, connections, queues, and timeouts are bounded. Disabling interception or stopping the proxy cancels pending work instead of leaving it unresolved.
+- **Local data only.** No telemetry, external reporting, shell execution from captured content, or automatic trust-store modification. Diagnostics are written to a local log without captured headers or bodies.
+- **Presentation safety.** Sensitive headers are redacted by default, and captured text is sanitized before terminal rendering.
+
+### Limitations
+
+- HTTP/1.1 only. HTTP/2, HTTP/3, and WebSocket forwarding/interception are not supported.
+- TLS interception does not bypass certificate pinning. Pinned clients fail the intercepted handshake by design.
+- Modified HTTPS requests cannot change the original `CONNECT` authority; changing host or port requires a new connection.
+- Opaque tunnels expose only destination, duration, byte counts, and outcome; payload and inner headers are not captured.
+- History and settings are session-only. No database, project files, export, or persistent storage exists.
+- Repeater does not transmit requests yet.
+- Scope is configured from the CLI; there is no scope-rule editor.
+- There is no proxy authentication, per-client rate limit, or HTTP `503` response for connection-limit overflow.
+
+See [docs/security.md](docs/security.md) for the threat model and the complete controls and gaps.
+
+## Installation and usage
+
+### Prerequisites
+
+- Rust **1.88+** with edition 2024 support.
+- A terminal of at least 64×18. The inspector requires 108 columns; 140×40 is recommended.
+- A truecolor terminal and a monospace font with box-drawing coverage for the intended appearance.
+- Python 3 with `cryptography` only for the real-binary PTY regression, not for normal operation.
+
+### Build and run
 
 ```bash
+git clone https://github.com/dustin04x/RAWFR4ME.git
+cd RAWFR4ME
+cargo build --workspace
 cargo run -p rawframe-cli --bin rawframe
 ```
 
-The proxy starts **offline** with **default-deny** scope. Start it from the Proxy screen (`P` / Start).
+The proxy starts idle with default-deny scope. Press `P` on the Proxy workspace to start it.
 
-### Quick local example (authorized local target)
+### Quick local HTTP check
 
 ```bash
 # Terminal 1: local upstream
 python3 -m http.server 8000 --bind 127.0.0.1
 
-# Terminal 2: RAWFRAME (authorize only this upstream)
+# Terminal 2: RAWFRAME, authorizing only this local upstream
 cargo run -p rawframe-cli --bin rawframe -- \
   --port 8080 \
   --scope http://127.0.0.1:8000 \
   --allow-private-upstreams
-# Press P on the Proxy screen.
+# Press P on the Proxy workspace.
 
-# Terminal 3: proxied request
+# Terminal 3: send a request through the proxy
 curl --noproxy '' -x http://127.0.0.1:8080 http://127.0.0.1:8000/
 ```
 
-Opaque `CONNECT` (no TLS termination; no payload/header inspection inside the tunnel):
+For a release build, use `cargo build --release -p rawframe-cli` and run `target/release/rawframe`.
+
+### Enable HTTPS interception
+
+The CA is created when HTTPS TLS interception is first enabled, or explicitly with `--tls-ca-regenerate`. For a new test setup:
 
 ```bash
-curl --noproxy '' -x http://127.0.0.1:8080 https://example.test/
+# Create a new local CA. This invalidates trust in any previous RAWFRAME CA.
+target/debug/rawframe --tls-ca-regenerate
+
+# Inspect the public certificate path, status, and SHA-256 fingerprint.
+target/debug/rawframe --tls-ca-show
+target/debug/rawframe --tls-ca-fingerprint
+
+# Export only the public certificate.
+target/debug/rawframe --tls-ca-export ./rawframe-ca.crt.pem
+
+# Start with interception and an explicit HTTPS scope.
+target/debug/rawframe \
+  --tls-intercept \
+  --port 8080 \
+  --scope https://lab.example.test:443
 ```
 
-### Useful CLI options
+For a local HTTPS origin, add `--allow-private-upstreams` and use the exact host and port in `--scope`.
 
-```bash
-rawframe --help
-rawframe --port 8081
-rawframe --scope example.test
-rawframe --scope '*.example.test:443'
-rawframe --scope https://api.example.test:443
-rawframe --allow-private-upstreams
-rawframe --tls-intercept --scope https://localhost:8443 --allow-private-upstreams
-rawframe --tls-ca-show
-rawframe --tls-ca-fingerprint
-rawframe --tls-ca-export ./rawframe-ca.crt.pem
-rawframe --tls-ca-regenerate      # invalidates prior client trust
-rawframe --tls-upstream-ca ./upstream-ca.pem   # lab trust bundle; verification stays on
-rawframe --bind 0.0.0.0 --allow-remote-bind
-rawframe --no-mouse
-rawframe --no-redact          # DANGEROUS: reveal sensitive header values
-```
+Then:
 
-- `--scope` may be repeated. With no scope rules, requests/CONNECT are denied.
-- `--allow-private-upstreams` is required for loopback/private lab targets.
-- `--tls-intercept` explicitly enables HTTPS interception. It is off by default; `CONNECT` stays opaque otherwise.
-- `--tls-ca-dir` selects the local CA directory. `--tls-ca-show` prints the public certificate path/fingerprint, `--tls-ca-export` exports only the public certificate, and `--tls-ca-regenerate` explicitly replaces the CA (all prior trust becomes invalid).
-- `--tls-upstream-ca` replaces the platform trust store with an explicit PEM bundle for local-lab upstreams. Certificate-chain and hostname verification remain mandatory; there is no insecure mode.
-- Remote listener binding requires `--allow-remote-bind` (TUI settings permit loopback only).
+1. Use a disposable browser profile or dedicated test VM.
+2. Import `rawframe-ca.crt.pem` as a trusted certificate authority in that profile only. Do not add it to the system trust store.
+3. Configure the client to use `127.0.0.1:8080` as its HTTP/HTTPS proxy.
+4. Confirm that the target certificate is issued by the RAWFRAME CA before sending sensitive traffic.
+5. Disable TLS interception or restart without `--tls-intercept`, remove the CA from the profile, and delete the profile when finished.
 
-Default log: `$XDG_DATA_HOME/rawframe/logs/rawframe.log` or `~/.local/share/rawframe/logs/rawframe.log` (local-only, no captured headers/bodies; owner-only on Unix). Override with `--log-file`.
+Only scoped `CONNECT` targets are eligible for interception. Removing trust does not affect opaque tunnelling. `--tls-ca-regenerate` permanently invalidates the old CA; every client that trusted it must be updated.
 
-## Interception workflow (current)
-
-1. Start RAWFRAME with an authorized scope (and `--allow-private-upstreams` for local/private targets as needed).
-2. Start the proxy (`P`) and wait for `LISTENING`.
-3. Enable interception (`I`) for matching HTTP requests through the same queue used for decrypted HTTPS.
-4. Send traffic through the proxy (e.g. `curl --noproxy '' -x http://127.0.0.1:8080 http://127.0.0.1:8000/`).
-5. For a paused request: `E` edit, `F` forward unchanged, `S`/`Ctrl+Enter` send modified (validated), `D` drop. Validation failures keep the request pending.
-6. Resolved live transactions appear in HTTP History/inspector with lifecycle/outcome metadata. Dropped/cancelled/timed-out requests do not fabricate upstream responses; scope/policy rejections are reported as blocked (not dropped).
-
-### HTTPS interception (opt-in)
-
-1. Enable `HTTPS TLS interception` in Settings, or start with `--tls-intercept`. The proxy initializes or loads the local CA when interception is enabled.
-2. Export the **public** CA certificate with `--tls-ca-export PATH` (or read the path shown in Settings) and explicitly trust it in the client/browser you are testing. RAWFRAME never installs trust automatically and never exports the private key.
-3. Authorize the target with `--scope` (and `--allow-private-upstreams` for local lab servers), then send HTTPS through the proxy with `CONNECT`.
-4. Decrypted HTTP/1.1 requests enter the existing interception queue. Pause/modify/drop/forward behavior and validation (including destination/scope revalidation) are the same as HTTP.
-5. Disable `HTTPS TLS interception` in Settings (or restart without `--tls-intercept`) to return `CONNECT` to opaque tunnelling. Remove the RAWFRAME CA from any trust store when finished.
-6. `--tls-ca-regenerate` replaces the CA explicitly; every client that trusted the old CA must be updated. Existing CA material is never silently replaced, and certificate/key mismatches are rejected.
-
-Limits: TLS interception currently handles HTTP/1.1 only and does not bypass certificate pinning. Applications that pin certificates will fail as designed. Upstream TLS always verifies the certificate chain and hostname against the platform trust store (or an explicitly configured trust bundle); there is no insecure-verification switch.
-
-## Defaults and limits
-
-| Setting | Default | Notes |
-| --- | --- | --- |
-| Listener | `127.0.0.1:8080` | loopback unless explicitly authorized |
-| Scope | empty allowlist (deny by default) | checked before DNS/connect |
-| Max request/response body | 2 MiB each | declared/streamed bytes bounded |
-| Max concurrent connections | 128 | excess connections closed |
-| DNS/connect/handshake timeout | 10 s | bounded upstream establishment |
-| Response-header timeout | 30 s | timeout recorded as failure |
-| Body/tunnel idle timeout | 60 s | stalled streams/tunnels terminated |
-| Upstream TLS verification | on (locked) | chain + hostname verified for intercepted upstream TLS |
-| HTTPS TLS interception | off | explicit opt-in; opaque `CONNECT` default |
-| Intercepted protocol | HTTP/1.1 | ALPN advertises only HTTP/1.1 |
-| Redaction | on | sensitive headers redacted by default in inspector |
-
-Settings are session-only. Network limit changes in the TUI apply on proxy restart.
-
-## Keyboard and mouse
-
-- `Ctrl+K` command palette, `Ctrl+1`…`Ctrl+4` modules, `Tab`/`Shift+Tab` focus, `?` help, `Q`/`Ctrl+C` quit.
-- Navigation: `↑ ↓`/`j k`, `Enter`; Inspector: `[` `]` request/response, `1`/`2`/`3` raw/headers/body.
-- Proxy: `P` start/stop, `I` interception, `Enter` inspect, `F` forward, `E` edit, `S` send modified, `D` drop (when applicable), `R` replay (where supported).
-- History: `/` or `Ctrl+F` search, filters, `Ctrl+U` clear.
-- Mouse: click/select, double-click inspect, right-click context actions, scroll, drag dividers to resize panes. Single-letter shortcuts do not fire while editing/searching.
-
-## Architecture
+### CLI reference
 
 ```text
-rawframe-cli ──> rawframe-tui ──> rawframe-http ──> rawframe-core
-      │                │                                 ▲
-      ├──> rawframe-proxy ────────────────────────────────┤
-      └───────────────────────────────────────────────────┘
+rawframe [OPTIONS]
 ```
 
-- **rawframe-core** — models, config, scope rules, lifecycle/filters, bounded event bus, commands, terminal-safety primitives, fixtures (no I/O).
-- **rawframe-http** — HTTP/1.x document parsing for Repeater/tests (not the proxy wire implementation).
-- **rawframe-proxy** — Tokio/Hyper listener, streaming forwarder, opaque CONNECT relay, scope/address enforcement, limits, capture events, graceful shutdown (no TUI dependency).
-- **rawframe-tui** — Ratatui/Crossterm app, screens/state/rendering/input/terminal lifecycle; polls events and emits commands (no sockets).
-- **rawframe-cli** — composition root/runtime, proxy worker wiring, terminal loop.
+| Option | Purpose |
+| --- | --- |
+| `--bind <ADDR>` | Listener address. Defaults to `127.0.0.1`. |
+| `--port <PORT>` | Listener port. Defaults to `8080`. |
+| `--allow-remote-bind` | Required for a non-loopback bind address. |
+| `--scope <RULE>` | Allow an upstream host; repeatable. Supplying no rules denies everything. |
+| `--allow-private-upstreams` | Permit loopback/private targets for local labs. |
+| `--no-mouse` | Disable mouse capture and interaction. |
+| `--no-redact` | Show sensitive header values. Dangerous in shared environments. |
+| `--log-file <FILE>` | Override the default local diagnostic log path. |
+| `--tls-intercept` | Enable HTTPS TLS interception for scoped `CONNECT` targets. |
+| `--tls-ca-dir <DIR>` | Override the local CA directory. |
+| `--tls-upstream-ca <FILE>` | Use an explicit PEM trust bundle for upstream TLS; verification stays on. |
+| `--tls-ca-show` | Print CA path/status and exit. |
+| `--tls-ca-export <FILE>` | Export the public CA certificate and exit. |
+| `--tls-ca-fingerprint` | Print the CA SHA-256 fingerprint and exit. |
+| `--tls-ca-regenerate` | Replace the CA and exit. Invalidates prior trust. |
 
-## Security model
+`--scope` accepts `host`, `host:port`, `http://host[:port]`, `https://host[:port]`, and leading wildcards such as `*.example.test`. HTTPS scope rules are required for intercepted `CONNECT` targets.
 
-- Default-deny scope; loopback listener by default. Remote bind and private upstreams require explicit opt-in.
-- Scope checked before upstream resolution/connection; resolve-once address policy with public-address validation (private/loopback answers require opt-in; reserved/link-local/metadata/multicast/etc. rejected).
-- Request/response bodies streamed with hard caps; bounded queues/connections and idle limits; failures recorded (not fabricated).
-- Hop-by-hop headers stripped; end-to-end/duplicate headers preserved appropriately. Absolute-form/Host validation enforced.
-- Sensitive headers redacted by default in the inspector; captured text sanitized for terminal display.
-- Opaque `CONNECT` by default. With interception enabled, scope/address policy is enforced before leaf issuance, upstream resolution, upstream connection, forwarding, and modified-destination forwarding.
-- Client-facing TLS uses a RAWFRAME leaf certificate; upstream TLS is a separate session with mandatory chain and hostname verification using trusted roots. There is no insecure-verification or HTTPS-to-HTTP downgrade path.
-- The CA private key stays in the local CA directory with restrictive Unix permissions (`0600` key, `0700` directory), is never exported, and is never placed in events, logs, or history. Only the public certificate is exportable.
-- No telemetry, no shell execution from captured content, no automatic trust-store installation. Logs are local-only.
+## Keyboard shortcuts
 
-See [docs/security.md](docs/security.md) for the threat model, controls, and known gaps.
+Single-letter shortcuts are suppressed while typing in an editor, search field, or Settings field. `Ctrl+C` always exits.
 
-## Current limitations & roadmap
+### Global
 
-- **Limitations:** HTTPS interception supports HTTP/1.1 only, not HTTP/2/HTTP/3, WebSocket, or certificate-pinned clients; no SQLite persistence/sessions/export; Intruder/Decoder are planned placeholders; Repeater transmission not available. The real-binary PTY regression requires Python 3 with `cryptography`; when unavailable it is skipped, but the proxy-level HTTP/HTTPS integration tests still run.
-- **Roadmap:** see [docs/roadmap.md](docs/roadmap.md). Do not treat planned items as implemented.
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+K` | Open the command palette. |
+| `Ctrl+1` … `Ctrl+4` | Go to Proxy, HTTP History, Repeater, and Settings. |
+| `Ctrl+5`, `Ctrl+6` | Open the planned Intruder and Decoder placeholders. |
+| `Ctrl+F` | Search HTTP History. |
+| `Ctrl+N` | Create a Repeater tab. |
+| `Ctrl+W` | Close the current Repeater tab. |
+| `Ctrl+U` | Clear HTTP History filters. |
+| `Tab` / `Shift+Tab` | Move focus between navigation, content, and inspector. |
+| `?` | Show keyboard help. |
+| `Q` | Quit; confirmation is required with unsaved edits or paused requests. |
+| `Ctrl+C` | Immediate emergency exit. |
+
+### Proxy
+
+| Shortcut | Action |
+| --- | --- |
+| `↑` / `↓`, `J` / `K` | Move through traffic or the pending queue. |
+| `PageUp` / `PageDown` | Move by eight rows. |
+| `Home` / `End` | Jump to the first or last row. |
+| `Enter` | Inspect the selected request. |
+| `P` | Start or stop the proxy. |
+| `I` | Toggle interception. |
+| `F` | Forward a paused request unchanged. |
+| `E` | Edit a paused request in the workbench. |
+| `S` | Send the modified request after validation. |
+| `Ctrl+Enter` | Send the modified request while the editor is active. |
+| `D` | Drop the paused request. |
+| `R` | Open the selected request in Repeater. |
+
+### HTTP History and inspector
+
+| Shortcut | Action |
+| --- | --- |
+| `/` or `Ctrl+F` | Search History. |
+| `M`, `S`, `H` | Cycle method, status, and host filters. |
+| `Enter` | Open the selected request in the inspector. |
+| `[` / `]`, `←` / `→` | Switch the inspector between request and response. |
+| `1`, `2`, `3` | Show raw, headers, or body view. |
+| `X` | Toggle sensitive-header redaction in the inspector. |
+| `R` / `E` | Open the selected request in Repeater, view or edit mode. |
+
+### Repeater and Settings
+
+| Context | Shortcut | Action |
+| --- | --- | --- |
+| Repeater | `Enter` / `E` | Start editing the active document. |
+| Repeater | `S` or `Ctrl+Enter` | Attempt to send. Transmission is not implemented and nothing is sent. |
+| Repeater | `←` / `→` | Switch tabs. |
+| Settings | `↑` / `↓`, `J` / `K` | Select a setting. |
+| Settings | `Enter` / `Space` | Toggle or edit the selected setting. |
+| Settings | `Esc` | Cancel an inline edit. |
+
+Mouse support includes click-to-select, double-click inspection, right-click context menus, wheel scrolling, and draggable pane dividers. Disable it with `--no-mouse`.
+
+Settings and traffic history are session-only. Network limit changes apply after the proxy is restarted.
+
+## Defaults
+
+| Setting | Default |
+| --- | --- |
+| Listener | `127.0.0.1:8080` |
+| Scope | Empty allowlist; deny all |
+| Request/response body cap | 2 MiB each |
+| Concurrent client connections | 128 |
+| Connect / response-header / idle timeout | 10 s / 30 s / 60 s |
+| Interception timeout and queue | 120 s; 32 entries |
+| HTTPS TLS interception | Off |
+| Upstream TLS verification | On; cannot be disabled |
+| Sensitive-header redaction | On |
+
+Diagnostics default to `$XDG_DATA_HOME/rawframe/logs/rawframe.log` or `~/.local/share/rawframe/logs/rawframe.log`. Logs contain lifecycle data, not captured headers or bodies. The file is owner-only on Unix.
+
+## Roadmap
+
+Milestone numbers follow [docs/roadmap.md](docs/roadmap.md).
+
+| Milestone | Status |
+| --- | --- |
+| M1 — Core architecture and TUI | Complete |
+| M2 — HTTP proxy engine | Complete |
+| M3 — HTTP interception | Complete |
+| M4 — HTTPS TLS interception | Complete |
+| M5 — Persistence, sessions, and protocol coverage | Planned |
+| M6 — Functional Repeater | Planned |
+| Later — Intruder, Decoder, traffic analysis, protocol expansion, release hardening | Planned |
+
+Planned work is not available in this build. See [docs/roadmap.md](docs/roadmap.md) for scope, acceptance criteria, and known limitations.
+
+## Testing
+
+Run the repository quality gates from the workspace root:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+Or run `./scripts/check.sh`.
+
+The latest verified M4 release run reported:
+
+- **239 passing tests, 0 failed** across the workspace.
+- **89/89 PTY checks** passing at 140×40, 100×30, and 80×24.
+- A passing real-binary PTY regression that enables and disables TLS interception through the TUI.
+
+The PTY test requires Python 3 with `cryptography`; without it, that test skips while the remaining proxy-level HTTP/HTTPS tests still run. Test suites use local servers and self-contained test CAs; no test contacts an external website. These are milestone results, not a guarantee for every future commit.
+
+## Project status and contribution
+
+RAWFRAME is under active pre-1.0 development. The M1–M4 foundations are implemented and tested; planned modules are visible in the navigation but clearly marked as placeholders. Interfaces and terminal behavior may change.
+
+Contributions should preserve the security defaults: loopback binding, default-deny scope, explicit private-upstream opt-in, mandatory upstream TLS verification, redaction, and terminal sanitization. Add tests for behavioral changes and run the quality gates before submitting. See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/development.md](docs/development.md).
+
+**License:** MIT. See [LICENSE](LICENSE).
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) · [Dependency graph](docs/dependency-graph.md) · [Security](docs/security.md) · [Development](docs/development.md) · [Roadmap](docs/roadmap.md)
-- [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md) · [License (MIT)](LICENSE)
+- [Architecture](docs/architecture.md)
+- [Security model](docs/security.md)
+- [Development guide](docs/development.md)
+- [Roadmap](docs/roadmap.md)
+- [Dependency graph](docs/dependency-graph.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
