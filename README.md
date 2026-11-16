@@ -4,7 +4,7 @@
 
 RAWFRAME is an open-source, terminal-first workbench for authorized HTTP proxying, interception, inspection, and traffic history — without leaving the terminal. It is **not** a complete Burp Suite replacement.
 
-> **Status: Milestone 3 (in progress).** HTTP/1.1 forwarding and opaque HTTPS `CONNECT` tunnelling work with real proxy events. The interception engine/workbench can pause matching HTTP requests and resolve them (forward unchanged, forward modified, drop).  
+> **Status: Milestone 3 (in progress).** HTTP/1.1 forwarding and opaque HTTPS `CONNECT` tunnelling work with real proxy events. The interception engine/workbench can pause matching HTTP requests and resolve them (forward unchanged, forward modified, drop).
 > **Not implemented:** TLS/HTTPS decryption or interception, local CA/certificate management, SQLite persistence/sessions/export, Repeater transmission, Intruder, and Decoder (planned placeholders). `CONNECT` tunnels remain opaque (metadata/byte counts only).
 
 RAWFRAME is intended **only** for systems you own or are explicitly authorized to test.
