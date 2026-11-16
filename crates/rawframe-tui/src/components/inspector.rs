@@ -457,7 +457,8 @@ fn render_response_inspection(
     if entry.kind == TrafficKind::ConnectTunnel {
         lines = vec![
             "Opaque CONNECT tunnel — no HTTP response body or headers are captured.".to_string(),
-            "TLS interception is not implemented; payload is relayed, not inspected.".to_string(),
+            "This CONNECT entry is an opaque tunnel; payload is relayed, not inspected."
+                .to_string(),
         ];
     }
 
@@ -534,7 +535,7 @@ fn render_tunnel_metadata(
     let mut lines = vec![
         Line::from(Span::styled("OPAQUE CONNECT TUNNEL", theme.title())),
         Line::from(Span::styled(
-            "Payload bytes are relayed, not captured. TLS interception is not implemented.",
+            "Payload bytes are relayed, not captured for this opaque CONNECT entry.",
             theme.muted(),
         )),
         Line::from(""),

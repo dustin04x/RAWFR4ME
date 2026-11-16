@@ -13,6 +13,7 @@ use rawframe_core::models::traffic::{TrafficEntry, TrafficId, TrafficState};
 use rawframe_core::models::{AppConfig, Session};
 use rawframe_core::{
     AppCommand, AppEvent, CommandSender, EventBus, EventSender, HistoryFilter, Notice, ProxyState,
+    TlsStatus,
 };
 
 use crate::commands::{CommandId, CommandSpec, filter_commands};
@@ -95,6 +96,7 @@ pub struct App {
     pub(crate) drag: Option<DragTarget>,
     pub(crate) last_click: Option<(Instant, Position, HitTarget)>,
     pub(crate) interception: InterceptionWorkbench,
+    pub(crate) tls_status: TlsStatus,
 }
 
 impl App {
@@ -139,6 +141,7 @@ impl App {
             drag: None,
             last_click: None,
             interception: InterceptionWorkbench::default(),
+            tls_status: TlsStatus::disabled(),
         };
         app.ensure_selections();
         app.notify(Notice::info(
@@ -408,6 +411,17 @@ impl App {
             AppEvent::ProxyBound(address) => {
                 self.proxy_address = Some(address);
             }
+            AppEvent::TlsStateChanged(status) => {
+                self.config.proxy.tls_interception_enabled = status.enabled;
+                if let Some(error) = &status.error {
+                    self.notify_error(format!("TLS interception: {error}"));
+                } else if status.enabled {
+                    self.notify_warning(
+                        "HTTPS TLS interception is ON: authorized CONNECT sessions are decrypted and visible.",
+                    );
+                }
+                self.tls_status = status;
+            }
             AppEvent::Notice(notice) => self.notify(notice),
             AppEvent::Shutdown => self.should_quit = true,
         }
@@ -618,6 +632,16 @@ impl App {
         }
     }
 
+    pub(crate) fn toggle_tls_interception(&mut self) {
+        let enabled = !self.tls_status.enabled;
+        if enabled {
+            self.notify_warning(
+                "Enabling HTTPS TLS interception decrypts authorized CONNECT traffic. Clients must explicitly trust the exported local CA. The private key is never exported.",
+            );
+        }
+        self.dispatch_command(AppCommand::SetTlsInterception { enabled });
+    }
+
     pub(crate) fn toggle_interception(&mut self) {
         self.dispatch_command(AppCommand::SetInterception {
             enabled: !self.config.proxy.interception_enabled,
@@ -658,6 +682,22 @@ impl App {
                 self.set_interception(enabled);
                 if let Some(sender) = &self.proxy_sender {
                     let _ = sender.try_send(AppCommand::SetInterception { enabled });
+                }
+            }
+            AppCommand::SetTlsInterception { enabled } => {
+                if let Some(sender) = &self.proxy_sender {
+                    match sender.try_send(AppCommand::SetTlsInterception { enabled }) {
+                        Ok(()) => {
+                            self.notify_info(if enabled {
+                                "Enabling HTTPS TLS interception…"
+                            } else {
+                                "Disabling HTTPS TLS interception…"
+                            });
+                        }
+                        Err(_) => self.notify_error("Proxy command queue is unavailable."),
+                    }
+                } else {
+                    self.notify_warning("Proxy worker is not attached.");
                 }
             }
             AppCommand::ForwardRequest(id) => {
@@ -933,7 +973,7 @@ impl App {
             };
             if !entry.source.is_simulated() {
                 Err(
-                    "Live forwarding is unavailable here: the proxy forwards automatically and operator pause/forward arrives with interception in Milestone 4."
+                    "This live request is not awaiting an interception decision, so no forward command was sent."
                         .to_string(),
                 )
             } else {
@@ -977,7 +1017,7 @@ impl App {
                 return;
             };
             if !entry.source.is_simulated() {
-                Err("Live HTTP requests were already forwarded by the proxy; drop-on-pause arrives with interception in Milestone 4."
+                Err("This live request is not awaiting an interception decision, so no drop command was sent."
                     .to_string())
             } else if entry.state.is_awaiting_decision() {
                 if entry.drop_request().is_ok() {
@@ -1240,6 +1280,7 @@ impl App {
                     );
                 }
             }
+            SettingId::TlsInterception => self.toggle_tls_interception(),
             SettingId::VerifyTls => self.notify_warning(
                 "Upstream TLS verification cannot be disabled in this build. Certificate validation is mandatory.",
             ),
@@ -1277,11 +1318,27 @@ impl App {
                 "Scope: {}. Edit scope with --scope when launching; upstream traffic is denied by default.",
                 self.config.proxy.scope.summary()
             )),
-            SettingId::CertificateAuthority => self.notify_warning(
-                "No local CA has been generated. TLS interception is Milestone 3 and requires explicit client trust.",
-            ),
+            SettingId::CertificateAuthority => match &self.tls_status.ca_fingerprint {
+                Some(fingerprint) => self.notify_info(format!(
+                    "CA certificate: {} · {}",
+                    self.tls_status
+                        .ca_cert_path
+                        .as_deref()
+                        .unwrap_or("(unknown path)"),
+                    fingerprint
+                )),
+                None => self.notify_warning(
+                    "No local CA is active. Enable HTTPS TLS interception to generate or load the local CA explicitly.",
+                ),
+            },
+            SettingId::CaFingerprint => match &self.tls_status.ca_fingerprint {
+                Some(fingerprint) => self.notify_info(format!("CA fingerprint: {fingerprint}")),
+                None => self.notify_warning(
+                    "No local CA fingerprint is available. Enable HTTPS TLS interception or run --tls-ca-fingerprint.",
+                ),
+            },
             SettingId::DatabasePath => self.notify_warning(
-                "SQLite persistence is Milestone 4. No database file has been created.",
+                "SQLite persistence is not implemented yet (Milestone 5). No database file has been created.",
             ),
             _ => {}
         }
@@ -1292,6 +1349,7 @@ impl App {
             SettingId::BindAddress => self.config.proxy.bind_address.to_string(),
             SettingId::Port => self.config.proxy.port.to_string(),
             SettingId::Interception => on_off(self.config.proxy.interception_enabled),
+            SettingId::TlsInterception => on_off(self.tls_status.enabled),
             SettingId::VerifyTls => "ON (locked)".to_string(),
             SettingId::MaxBody => {
                 format!("{} MiB", self.config.proxy.max_body_bytes / (1024 * 1024))
@@ -1318,7 +1376,16 @@ impl App {
             SettingId::PersistBodies => on_off(self.config.storage.persist_bodies),
             SettingId::PersistSensitive => on_off(self.config.storage.persist_sensitive_headers),
             SettingId::Scope => self.config.proxy.scope.summary(),
-            SettingId::CertificateAuthority => "not initialised".to_string(),
+            SettingId::CertificateAuthority => self
+                .tls_status
+                .ca_cert_path
+                .clone()
+                .unwrap_or_else(|| "not initialised".to_string()),
+            SettingId::CaFingerprint => self
+                .tls_status
+                .ca_fingerprint
+                .clone()
+                .unwrap_or_else(|| "not initialised".to_string()),
             SettingId::DatabasePath => self.config.storage.database_path.display().to_string(),
         }
     }
@@ -1326,6 +1393,7 @@ impl App {
     pub(crate) fn setting_is_on(&self, id: SettingId) -> bool {
         match id {
             SettingId::Interception => self.config.proxy.interception_enabled,
+            SettingId::TlsInterception => self.tls_status.enabled,
             SettingId::VerifyTls => true,
             SettingId::AllowPrivateUpstreams => self.config.proxy.allow_private_upstreams,
             SettingId::Redaction => self.config.appearance.redact_sensitive_headers,
@@ -1886,7 +1954,7 @@ mod tests {
                 .unwrap()
                 .notice
                 .message
-                .contains("unavailable")
+                .contains("not awaiting an interception decision")
         );
     }
 

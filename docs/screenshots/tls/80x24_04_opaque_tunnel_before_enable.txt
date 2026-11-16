@@ -1,0 +1,24 @@
+ RAWFRAME  |  Proxy                         PROXY LISTENING  |  INTERCEPTION OFF
+────────────────────────────────────────────────────────────────────────────────
+╭ TRAFFIC · 1 live capture(s) ─────────────────────────────────────────────────╮
+│ Stop proxy P    Interception off I    Inspect Enter    Replay R              │
+│ID    METHOD  HOST             PATH           LIFECYCLE / STATUS DURATION SRC │
+│ 1000 CONNECT localhost        (CONNECT tunn… TUNNEL ACTIVE      0s       LIVE│
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · Captured CONNECT localhost:37627 from… ^K commands  ? help  ^C quit

@@ -42,6 +42,17 @@ pub struct ProxyConfiguration {
     /// Upstream certificate verification. Enabled by default and surfaced as a
     /// security-critical setting rather than a casual toggle.
     pub verify_upstream_tls: bool,
+    /// Explicit opt-in HTTPS interception (client-side TLS termination for
+    /// authorized CONNECT destinations). Disabled by default; opaque tunnelling
+    /// remains the default behavior.
+    pub tls_interception_enabled: bool,
+    /// Directory containing the local interception CA material (cert/key). When
+    /// empty/unset, a default under RAWFRAME's data directory is used.
+    pub tls_ca_dir: PathBuf,
+    /// Optional explicit upstream trust bundle for lab/test deployments. When
+    /// unset, the platform trust store is used. Verification and hostname checks
+    /// remain mandatory regardless.
+    pub tls_upstream_trust_file: Option<PathBuf>,
     pub max_body_bytes: usize,
     pub max_response_bytes: usize,
     pub max_connections: usize,
@@ -64,6 +75,9 @@ impl Default for ProxyConfiguration {
             port: 8080,
             interception_enabled: false,
             verify_upstream_tls: true,
+            tls_interception_enabled: false,
+            tls_ca_dir: PathBuf::new(),
+            tls_upstream_trust_file: None,
             max_body_bytes: 2 * 1024 * 1024,
             max_response_bytes: 2 * 1024 * 1024,
             max_connections: 128,
@@ -85,6 +99,14 @@ impl ProxyConfiguration {
 
     pub fn is_loopback_bind(&self) -> bool {
         self.bind_address.is_loopback()
+    }
+
+    pub fn tls_ca_dir_resolved(&self) -> PathBuf {
+        if self.tls_ca_dir.as_os_str().is_empty() {
+            data_directory().join("ca")
+        } else {
+            self.tls_ca_dir.clone()
+        }
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
@@ -132,6 +154,9 @@ impl ProxyConfiguration {
             });
         }
         self.scope.validate()?;
+        if !self.verify_upstream_tls {
+            return Err(ConfigError::InsecureTlsVerification);
+        }
         Ok(())
     }
 }
@@ -407,6 +432,8 @@ pub enum ConfigError {
     InvalidInterceptQueue { limit: usize, max: usize },
     #[error("timeouts must be greater than zero (connect={connect}s, intercept={intercept}s)")]
     InvalidTimeout { connect: u64, intercept: u64 },
+    #[error("upstream TLS verification cannot be disabled")]
+    InsecureTlsVerification,
     #[error(transparent)]
     Scope(#[from] ScopeError),
 }
@@ -433,6 +460,7 @@ mod tests {
         assert!(config.proxy.is_loopback_bind());
         assert!(!config.proxy.interception_enabled);
         assert!(config.proxy.verify_upstream_tls);
+        assert!(!config.proxy.tls_interception_enabled);
         assert!(!config.storage.persist_bodies);
         assert!(!config.storage.persist_sensitive_headers);
         assert!(config.appearance.redact_sensitive_headers);

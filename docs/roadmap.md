@@ -69,15 +69,38 @@ Delivered in 0.2.0:
 Explicitly absent: TLS interception, CA/certificate generation, live pause/edit,
 SQLite persistence, export, Repeater transmission, Intruder, Decoder.
 
-## Milestone 3 — Interception workbench / TLS interception (in progress, not complete)
+## Milestone 3 — Interception workbench (implemented)
 
-
-### M3 current status (this workspace)
+### M3 status (this workspace)
 
 - Real HTTP interception engine implemented in proxy/core with bounded queue, pause-before-upstream for matching requests, forward unchanged/modified/drop, timeout/cancel handling, and real-engine integration tests.
-- TUI interception workbench scaffolding/integration added (queue/editor/actions/event sync, partial history/inspector outcome display). Usability and full end-to-end TUI+curl workflow are **not yet fully verified**.
-- **No TLS interception, no local CA, no decrypted HTTPS inspection.** HTTPS `CONNECT` remains opaque.
-- M3 completion requires demonstrated real user-facing interception workflow and all mandatory gates; this is **not claimed complete**.
+- TUI interception workbench integrated (queue/editor/actions/event sync, history/inspector outcome display) with PTY verification completed.
+
+Goal: operator-controlled pause/modify/forward/drop without blocking unrelated connections.
+
+Scope:
+
+- Pause matching live HTTP requests before upstream contact.
+- Per-request forward, drop, edit-and-forward, and cancellation.
+- Interception timeouts and bounded queues.
+- Scope-aware matching and validated modified destinations.
+- Clear “no fabricated response” behavior for dropped, cancelled, and timed-out requests.
+
+Exit criteria / tests:
+
+- Pause/forward/drop integration tests with a local server.
+- Timeout and cancellation tests; no deadlock when the TUI is busy.
+- Rule matching and scope enforcement tests.
+- End-to-end intercept-edit-forward assertion against the local upstream.
+
+## Milestone 4 — HTTPS TLS interception (implemented)
+
+### M4 status (this workspace)
+
+- Opt-in HTTPS TLS interception implemented for HTTP/1.1: local CA management, per-host leaf certificates, separate verified upstream TLS, decrypted requests through the existing interception queue, and local TLS integration tests.
+- Enabling/disabling TLS applies to new CONNECT sessions; established sessions keep their configuration snapshot until close.
+- Opaque `CONNECT` remains the default and works unchanged when interception is disabled.
+- CA lifecycle CLI commands, certificate/X.509 tests, HTTPS lifecycle tests, and a real-binary PTY regression are in place.
 
 Goal: functional HTTPS interception with a securely managed local CA and
 separate verified upstream TLS.
@@ -99,35 +122,34 @@ Exit criteria / tests:
 - Hostname leaf issuance, cache reuse, expiry, and SAN coverage.
 - End-to-end HTTPS interception against a self-contained local TLS server.
 - Upstream verification failure is reported, not bypassed.
+- HTTPS pause/drop/modify flows and SNI/CONNECT mismatch fail-closed tests.
 - Client trust failure produces an actionable error.
+- Client/upstream disconnect and proxy shutdown cancel pending work cleanly.
 - No key material is logged or serialized into traffic/session state.
 - Opaque CONNECT still works when interception is disabled.
+- Real TUI controls are exercised through a PTY at 140×40, 100×30, and 80×24.
 
-## Milestone 4 — Interception and history
+## Milestone 5 — History, sessions, and protocol coverage
 
-Goal: operator-controlled pause/modify/forward/drop and durable history.
+Goal: durable history, sessions, and broader protocol coverage.
 
 Scope:
 
-- Pause matching live requests without blocking unrelated connections.
-- Per-request forward, drop, edit-and-forward, and cancellation.
-- Interception timeouts and bounded queues.
 - Rule editing UI and scope-aware matching.
 - SQLite migrations, sessions, request/response relationships, timestamps,
   durations, and recovery from incomplete sessions.
 - Redaction on write; bodies and sensitive headers opt-in.
 - History export and filtering across persisted sessions.
+- Protocol coverage beyond HTTP/1.1 where it can be implemented honestly.
 
 Exit criteria / tests:
 
-- Pause/forward/drop integration tests with a local server.
-- Timeout and cancellation tests; no deadlock when the TUI is busy.
-- Rule matching and scope enforcement tests.
 - SQLite round-trip, migration, and crash-recovery tests.
 - Persistence defaults prove no bodies/sensitive headers are written.
-- End-to-end intercept-edit-forward assertion against the local upstream.
+- Export redaction tests.
+- Persisted history relationships and incomplete-session recovery tests.
 
-## Milestone 5 — Repeater
+## Milestone 6 — Repeater
 
 Goal: real request transmission and response comparison.
 
@@ -162,14 +184,15 @@ Decoder:
 
 ## Known limitations at 0.2.0
 
-- HTTPS CONNECT is opaque: no URL, headers, body, or certificate inside the
-  tunnel is captured. Only destination/outcome/byte/duration metadata exists.
 - Only HTTP/1.1 is handled. HTTP/2, HTTP/3, and WebSocket upgrade forwarding are
   not supported; `Upgrade` is stripped.
-- Interception pause/edit/forward/drop is not wired to live traffic. Forward/drop
-  controls affect only simulated paused fixtures.
-- No local CA or TLS interception; tunneled certificates are validated by the
-  client, not RAWFRAME.
+- HTTPS TLS interception is HTTP/1.1 only. Pinned clients fail the intercepted
+  handshake by design; RAWFRAME does not bypass certificate pinning.
+- Opaque `CONNECT` captures only destination/outcome/byte/duration metadata; no
+  URL, headers, body, or tunneled certificate is visible.
+- Scope rules are configured on the command line; there is no rule editor yet.
+- Interception is scoped per CONNECT session; a modified request cannot switch
+  to a different authority inside the same intercepted TLS session.
 - No SQLite database, persistence, export, or configuration file. History and
   settings are session-only.
 - Repeater “Send” reports that transmission is unavailable; no response is
@@ -186,7 +209,7 @@ Decoder:
 
 ## Recommended next step
 
-**Milestone 3: TLS interception.** The proxy now has the forwarding, CONNECT,
-scope, DNS, limit, lifecycle, and capture seams needed for interception. Add the
-CA and a separately verified upstream TLS path behind an explicit mode, and prove
-end-to-end HTTPS interception with local test servers before claiming it works.
+**Milestone 5: durable history.** The live interception and TLS paths now
+produce real lifecycle events. Add SQLite persistence, sessions, redaction on
+write, export, and crash recovery without weakening the current loopback,
+scope, redaction, or verification defaults.

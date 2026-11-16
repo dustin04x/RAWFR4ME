@@ -67,7 +67,7 @@ pub fn render_live_banner(frame: &mut Frame, area: Rect, theme: &Theme) {
         Span::styled(" LIVE ENGINE ", theme.on_accent()),
         Span::raw("  "),
         Span::styled(
-            "HTTP requests/responses are captured. HTTPS CONNECT is an opaque tunnel: metadata only, no TLS interception.",
+            "HTTP requests/responses are captured. HTTPS CONNECT is opaque by default; opt-in TLS interception decrypts HTTP/1.1 into the same workbench.",
             theme.success(),
         ),
     ]);

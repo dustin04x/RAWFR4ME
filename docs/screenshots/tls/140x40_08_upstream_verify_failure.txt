@@ -1,0 +1,40 @@
+ RAWFRAME  |  Proxy                                                         PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 2 allowlist rules
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││╭ TRAFFIC · 4 live capture(s) · TLS DECRYPTED ─────────────────────────────╮│╭ INSPECTOR ─────────────────────────────╮
+ PRIMARY           │││ Stop proxy P    Interception off I    Inspect Enter    Replay R          │││ Request   Response                   × │
+▌ Proxy         ^1 │││ID    METHOD  HOST           PATH         LIFECYCLE / STATUS DURATION SRC │││ Raw  Headers  Body           REDACTED  │
+  History       ^2 │││▌1003 CONNECT localhost      (CONNECT tu… TUNNEL FAILED      1s       LIVE│││#1003  CONNECT  localhost:45097         │
+  Repeater      ^3 │││ 1002 GET     localhost      /secure      200                0ms      LIVE│││Tunnel failed  LIVE                     │
+  Settings      ^4 │││ 1001 CONNECT localhost      localhost:3… 200                3ms      LIVE│││────────────────────────────────────────│
+                   │││ 1000 CONNECT localhost      (CONNECT tu… TUNNEL CLOSED      3344ms   LIVE│││HTTP/1.1 502 Bad Gateway                │
+ PLANNED           │││                                                                          │││Content-Type: text/plain; charset=utf-8 │
+  Intruder planned │││                                                                          │││Content-Length: 163                     │
+  Decoder  planned │││                                                                          │││                                        │
+                   │││                                                                          │││upstream TLS verification failed: invali│
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+ STATUS            │││                                                                          │││                                        │
+ Engine active     │││                                                                          │││                                        │
+ Interception off  │││                                                                          │││                                        │
+ No pending        │││                                                                          │││                                        │
+                   ││╰──────────────────────────────────────────────────────────────────────────╯│╰────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · Captured CONNECT localhost:45097 from localhost                                                    ^K commands  ? help  ^C quit

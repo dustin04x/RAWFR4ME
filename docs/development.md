@@ -42,10 +42,12 @@ silence a lint without fixing or documenting the underlying design issue.
 | `crates/rawframe-core/src/fixtures.rs` | Labelled simulated traffic |
 | `crates/rawframe-http/src/parsing.rs` | Authored HTTP/1.x document parser |
 | `crates/rawframe-proxy/src/server.rs` | Listener, lifecycle service, connection limits, shutdown |
-| `crates/rawframe-proxy/src/service.rs` | HTTP forwarding, capture events, CONNECT upgrades |
+| `crates/rawframe-proxy/src/service.rs` | HTTP forwarding, capture events, CONNECT upgrades, HTTPS interception sessions |
 | `crates/rawframe-proxy/src/destination.rs` | Absolute-form parsing, scope, DNS/IP policy, connect |
 | `crates/rawframe-proxy/src/body.rs` | Bounded streaming body with capture and idle timeout |
 | `crates/rawframe-proxy/src/tunnel.rs` | Opaque relay, half-close, byte counters, idle timeout |
+| `crates/rawframe-proxy/src/tls/` | CA management, leaf issuance/cache, TLS session helpers |
+| `crates/rawframe-proxy/tests/tls_interception.rs` | Local HTTPS interception, verification, and fail-closed tests |
 | `crates/rawframe-proxy/tests/forwarding.rs` | Local-only proxy integration suite |
 | `crates/rawframe-tui/src/app.rs` | Application controller and actions |
 | `crates/rawframe-tui/src/input.rs` | Keyboard and mouse precedence |
@@ -282,8 +284,9 @@ curl --noproxy '' -x http://127.0.0.1:8080 http://127.0.0.1:8000/
 ```
 
 Confirm a `LIVE` row appears, inspect it, then press `P` to stop and verify the
-state changes to `Stopped`. A CONNECT test displays metadata only; it must not
-show a fabricated HTTP response body.
+state changes to `Stopped`. With TLS interception disabled, a CONNECT test
+displays tunnel metadata only; it must not show a fabricated HTTP response body.
+With interception enabled, decrypted HTTP/1.1 is labelled as live HTTPS traffic.
 
 ## Code conventions
 
@@ -296,6 +299,10 @@ show a fabricated HTTP response body.
 - Preserve the one-way dependency graph. If you need a proxy type in the TUI,
   move a UI-neutral model to `rawframe-core` instead.
 - Keep every user-visible string honest about simulation/offline/opaque status.
+- Never add an upstream certificate-verification bypass. The only supported trust
+  override is an explicit local trust bundle for lab tests; hostname verification
+  still applies.
+- TLS tests must use local test CAs/servers, never public websites.
 - Document security- or protocol-significant decisions in the relevant docs
   before implementing them.
 

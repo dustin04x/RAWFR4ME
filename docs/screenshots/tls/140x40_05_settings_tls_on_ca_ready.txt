@@ -1,0 +1,40 @@
+ RAWFRAME  |  Settings                                                      PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 2 allowlist rules
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││SETTINGS  proxy · privacy · storage                                                                 SESSION-ONLY CONFIG
+ PRIMARY           ││
+  Proxy         ^1 ││╭ CONFIGURATION ──────────────────────────────────────────────────────────╮ ╭ DETAILS ────────────────────────────────╮
+  History       ^2 │││ PROXY                                                                   │ │HTTPS TLS interception                   │
+  Repeater      ^3 │││  Bind address                                                  127.0.0.1│ │                                         │
+▌ Settings      ^4 │││  Listen port                                                       37547│ │Value: ON                                │
+                   │││  HTTP interception                                                 ○ OFF│ │                                         │
+ PLANNED           │││▌ HTTPS TLS interception                                             ● ON│ │Terminate authorized CONNECT sessions and│
+  Intruder planned │││  Upstream TLS verification                                 ● ON · locked│ │inspect decrypted HTTP/1.1. Off by       │
+  Decoder  planned │││  Request body limit                                                2 MiB│ │default; opaque tunnelling is preserved  │
+                   │││  Response body limit                                               2 MiB│ │when disabled.                           │
+                   │││  Concurrent connections                                              128│ │                                         │
+                   │││  Connect timeout                                                    10 s│ │SECURITY                                 │
+                   │││  Upstream response timeout                                          30 s│ │Enabling makes HTTPS content readable to │
+                   │││  Idle timeout                                                       60 s│ │RAWFRAME. Trust the exported CA          │
+                   │││  Interception timeout                                              120 s│ │certificate explicitly; the private key  │
+                   │││  Private upstreams                                                  ● ON│ │is never exported.                       │
+                   │││ INTERFACE & PRIVACY                                                     │ │                                         │
+                   │││  Redact sensitive headers                                           ● ON│ │LOCAL CA                                 │
+                   │││  Accent                                                            ○ OFF│ │/tmp/rawframe-tui-tls-gupc138_/ca/rawfram│
+                   │││  Mouse support                                                     ○ OFF│ │e-ca.crt.pem                             │
+                   │││ STORAGE & SCOPE                                                         │ │Fingerprint                              │
+                   │││  Persist bodies                                                    ○ OFF│ │SHA256:faq4qf3yTYc4t0hGZ/QHcb5kfZb/4Sb88Z│
+                   │││  Persist sensitive headers                                         ○ OFF│ │deezx82IY=                               │
+                   │││  Target scope                                          2 allowlist rules│ │                                         │
+                   │││ SECURITY & STORAGE                                                      │ │Changes apply to this session only. No   │
+                   │││  Local certifica…  /tmp/rawframe-tui-tls-gupc138_/ca/rawframe-ca.crt.pem│ │configuration file is written.           │
+                   │││  CA fingerprint      SHA256:faq4qf3yTYc4t0hGZ/QHcb5kfZb/4Sb88Zdeezx82IY=│ │                                         │
+                   │││  Database                /home/example/.local/share/rawframe/rawframe.db│ │                                         │
+                   │││                                                                         │ │                                         │
+                   │││                                                                         │ │                                         │
+ STATUS            │││                                                                         │ │                                         │
+ Engine active     │││                                                                         │ │                                         │
+ Interception off  │││                                                                         │ │                                         │
+ No pending        │││↑↓ select   Enter edit/toggle   Esc cancel edit                          │ │                                         │
+                   ││╰─────────────────────────────────────────────────────────────────────────╯ ╰─────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ! HTTPS TLS interception enabled: authorized CONNECT sessions will be decrypted and visible.         ^K commands  ? help  ^C quit

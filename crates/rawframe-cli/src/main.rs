@@ -1,11 +1,77 @@
+use std::fs;
+use std::io::Write;
+
 use anyhow::{Context, Result};
 use clap::Parser;
-use rawframe_cli::cli::Cli;
+use rawframe_cli::cli::{CaAction, Cli};
 use rawframe_core::AppConfig;
+
+fn handle_ca_action(action: &CaAction, config: &AppConfig) -> Result<()> {
+    use rawframe_proxy::tls_api::{CaManager, CaPaths, CaStatus};
+    let dir = config.proxy.tls_ca_dir_resolved();
+    let paths = CaPaths::new(&dir);
+    match action {
+        CaAction::Show => {
+            let info = CaManager::inspect(&paths);
+            println!("CA directory: {}", paths.dir.display());
+            println!("CA certificate: {}", paths.cert_path.display());
+            println!("CA key: {}", paths.key_path.display());
+            match info.status {
+                CaStatus::Ready => println!("Status: ready"),
+                CaStatus::Missing => println!("Status: missing or invalid (not ready)"),
+            }
+            if let Some(fp) = info.fingerprint_sha256 {
+                println!("Fingerprint: {fp}");
+            }
+            println!(
+                "Trust: install/trust the public CA certificate explicitly in your client/system; never trust private keys."
+            );
+            println!(
+                "Disable interception: run without --tls-intercept (default is opaque CONNECT tunnelling)."
+            );
+        }
+        CaAction::Fingerprint => {
+            let ca = CaManager::load(&paths).context("loading local CA (generate it by enabling TLS interception or using --tls-ca-regenerate)")?;
+            println!("{}", ca.fingerprint_sha256());
+        }
+        CaAction::Export(out) => {
+            let ca = CaManager::load(&paths).context("loading local CA for export")?;
+            if let Some(parent) = out.parent()
+                && !parent.as_os_str().is_empty()
+            {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("creating {}", parent.display()))?;
+            }
+            let mut file =
+                fs::File::create(out).with_context(|| format!("writing {}", out.display()))?;
+            file.write_all(ca.cert_pem().as_bytes())?;
+            println!("Exported public CA certificate to {}", out.display());
+            println!("Fingerprint: {}", ca.fingerprint_sha256());
+            println!("Note: this exports only the public certificate, never the private key.");
+        }
+        CaAction::Regenerate => {
+            let ca = CaManager::regenerate(&paths).context("regenerating local CA")?;
+            println!("Regenerated local interception CA.");
+            println!("CA certificate: {}", ca.cert_path().display());
+            println!("Fingerprint: {}", ca.fingerprint_sha256());
+            println!(
+                "WARNING: regeneration invalidates any previously trusted RAWFRAME CA; re-trust the new public certificate explicitly if needed."
+            );
+            println!(
+                "Private key material is stored locally with restricted permissions and is never exported."
+            );
+        }
+    }
+    Ok(())
+}
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let config = cli.apply(AppConfig::default())?;
+    if let Some(action) = cli.ca_action() {
+        // CA management actions do not start the TUI/proxy runtime.
+        return handle_ca_action(&action, &config);
+    }
     let log_path = rawframe_cli::logging::init(cli.log_path().map(std::path::PathBuf::as_path))
         .context("initializing diagnostics")?;
 

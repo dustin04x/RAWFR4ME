@@ -1552,3 +1552,60 @@ async fn history_metadata_cancelled_interception_on_disable() {
     drop(cmd_tx);
     let _ = timeout(Duration::from_secs(3), service).await.unwrap();
 }
+
+#[tokio::test]
+async fn http_interception_rejects_https_downgrade_modification() {
+    let (upstream, hits, _task) = start_echo_upstream().await;
+    let port = free_port();
+    let mut config = proxy_config(port, "127.0.0.1");
+    config.proxy.interception_enabled = true;
+    config.interception_rules = vec![InterceptionRule {
+        name: "all".into(),
+        enabled: true,
+        method: None,
+        host_pattern: None,
+        path_contains: None,
+        action: InterceptionAction::Intercept,
+    }];
+    let mut bus = EventBus::new();
+    let (cmd_tx, cmd_rx) = mpsc::channel(32);
+    let service = tokio::spawn(rawframe_proxy::run_service(cmd_rx, bus.sender()));
+    cmd_tx
+        .send(AppCommand::StartProxy(Box::new(config)))
+        .await
+        .unwrap();
+    let proxy_addr = wait_for_listening(&mut bus).await;
+
+    let req = format!(
+        "GET http://{upstream}/ok HTTP/1.1\r\nHost: {upstream}\r\nConnection: close\r\n\r\n"
+    );
+    let client = tokio::spawn(async move { raw_request(proxy_addr, req.as_bytes()).await });
+    let paused = wait_for_paused(&mut bus).await;
+    let mut edited = editable_from_http(&paused.request);
+    edited.scheme = rawframe_core::models::Scheme::Https;
+    edited.target = format!("https://127.0.0.1:{}/steal", upstream.port());
+    cmd_tx
+        .send(AppCommand::ForwardModified {
+            id: paused.id,
+            request: edited,
+        })
+        .await
+        .unwrap();
+
+    let resp = timeout(Duration::from_secs(5), client)
+        .await
+        .unwrap()
+        .unwrap();
+    let text = String::from_utf8_lossy(&resp);
+    assert!(text.starts_with("HTTP/1.1 400"), "{text}");
+    sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        0,
+        "HTTPS modification of a plaintext HTTP request must not reach upstream"
+    );
+
+    cmd_tx.send(AppCommand::StopProxy).await.unwrap();
+    drop(cmd_tx);
+    let _ = timeout(Duration::from_secs(3), service).await.unwrap();
+}

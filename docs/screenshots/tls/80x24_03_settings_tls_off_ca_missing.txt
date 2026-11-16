@@ -1,0 +1,24 @@
+ RAWFRAME  |  Settings                      PROXY LISTENING  |  INTERCEPTION OFF
+────────────────────────────────────────────────────────────────────────────────
+SETTINGS  proxy · privacy · storage                          SESSION-ONLY CONFIG
+
+╭ CONFIGURATION ───────────────────────────────────────────────────────────────╮
+│ PROXY                                                                        │
+│▌ Bind address                                                       127.0.0.1│
+│  Listen port                                                            35393│
+│  HTTP interception                                                      ○ OFF│
+│  HTTPS TLS interception                                                 ○ OFF│
+│  Upstream TLS verification                                      ● ON · locked│
+│  Request body limit                                                     2 MiB│
+│  Response body limit                                                    2 MiB│
+│  Concurrent connections                                                   128│
+│  Connect timeout                                                         10 s│
+│  Upstream response timeout                                               30 s│
+│  Idle timeout                                                            60 s│
+│  Interception timeout                                                   120 s│
+│  Private upstreams                                                       ● ON│
+│ INTERFACE & PRIVACY                                                          │
+│↑↓ select   Enter edit/toggle   Esc cancel edit                               │
+╰──────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ✓ Proxy listening on 127.0.0.1:35393     ^K commands  ? help  ^C quit

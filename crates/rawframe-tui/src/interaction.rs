@@ -179,6 +179,7 @@ pub enum SettingId {
     BindAddress,
     Port,
     Interception,
+    TlsInterception,
     VerifyTls,
     MaxBody,
     MaxResponse,
@@ -195,14 +196,16 @@ pub enum SettingId {
     PersistSensitive,
     Scope,
     CertificateAuthority,
+    CaFingerprint,
     DatabasePath,
 }
 
 impl SettingId {
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 22] = [
         Self::BindAddress,
         Self::Port,
         Self::Interception,
+        Self::TlsInterception,
         Self::VerifyTls,
         Self::MaxBody,
         Self::MaxResponse,
@@ -219,6 +222,7 @@ impl SettingId {
         Self::PersistSensitive,
         Self::Scope,
         Self::CertificateAuthority,
+        Self::CaFingerprint,
         Self::DatabasePath,
     ];
 
@@ -226,7 +230,8 @@ impl SettingId {
         match self {
             Self::BindAddress => "Bind address",
             Self::Port => "Listen port",
-            Self::Interception => "Interception",
+            Self::Interception => "HTTP interception",
+            Self::TlsInterception => "HTTPS TLS interception",
             Self::VerifyTls => "Upstream TLS verification",
             Self::MaxBody => "Request body limit",
             Self::MaxResponse => "Response body limit",
@@ -243,6 +248,7 @@ impl SettingId {
             Self::PersistSensitive => "Persist sensitive headers",
             Self::Scope => "Target scope",
             Self::CertificateAuthority => "Local certificate authority",
+            Self::CaFingerprint => "CA fingerprint",
             Self::DatabasePath => "Database",
         }
     }
@@ -252,6 +258,7 @@ impl SettingId {
             Self::BindAddress
             | Self::Port
             | Self::Interception
+            | Self::TlsInterception
             | Self::VerifyTls
             | Self::MaxBody
             | Self::MaxResponse
@@ -263,7 +270,9 @@ impl SettingId {
             | Self::AllowPrivateUpstreams => "PROXY",
             Self::Redaction | Self::Accent | Self::Mouse => "INTERFACE & PRIVACY",
             Self::PersistBodies | Self::PersistSensitive | Self::Scope => "STORAGE & SCOPE",
-            Self::CertificateAuthority | Self::DatabasePath => "SECURITY & STORAGE",
+            Self::CertificateAuthority | Self::CaFingerprint | Self::DatabasePath => {
+                "SECURITY & STORAGE"
+            }
         }
     }
 
@@ -286,6 +295,7 @@ impl SettingId {
         matches!(
             self,
             Self::Interception
+                | Self::TlsInterception
                 | Self::VerifyTls
                 | Self::AllowPrivateUpstreams
                 | Self::Redaction
@@ -433,6 +443,6 @@ mod tests {
         assert!(SettingId::Redaction.is_toggle());
         assert!(!SettingId::Scope.is_editable());
         assert!(!SettingId::Scope.is_toggle());
-        assert_eq!(SettingId::ALL.len(), 20);
+        assert_eq!(SettingId::ALL.len(), 22);
     }
 }

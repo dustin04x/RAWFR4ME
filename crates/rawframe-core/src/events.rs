@@ -92,6 +92,32 @@ impl Notice {
     }
 }
 
+/// Runtime HTTPS interception status exposed to the UI. The CA private key is
+/// never part of this value; only the public certificate path and fingerprint.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TlsStatus {
+    pub enabled: bool,
+    pub ca_cert_path: Option<String>,
+    pub ca_fingerprint: Option<String>,
+    /// Set when enabling/disabling failed. Interception is off when present.
+    pub error: Option<String>,
+}
+
+impl TlsStatus {
+    pub fn disabled() -> Self {
+        Self::default()
+    }
+
+    pub fn enabled(ca_cert_path: impl Into<String>, ca_fingerprint: impl Into<String>) -> Self {
+        Self {
+            enabled: true,
+            ca_cert_path: Some(ca_cert_path.into()),
+            ca_fingerprint: Some(ca_fingerprint.into()),
+            error: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ProxyState {
     #[default]
@@ -132,6 +158,7 @@ pub enum AppEvent {
     /// The actual bound address, which may differ from configuration when port 0
     /// is used in tests.
     ProxyBound(SocketAddr),
+    TlsStateChanged(TlsStatus),
     Notice(Notice),
     Shutdown,
 }
@@ -143,6 +170,12 @@ pub enum AppCommand {
     StartProxy(Box<AppConfig>),
     StopProxy,
     SetInterception {
+        enabled: bool,
+    },
+    /// Explicitly enable/disable HTTPS TLS interception for this session.
+    /// Enabling initializes the local CA; disabling destroys the in-memory
+    /// signing material and returns CONNECT to opaque tunnelling.
+    SetTlsInterception {
         enabled: bool,
     },
     ForwardRequest(TrafficId),

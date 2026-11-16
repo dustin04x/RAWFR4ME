@@ -1,8 +1,8 @@
 # Security Model
 
 RAWFRAME is security-sensitive infrastructure. This document records the threat
-model, the controls implemented in Milestone 2 (0.2.0), and the gaps that must
-stay visible until later milestones close them.
+model, the controls implemented through Milestone 4 (0.2.0), and the gaps that
+must stay visible until later milestones close them.
 
 RAWFRAME must only be used against systems for which the operator has explicit
 authorization. The tool does not grant permission to test anything.
@@ -33,8 +33,9 @@ opaque relaying does not make the destination safe.
 
 Captured traffic routinely contains bearer tokens, cookies, API keys, session
 identifiers, and personal data. Accidental screenshots, shoulder surfing,
-logging, persistence, and export can disclose them. CONNECT payloads are never
-captured, but HTTP headers and bodies are.
+logging, persistence, and export can disclose them. Opaque CONNECT payloads are
+never captured; when TLS interception is explicitly enabled, decrypted HTTP/1.1
+headers and bodies are captured like ordinary HTTP traffic.
 
 ### Resource exhaustion
 
@@ -90,7 +91,8 @@ database libraries need deliberate review and version pinning.
   `Host` headers and invalid authorities are rejected. This prevents a client
   from presenting one authority to a log or cache and another to the upstream.
 - Unsupported schemes and origin-form proxy requests are rejected with `400`.
-  `https://` forward requests are rejected because TLS termination is absent.
+  Direct `https://` forward requests are rejected; HTTPS inspection is performed
+  through `CONNECT` and the explicit interception path.
 
 ### HTTP message handling
 
@@ -171,15 +173,16 @@ network limits apply after the proxy is restarted.
   in configuration, and nothing is persisted in this build.
 - Settings and history are in-memory only.
 - No telemetry endpoint, external website, or shell command is used.
-- No certificate authority or private key is generated.
+- CA material and private keys are never written to logs, exports, events, or history. The CA exists only when the operator explicitly enables interception or runs a CA command.
 
 ### Lifecycle and confirmation
 
 - Traffic transitions are validated; terminal states cannot be revived.
 - Quitting with unsaved Repeater edits, or closing a dirty tab, requires
   confirmation.
-- Live traffic is forwarded automatically in M2. The existing forward/drop
-  controls affect only simulated paused fixtures and cannot fake a live response.
+- With interception armed, matching live HTTP/decrypted HTTPS requests pause for
+  an explicit forward/edit/drop decision. With interception off, live traffic
+  forwards automatically. Neither path can fabricate an upstream response.
 - `Ctrl+C` remains an unconditional emergency exit; terminal state is restored on
   panic and normal exit.
 - Proxy shutdown stops the listener, waits briefly for tracked tasks, terminates
@@ -191,37 +194,38 @@ network limits apply after the proxy is restarted.
 
 - RAWFRAME includes an HTTP interception path that can pause matching HTTP requests before upstream contact and resolve them via forward unchanged, forward modified, or drop. Intercepted entries carry interception metadata and (when available) original/final request data for inspection/history.
 - Interception decisions are real proxy decisions; dropped/timed-out/cancelled requests must not fabricate upstream responses.
-- **TLS interception is not implemented.** HTTPS `CONNECT` tunnels remain opaque: no TLS termination, no CA/certificate generation, and no visibility into tunneled payloads/headers. Do not treat CONNECT metadata as decrypted HTTPS content.
+- **HTTPS TLS interception is opt-in.** When disabled (default), `CONNECT` tunnels remain opaque: no TLS termination, no certificate issuance, and no visibility into tunneled payloads. When explicitly enabled, decrypted HTTP/1.1 requests use the same interception queue, validation, history, and lifecycle as HTTP. Opaque tunnels are never represented as decrypted traffic.
 
 ## 3. Explicit limitations and gaps
 
 | Gap | Consequence | Planned handling |
 |---|---|---|
-| No TLS interception or CA | HTTPS inside CONNECT is invisible; RAWFRAME cannot validate or inspect the tunnel's certificates | Milestone 3, with restricted key storage, separate verified upstream TLS, and explicit trust |
+| TLS interception is HTTP/1.1 only | HTTP/2, HTTP/3, WebSocket, and pinned clients cannot be inspected through the intercepted path | Keep opaque CONNECT available; protocol coverage is future work |
 | Opaque CONNECT can reach any authorized TCP service | Scope authorizes host/port, not application-layer safety | Use narrow scope and private-upstream defaults; do not authorize broad wildcards casually |
 | No proxy authentication | A remote listener is usable by anyone who can reach it | Keep loopback; firewall remote binds; authentication is future work |
 | No per-client rate limit | One authorized client can use the global connection/body budget | Global semaphores and body caps; add quotas later if needed |
-| Connection-limit overflow closes the socket | Client sees a transport error, not an HTTP `503` | Acceptable M2 behavior; document and revisit |
+| Connection-limit overflow closes the socket | Client sees a transport error, not an HTTP `503` | Documented behavior; revisit with later protocol work |
 | No HTTP/2, HTTP/3, WebSocket forwarding | Some traffic cannot traverse the proxy; `Upgrade` is stripped | Future protocol work |
-| No persistence | History and settings vanish on exit; no export | Milestone 4, with redaction on write and opt-in bodies |
-| Interception controls are not live | Cannot pause/edit/forward individual live HTTP requests yet | Milestone 4 |
+| No persistence | History and settings vanish on exit; no export | Milestone 5, with redaction on write and opt-in bodies |
+| Intercepted sessions are bound to one authority | Modified requests cannot switch to a different host/port inside an intercepted TLS session | Reject the modification and start a new connection instead |
 | DNS policy is conservative | Some special-purpose/lab ranges are refused | Explicit, reviewed policy extension rather than bypass |
 | No automated dependency audit | Supply-chain drift is possible | Add `cargo audit`/`cargo deny` in CI |
 | Local logs are not rotated | Log growth over long runs | Add bounded retention with logging settings |
 | Redaction toggle does not rewrite existing Repeater buffers | A tab seeded while redaction was off retains visible secrets until reopened | Deliberate: editing must not silently mutate documents; warning shown |
 | No clipboard/copy action | Operators cannot copy from RAWFRAME | Consider an explicit, reviewed action later |
 
-Do not describe TLS interception, certificate generation, live pause/edit, or
-persistence as working until the relevant milestone includes passing integration
-tests. The interface says “no TLS interception” and “opaque tunnel” in this build.
+TLS interception, CA generation, and live pause/edit/drop are covered by local
+integration tests, including a real-binary PTY regression. Persistence is still
+not implemented; do not describe it as working.
 
-## 4. Planned certificate authority design (Milestone 3)
+## 4. Certificate authority design (implemented)
 
 The CA is the most sensitive component of an interception proxy. These
 constraints are non-negotiable:
 
-1. Generation requires an explicit operator action; it never happens silently on
-   first launch.
+1. Generation happens only when interception is explicitly enabled or a CA
+   management command is run; it never happens on first launch or while
+   interception is off.
 2. The root private key is stored only on the local machine, in a dedicated
    directory, with owner-only permissions (`0600` key, `0700` directory). It is
    never serialized into traffic, logs, exports, or the repository.
@@ -231,18 +235,24 @@ constraints are non-negotiable:
 4. Leaf certificates are minted per hostname on demand, cached with bounded
    lifetime, and never issued for hosts outside the configured scope.
 5. Client-facing TLS termination is separate from the upstream TLS connection.
-   Upstream verification uses the system/root trust store and stays enabled.
-   There is no default “insecure” path.
-6. Certificate generation and key access are audited in local logs without
-   recording key material.
+   Upstream verification uses the system/root trust store (or an explicit local
+   trust bundle) and stays enabled. There is no insecure path or protocol
+   downgrade.
+6. CA lifecycle notices expose only the public certificate path/fingerprint;
+   private key bytes are never logged, published in events, or exported.
 7. Tests use a self-contained test CA and local TLS servers. No public
    certificate transparency or third-party service is contacted.
+8. CA certificate/key mismatches are rejected; incomplete material is never
+   automatically replaced. Regeneration is explicit and invalidates prior trust.
+9. Intercepted client TLS advertises only HTTP/1.1, and SNI must match the
+   authorized CONNECT authority.
 
 ## 5. Operational guidance
 
 - Work from a dedicated testing profile or virtual machine when possible.
-- Keep the CA private key off shared or backed-up locations once M3 exists.
-- Remove trust in the RAWFRAME CA when an engagement ends.
+- Keep the CA private key off shared or backed-up locations.
+- Remove trust in the RAWFRAME CA when an engagement ends (or run
+  `--tls-ca-regenerate` and re-trust only if needed).
 - Keep target scope explicit. An empty allowlist is intentional: add only hosts
   you are authorized to test.
 - Prefer exact host/port rules over wildcards, and leave

@@ -1,0 +1,24 @@
+ RAWFRAME  |  Settings                      PROXY LISTENING  |  INTERCEPTION OFF
+────────────────────────────────────────────────────────────────────────────────
+SETTINGS  proxy · privacy · storage                          SESSION-ONLY CONFIG
+
+╭ CONFIGURATION ───────────────────────────────────────────────────────────────╮
+│  Upstream response timeout                                               30 s│
+│  Idle timeout                                                            60 s│
+│  Interception timeout                                                   120 s│
+│  Private upstreams                                                       ● ON│
+│ INTERFACE & PRIVACY                                                          │
+│  Redact sensitive headers                                                ● ON│
+│  Accent                                                                 ○ OFF│
+│  Mouse support                                                          ○ OFF│
+│ STORAGE & SCOPE                                                              │
+│  Persist bodies                                                         ○ OFF│
+│  Persist sensitive headers                                              ○ OFF│
+│  Target scope                                               2 allowlist rules│
+│ SECURITY & STORAGE                                                           │
+│  Local certificate au…  /tmp/rawframe-tui-tls-wn7iizvc/ca/rawframe-ca.crt.pem│
+│▌ CA fingerprint           SHA256:Rg9481Epccx+D/y/8ET0v6+iHRg0sAQb0HtCj6siFGc=│
+│↑↓ select   Enter edit/toggle   Esc cancel edit                               │
+╰──────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · CA certificate: /tmp/rawframe-tui-tls… ^K commands  ? help  ^C quit

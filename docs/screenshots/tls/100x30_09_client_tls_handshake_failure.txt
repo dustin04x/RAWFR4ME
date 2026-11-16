@@ -1,0 +1,30 @@
+ RAWFRAME  |  Proxy                 PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 2 allowlist rules
+────────────────────────────────────────────────────────────────────────────────────────────────────
+╭ TRAFFIC · 5 live capture(s) · TLS DECRYPTED ──────────────────────╮│╭ INSPECTOR ─────────────────╮
+│ Stop proxy P    Interception off I    Inspect Enter    Replay R   │││                            │
+│ID    METHOD  HOST          PATH        STATUS          DUR    SRC │││                            │
+│ 1004 CONNECT localhost     localhost:… 200             1ms    LIVE│││                            │
+│ 1003 CONNECT localhost     (CONNECT t… TUNNEL FAILED   1s     LIVE│││                            │
+│ 1002 GET     localhost     /secure     200             0ms    LIVE│││                            │
+│ 1001 CONNECT localhost     localhost:… 200             2ms    LIVE│││     NO REQUEST SELECTED    │
+│ 1000 CONNECT localhost     (CONNECT t… TUNNEL CLOSED   3288ms LIVE│││                            │
+│                                                                   │││     Select a traffic or    │
+│                                                                   │││  history entry to inspect  │
+│                                                                   │││      protocol details.     │
+│                                                                   │││  The main workspace stays  │
+│                                                                   │││  focused on the queue and  │
+│                                                                   │││     active interception    │
+│                                                                   │││            work.           │
+│                                                                   │││                            │
+│                                                                   │││     Enter inspect  ·  I    │
+│                                                                   │││     toggle inspector  ·    │
+│                                                                   │││       Ctrl+4 Settings      │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+╰───────────────────────────────────────────────────────────────────╯│╰────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ! Client TLS handshake failed for localhost:44821: received… ^K commands  ? help  ^C quit

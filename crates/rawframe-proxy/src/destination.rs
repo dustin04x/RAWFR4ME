@@ -54,11 +54,28 @@ impl Rejection {
 }
 
 impl Destination {
-    /// Parses an absolute-form HTTP proxy request.
+    /// Parses an absolute-form HTTP proxy request received on the front proxy.
+    /// HTTPS absolute-form requests are rejected here because TLS is not
+    /// terminated on the front connection (clients must use CONNECT).
     pub fn from_http_request<B>(request: &Request<B>) -> Result<Self, Rejection> {
+        Self::from_absolute_request(request, false)
+    }
+
+    /// Parses an absolute-form request for an already-terminated/intercepted
+    /// context (e.g. decrypted HTTPS inside a CONNECT session). HTTPS targets are
+    /// permitted because RAWFRAME is the TLS endpoint for that session.
+    pub fn from_intercepted_absolute_request<B>(request: &Request<B>) -> Result<Self, Rejection> {
+        Self::from_absolute_request(request, true)
+    }
+
+    fn from_absolute_request<B>(
+        request: &Request<B>,
+        allow_https: bool,
+    ) -> Result<Self, Rejection> {
         let uri = request.uri();
         let scheme = match uri.scheme_str() {
             Some("http") => Scheme::Http,
+            Some("https") if allow_https => Scheme::Https,
             Some("https") => {
                 return Err(Rejection::bad_request(
                     "HTTPS requests must use CONNECT; this proxy does not terminate TLS.",

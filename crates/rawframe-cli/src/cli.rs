@@ -8,14 +8,22 @@ use clap::Parser;
 use rawframe_core::AppConfig;
 use rawframe_core::models::{Scheme, ScopeRule};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CaAction {
+    Show,
+    Export(PathBuf),
+    Fingerprint,
+    Regenerate,
+}
+
 #[derive(Debug, Clone, Parser, PartialEq, Eq)]
 #[command(
     name = "rawframe",
     version,
     about = "RAWFRAME — terminal-native HTTP interception & security testing workbench",
     long_about = "RAWFRAME is a terminal-native interception and security testing workbench.\n\
-                  This build forwards HTTP/1.1 and relays opaque HTTPS CONNECT tunnels. \
-                  It does not intercept TLS or transmit Repeater requests.",
+                  This build forwards HTTP/1.1 and relays opaque HTTPS CONNECT tunnels by default. \
+                  HTTPS TLS interception is opt-in and requires explicit CA trust. Repeater transmission is not implemented.",
     after_help = "Only test systems for which you have explicit authorization."
 )]
 pub struct Cli {
@@ -53,6 +61,36 @@ pub struct Cli {
     /// Write diagnostics to this file instead of the default local log path.
     #[arg(long, value_name = "FILE")]
     pub log_file: Option<PathBuf>,
+
+    /// Explicitly enable HTTPS TLS interception for authorized scoped CONNECT
+    /// targets (disabled by default; opaque tunnelling remains default).
+    #[arg(long)]
+    pub tls_intercept: bool,
+
+    /// Directory for local interception CA material (certificate/key).
+    #[arg(long, value_name = "DIR")]
+    pub tls_ca_dir: Option<PathBuf>,
+
+    /// Verify upstream TLS against this PEM bundle instead of the platform trust
+    /// store (lab use only; chain and hostname verification remain mandatory).
+    #[arg(long, value_name = "FILE")]
+    pub tls_upstream_ca: Option<PathBuf>,
+
+    /// Print local CA certificate path/status and exit.
+    #[arg(long)]
+    pub tls_ca_show: bool,
+
+    /// Export the public CA certificate PEM to a file and exit.
+    #[arg(long, value_name = "FILE")]
+    pub tls_ca_export: Option<PathBuf>,
+
+    /// Print the local CA certificate SHA-256 fingerprint and exit.
+    #[arg(long)]
+    pub tls_ca_fingerprint: bool,
+
+    /// Explicitly regenerate the local interception CA and exit (invalidates prior trust).
+    #[arg(long)]
+    pub tls_ca_regenerate: bool,
 }
 
 impl Cli {
@@ -67,6 +105,11 @@ impl Cli {
         config.proxy.bind_address = self.bind;
         config.proxy.port = self.port;
         config.proxy.allow_private_upstreams = self.allow_private_upstreams;
+        config.proxy.tls_interception_enabled = self.tls_intercept;
+        if let Some(dir) = &self.tls_ca_dir {
+            config.proxy.tls_ca_dir = dir.clone();
+        }
+        config.proxy.tls_upstream_trust_file = self.tls_upstream_ca.clone();
         config.proxy.scope.allowlist = self
             .scope
             .iter()
@@ -83,6 +126,20 @@ impl Cli {
 
     pub fn log_path(&self) -> Option<&PathBuf> {
         self.log_file.as_ref()
+    }
+
+    pub fn ca_action(&self) -> Option<CaAction> {
+        if self.tls_ca_show {
+            Some(CaAction::Show)
+        } else if let Some(path) = &self.tls_ca_export {
+            Some(CaAction::Export(path.clone()))
+        } else if self.tls_ca_fingerprint {
+            Some(CaAction::Fingerprint)
+        } else if self.tls_ca_regenerate {
+            Some(CaAction::Regenerate)
+        } else {
+            None
+        }
     }
 }
 

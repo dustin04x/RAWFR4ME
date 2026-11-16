@@ -1,0 +1,24 @@
+ RAWFRAME  |  Proxy                           PROXY STOPPED  |  INTERCEPTION OFF
+────────────────────────────────────────────────────────────────────────────────
+╭ TRAFFIC ─────────────────────────────────────────────────────────────────────╮
+│ Start proxy P    Interception off I    Inspect Enter    Replay R             │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                 PROXY STOPPED                                │
+│                                                                              │
+│    The proxy engine is not running. 17 simulated fixture(s) are listed in    │
+│                        HTTP History, not live traffic.                       │
+│            Start the engine, then point a client at the listener.            │
+│                                                                              │
+│              Press P to start the proxy  ·  Ctrl+4 reviews scope             │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · Fixtures loaded. Press P on the Proxy… ^K commands  ? help  ^C quit

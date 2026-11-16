@@ -82,10 +82,21 @@ Notes:
   wire parser.
 - `tokio-util` is used only for task tracking; no runtime is embedded in a
   library crate.
-- No HTTP/2, HTTP/3, TLS, certificate-generation, SQLite, UUID, clipboard, or
-  network-logging dependency is present.
+- No HTTP/2, HTTP/3, SQLite, UUID, clipboard, or network-logging dependency is
+  present. TLS/certificate dependencies are limited to the proxy crate.
 - Truecolor rendering needs no extra dependency; Ratatui RGB colors are used
   directly.
+
+## TLS dependencies (installed in `rawframe-proxy`)
+
+| Dependency | Purpose |
+|---|---|
+| `rustls`, `tokio-rustls` | Client-facing termination, separate verified upstream TLS |
+| `rcgen` | Local CA and per-host leaf certificate issuance |
+| `rustls-native-certs`, `rustls-pemfile` | Trusted roots and cert/key loading |
+| `x509-parser`, `sha2`, `base64` | CA validation and public fingerprint |
+
+`rawframe-core` and `rawframe-tui` do not depend on TLS crates.
 
 ## Planned dependencies (not installed)
 
@@ -93,7 +104,6 @@ These are listed for design transparency only. They are not in `Cargo.lock`.
 
 | Milestone | Likely dependency | Purpose |
 |---|---|---|
-| 3 | `rustls`, `tokio-rustls`, `rcgen` | CA generation, client-facing termination, verified upstream TLS |
 | 4 | `rusqlite` (bundled) or `sqlx` | SQLite migrations and history |
 | later | `serde_json` | export formats |
 | later | terminal clipboard helper | explicit copy actions, if implemented without shell execution |

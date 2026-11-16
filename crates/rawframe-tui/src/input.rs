@@ -116,7 +116,7 @@ impl App {
                     return;
                 }
                 'i' => {
-                    // On Proxy workbench, I toggles interception (per M3 interception spec).
+                    // On Proxy workbench, I toggles interception for live traffic.
                     if self.nav == NavSection::Proxy && self.focus == Focus::Content {
                         // fall through to proxy/content handling
                     } else {

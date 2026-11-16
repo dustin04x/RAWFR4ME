@@ -11,10 +11,15 @@ pub mod error;
 mod interception;
 mod server;
 mod service;
+mod tls;
 mod tunnel;
 
 pub use error::ProxyError;
+pub use interception::InterceptDecision;
 pub use server::{ProxyHandle, run_service, start_proxy};
+pub mod tls_api {
+    pub use crate::tls::{CaInfo, CaManager, CaPaths, CaStatus};
+}
 
 #[doc(hidden)]
 pub use destination::address_allowed;

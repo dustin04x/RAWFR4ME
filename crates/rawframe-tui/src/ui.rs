@@ -533,9 +533,16 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
                 app.live_capture_count()
             )
         } else if app.proxy_state == rawframe_core::ProxyState::Listening {
-            " Live engine listening  ·  No traffic yet  ·  HTTPS CONNECT opaque (no TLS interception)".to_string()
+            if app.tls_status.enabled {
+                " Live engine listening  ·  No traffic yet  ·  TLS interception ON for scoped HTTPS"
+                    .to_string()
+            } else {
+                " Live engine listening  ·  No traffic yet  ·  HTTPS CONNECT opaque (TLS interception off)".to_string()
+            }
+        } else if app.tls_status.enabled {
+            " Simulated data only  ·  Start proxy for live capture  ·  TLS interception ON for scoped HTTPS".to_string()
         } else {
-            " Simulated data only  ·  Start proxy for live HTTP capture  ·  HTTPS CONNECT opaque (no TLS interception)".to_string()
+            " Simulated data only  ·  Start proxy for live HTTP capture  ·  HTTPS CONNECT opaque (TLS interception off)".to_string()
         };
         let left_style = if app.live_capture_count() > 0
             || app.proxy_state == rawframe_core::ProxyState::Listening

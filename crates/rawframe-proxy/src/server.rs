@@ -19,6 +19,7 @@ use tokio_util::task::TaskTracker;
 use crate::error::ProxyError;
 use crate::interception::{InterceptDecision, InterceptionManager};
 use crate::service::{ServiceContext, handle_request};
+use crate::tls::TlsController;
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 const FIRST_LIVE_TRAFFIC_ID: u64 = 1_000;
@@ -30,11 +31,22 @@ pub struct ProxyHandle {
     shutdown: watch::Sender<bool>,
     task: tokio::task::JoinHandle<()>,
     interception: InterceptionManager,
+    tls: Arc<TlsController>,
 }
 
 impl ProxyHandle {
     pub fn local_addr(&self) -> SocketAddr {
         self.local_addr
+    }
+
+    /// Resolves a pending interception decision. Used by embedding tests and the
+    /// command service; decisions are runtime-local.
+    pub async fn resolve_interception(
+        &self,
+        id: rawframe_core::models::TrafficId,
+        decision: InterceptDecision,
+    ) {
+        let _ = self.interception.resolve(id, decision).await;
     }
 
     pub async fn shutdown(mut self) {
@@ -82,6 +94,23 @@ pub async fn start_proxy(
         events.clone(),
         shutdown_rx.clone(),
     );
+    let tls = Arc::new(TlsController::new(
+        config.proxy.tls_ca_dir_resolved(),
+        config.proxy.tls_upstream_trust_file.clone(),
+    ));
+    let initial_tls_status = if config.proxy.tls_interception_enabled {
+        match tls.enable().await {
+            Ok(status) => status,
+            Err(error) => {
+                return Err(ProxyError::Configuration(format!(
+                    "failed to enable TLS interception: {error}"
+                )));
+            }
+        }
+    } else {
+        rawframe_core::TlsStatus::disabled()
+    };
+    let context_tls = tls.clone();
     let context = ServiceContext {
         config: config.clone(),
         events,
@@ -90,8 +119,13 @@ pub async fn start_proxy(
         tunnels,
         shutdown: shutdown_rx.clone(),
         interception: interception.clone(),
+        tls,
     };
 
+    let initial_events = context.events.clone();
+    let _ = initial_events
+        .send_async(AppEvent::TlsStateChanged(initial_tls_status))
+        .await;
     let task = tokio::spawn(run_listener(
         listener,
         context,
@@ -104,6 +138,7 @@ pub async fn start_proxy(
         shutdown,
         task,
         interception,
+        tls: context_tls,
     })
 }
 
@@ -196,6 +231,57 @@ pub async fn run_service(mut commands: mpsc::Receiver<AppCommand>, events: Event
                         "Interception disabled."
                     })))
                     .await;
+            }
+            AppCommand::SetTlsInterception { enabled } => {
+                if let Some(active) = handle.as_ref() {
+                    if enabled {
+                        match active.tls.enable().await {
+                            Ok(status) => {
+                                let _ = events.send_async(AppEvent::TlsStateChanged(status)).await;
+                                let _ = events
+                                    .send_async(AppEvent::Notice(Notice::warning(
+                                        "HTTPS TLS interception enabled: authorized CONNECT sessions will be decrypted and visible.",
+                                    )))
+                                    .await;
+                            }
+                            Err(error) => {
+                                let _ = events
+                                    .send_async(AppEvent::TlsStateChanged(
+                                        rawframe_core::TlsStatus {
+                                            enabled: false,
+                                            ca_cert_path: None,
+                                            ca_fingerprint: None,
+                                            error: Some(error.clone()),
+                                        },
+                                    ))
+                                    .await;
+                                let _ = events
+                                    .send_async(AppEvent::Notice(Notice::error(format!(
+                                        "TLS interception could not be enabled: {error}"
+                                    ))))
+                                    .await;
+                            }
+                        }
+                    } else {
+                        active.tls.disable().await;
+                        let _ = events
+                            .send_async(AppEvent::TlsStateChanged(
+                                rawframe_core::TlsStatus::disabled(),
+                            ))
+                            .await;
+                        let _ = events
+                            .send_async(AppEvent::Notice(Notice::info(
+                                "TLS interception disabled: CONNECT is opaque again.",
+                            )))
+                            .await;
+                    }
+                } else {
+                    let _ = events
+                        .send_async(AppEvent::Notice(Notice::warning(
+                            "Start the proxy before changing TLS interception.",
+                        )))
+                        .await;
+                }
             }
             AppCommand::ForwardRequest(id) => {
                 if let Some(active) = handle.as_ref() {

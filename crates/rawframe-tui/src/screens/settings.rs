@@ -174,7 +174,7 @@ fn render_setting_row(
         } else {
             theme.faint()
         }
-    } else if id.is_editable() {
+    } else if id.is_editable() || id == SettingId::CaFingerprint {
         theme.text()
     } else {
         theme.faint()
@@ -190,9 +190,6 @@ fn render_setting_row(
     }
     if id == SettingId::VerifyTls {
         value = "● ON · locked".to_string();
-    }
-    if id == SettingId::CertificateAuthority {
-        value = "not initialised · M3".to_string();
     }
 
     let value_len = value.chars().count();
@@ -262,6 +259,30 @@ fn render_details(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         lines.push(Line::from(Span::styled("SECURITY", theme.label())));
         lines.push(Line::from(Span::styled(note, theme.warning())));
     }
+    if matches!(
+        id,
+        SettingId::TlsInterception | SettingId::CertificateAuthority | SettingId::CaFingerprint
+    ) {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("LOCAL CA", theme.label())));
+        if let Some(fingerprint) = &app.tls_status.ca_fingerprint {
+            if let Some(path) = &app.tls_status.ca_cert_path {
+                lines.push(Line::from(Span::styled(path.clone(), theme.muted())));
+            }
+            lines.push(Line::from(Span::styled(
+                format!("Fingerprint {fingerprint}"),
+                theme.text(),
+            )));
+        } else {
+            lines.push(Line::from(Span::styled(
+                "Not initialised. Enabling intercept generates a local CA on explicit operator action.",
+                theme.warning(),
+            )));
+        }
+        if let Some(error) = &app.tls_status.error {
+            lines.push(Line::from(Span::styled(error.clone(), theme.danger())));
+        }
+    }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "Changes apply to this session only. No configuration file is written.",
@@ -291,13 +312,19 @@ fn describe(id: SettingId) -> (&'static str, Option<&'static str>) {
         SettingId::Interception => (
             "When armed, matching requests pause for review instead of being forwarded. Rules are scope-aware.",
             Some(
-                "Pause/forward/edit is Milestone 4. The current proxy forwards HTTP automatically; this switch does not pause live traffic.",
+                "Captured HTTP (and decrypted HTTPS when enabled) pauses here for forward/edit/drop decisions. Scope and header rules decide what is captured.",
+            ),
+        ),
+        SettingId::TlsInterception => (
+            "Terminate authorized CONNECT sessions and inspect decrypted HTTP/1.1. Off by default; opaque tunnelling is preserved when disabled.",
+            Some(
+                "Enabling makes HTTPS content readable to RAWFRAME. Trust the exported CA certificate explicitly; the private key is never exported.",
             ),
         ),
         SettingId::VerifyTls => (
-            "Upstream certificate validation belongs to TLS interception in Milestone 3.",
+            "Upstream certificates are validated for intercepted HTTPS sessions. Hostname and chain checks are mandatory and cannot be disabled.",
             Some(
-                "Opaque CONNECT tunnels are not terminated, so their certificates cannot be validated here. The setting stays locked on for future TLS paths.",
+                "Opaque CONNECT tunnels are relayed without termination, so RAWFRAME cannot validate their end-to-end certificates. The setting stays locked on.",
             ),
         ),
         SettingId::MaxBody => (
@@ -358,11 +385,19 @@ fn describe(id: SettingId) -> (&'static str, Option<&'static str>) {
         ),
         SettingId::CertificateAuthority => (
             "The local certificate authority used for HTTPS interception and per-host leaf certificates.",
-            Some("Not generated yet. Milestone 3 will create it with restricted key permissions."),
+            Some(
+                "Generated on explicit enable or CLI action. The private key stays local with restrictive permissions and is never exported.",
+            ),
+        ),
+        SettingId::CaFingerprint => (
+            "SHA-256 fingerprint of the public CA certificate. Compare it before trusting the CA in a client.",
+            Some(
+                "The fingerprint identifies public certificate material only; it is not a secret and never reveals the private key.",
+            ),
         ),
         SettingId::DatabasePath => (
             "Location of the SQLite session database for captured history and migrations.",
-            Some("Not created yet. Storage lands in Milestone 4."),
+            Some("Not created yet. Storage lands in Milestone 5."),
         ),
     }
 }

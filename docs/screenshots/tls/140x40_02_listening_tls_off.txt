@@ -1,0 +1,40 @@
+ RAWFRAME  |  Proxy                                                         PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 2 allowlist rules
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││╭ TRAFFIC ─────────────────────────────────────────────────────────────────╮│╭ INSPECTOR ─────────────────────────────╮
+ PRIMARY           │││ Stop proxy P    Interception off I    Inspect Enter    Replay R          │││                                        │
+▌ Proxy         ^1 │││                                                                          │││                                        │
+  History       ^2 │││                                                                          │││                                        │
+  Repeater      ^3 │││                                                                          │││                                        │
+  Settings      ^4 │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+ PLANNED           │││                                                                          │││                                        │
+  Intruder planned │││                                                                          │││                                        │
+  Decoder  planned │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││           NO REQUEST SELECTED          │
+                   │││                         LISTENING WITH NO TRAFFIC                        │││                                        │
+                   │││                                                                          │││  Select a traffic or history entry to  │
+                   │││   The proxy is active. Live requests and CONNECT tunnel metadata appear  │││        inspect protocol details.       │
+                   │││                                   here.                                  │││   The main workspace stays focused on  │
+                   │││       Simulated fixtures stay in HTTP History and are labelled SIM.      │││    the queue and active interception   │
+                   │││                                                                          │││                  work.                 │
+                   │││    Configure your client and send a request  ·  HTTPS CONNECT remains    │││                                        │
+                   │││                                  opaque                                  │││  Enter inspect  ·  I toggle inspector  │
+                   │││                                                                          │││           ·  Ctrl+4 Settings           │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+ STATUS            │││                                                                          │││                                        │
+ Engine active     │││                                                                          │││                                        │
+ Interception off  │││                                                                          │││                                        │
+ No pending        │││                                                                          │││                                        │
+                   ││╰──────────────────────────────────────────────────────────────────────────╯│╰────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ✓ Proxy listening on 127.0.0.1:37547                                                                 ^K commands  ? help  ^C quit

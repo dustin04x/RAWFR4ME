@@ -1,0 +1,40 @@
+ RAWFRAME  |  Proxy                                                           PROXY STOPPED  |  INTERCEPTION OFF  |  SCOPE 2 allowlist rules
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││╭ TRAFFIC ─────────────────────────────────────────────────────────────────╮│╭ INSPECTOR ─────────────────────────────╮
+ PRIMARY           │││ Start proxy P    Interception off I    Inspect Enter    Replay R         │││                                        │
+▌ Proxy         ^1 │││                                                                          │││                                        │
+  History       ^2 │││                                                                          │││                                        │
+  Repeater      ^3 │││                                                                          │││                                        │
+  Settings      ^4 │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+ PLANNED           │││                                                                          │││                                        │
+  Intruder planned │││                                                                          │││                                        │
+  Decoder  planned │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││           NO REQUEST SELECTED          │
+                   │││                                                                          │││                                        │
+                   │││                               PROXY STOPPED                              │││  Select a traffic or history entry to  │
+                   │││                                                                          │││        inspect protocol details.       │
+                   │││  The proxy engine is not running. 17 simulated fixture(s) are listed in  │││   The main workspace stays focused on  │
+                   │││                      HTTP History, not live traffic.                     │││    the queue and active interception   │
+                   │││          Start the engine, then point a client at the listener.          │││                  work.                 │
+                   │││                                                                          │││                                        │
+                   │││            Press P to start the proxy  ·  Ctrl+4 reviews scope           │││  Enter inspect  ·  I toggle inspector  │
+                   │││                                                                          │││           ·  Ctrl+4 Settings           │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+ STATUS            │││                                                                          │││                                        │
+ Engine stopped    │││                                                                          │││                                        │
+ Interception off  │││                                                                          │││                                        │
+ No pending        │││                                                                          │││                                        │
+                   ││╰──────────────────────────────────────────────────────────────────────────╯│╰────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · Fixtures loaded. Press P on the Proxy screen to start the local HTTP engine.                       ^K commands  ? help  ^C quit

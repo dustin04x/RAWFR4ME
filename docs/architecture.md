@@ -1,8 +1,9 @@
 # RAWFRAME Architecture
 
-**Status:** Milestone 2 — real HTTP proxy engine (0.2.0). HTTP/1.1 forwarding
-and opaque HTTPS CONNECT tunnels are implemented. TLS interception, message
-pause/edit, durable storage, and Repeater transmission are not.
+**Status:** Milestone 4 — HTTPS interception (0.2.0). HTTP/1.1 forwarding,
+opaque HTTPS CONNECT tunnels, live pause/edit/forward/drop, and opt-in HTTP/1.1
+TLS interception are implemented. Durable storage and Repeater transmission are
+not.
 
 ## 1. Design constraints
 
@@ -64,7 +65,7 @@ rawframe/
 └── scripts/
 ```
 
-The storage crate remains intentionally absent until Milestone 4. Repeater
+The storage crate remains intentionally absent until Milestone 5. Repeater
 document logic currently lives in `rawframe-core` + `rawframe-http` +
 `rawframe-tui`; it can be extracted when transmission exists.
 
@@ -123,15 +124,22 @@ bound. The command channel from UI to proxy is also bounded (capacity 32).
 Commands:
 
 - `StartProxy(Box<AppConfig>)` and `StopProxy` control the engine.
-- `SetInterception`, `ForwardRequest`, and `DropRequest` remain modeled for
-  Milestone 4. The proxy ignores them; M2 live traffic is not paused.
+- `SetInterception` arms or disarms live pause-before-upstream.
+- `SetTlsInterception` explicitly enables/disables HTTPS TLS interception for
+  new CONNECT sessions in this running proxy.
+- `ForwardRequest`, `ForwardModified`, and `DropRequest` resolve pending
+  interception entries. Dropped requests never reach upstream.
 
 Events:
 
 - `ProxyStateChanged` drives `Idle → Starting → Listening → Stopping → Stopped`
   or `Failed`.
 - `ProxyBound(SocketAddr)` reports the actual bound address.
-- `TrafficCaptured` / `TrafficUpdated` carry HTTP captures and CONNECT metadata.
+- `TrafficCaptured` / `TrafficUpdated` carry HTTP captures, decrypted HTTPS
+  requests, and CONNECT tunnel metadata.
+- `InterceptionPaused` / `InterceptionQueueChanged` drive the pending queue.
+- `TlsStateChanged` publishes TLS enabled/disabled state, the public CA path and
+  fingerprint, or a non-secret enable error.
 - `Notice` surfaces lifecycle warnings/errors.
 
 Events carry IDs, not UI selections; the TUI resolves selected entries by
@@ -225,12 +233,39 @@ high-throughput production proxying.
    certificate is generated or inspected.
 
 
-### 5.4 Interception (HTTP, current)
+### 5.4 HTTPS TLS interception (opt-in)
+
+1. `CONNECT` parsing, scope, resolve-once address policy, and upstream TCP
+   connection happen before any certificate is issued.
+2. A per-host leaf certificate is issued from the local CA (DNS or IP SAN,
+   serverAuth EKU, bounded deduplicated cache). The leaf key is generated in a
+   blocking task, never on a Tokio worker.
+3. A separate upstream TLS session is established with mandatory chain and
+   hostname verification against trusted roots. Only HTTP/1.1 ALPN is offered.
+   Upstream verification completes before the `200` CONNECT response, so an
+   untrusted chain or hostname mismatch fails closed without forwarding.
+4. The client-facing TLS acceptor presents the leaf. SNI, when sent, must match
+   the CONNECT authority; the certificate resolver returns no certificate on a
+   mismatch, failing the handshake.
+5. Decrypted HTTP/1.1 requests run through a Hyper server on the client TLS
+   stream and are forwarded through the existing interception manager, body
+   guards, history, lifecycle, and event pipeline. A per-session mutex serializes
+   upstream HTTP/1.1 requests; multiple requests on one TLS connection reuse the
+   verified upstream session.
+6. Modified requests must remain `https` and within the intercepted session
+   authority, and are revalidated against scope before forwarding. Dropped
+   requests never reach upstream.
+
+The CA private key stays in memory and on local disk with restrictive Unix
+permissions; only the public certificate path/fingerprint is published through
+events and the TUI.
+
+### 5.5 Interception (HTTP and decrypted HTTPS, current)
 
 - Interception is implemented as a proxy/runtime concern (`rawframe-proxy`, with runtime decision handles/queue management in proxy; core provides serializable contracts/events/models such as `EditableHttpRequest`, interception metadata, queue/config/events/commands).
 - Matching HTTP requests can be paused before upstream contact while interception is enabled. Decisions: forward unchanged, forward modified (`AppCommand::ForwardModified`), or drop. Disable/stop/shutdown paths cancel pending interceptions as implemented.
 - The TUI consumes interception events and renders a Proxy interception workbench (queue, raw editor, actions) with real command dispatch; UI outcomes must reflect actual proxy events (no optimistic success, no fabricated responses for dropped/cancelled).
-- **TLS interception is not implemented.** `CONNECT` remains an opaque tunnel with metadata/byte counts only; no CA/certificate generation or decrypted HTTPS inspection exists in this milestone.
+- **TLS interception is implemented behind an explicit switch.** When disabled (default), `CONNECT` remains the opaque tunnel above. When enabled, see §5.4.
 
 ## 6. Scope and destination address policy
 
@@ -380,7 +415,7 @@ duration. Errors and notes are sanitized before terminal rendering.
 | connect timeout | 10 s |
 | response-header timeout | 30 s |
 | idle timeout | 60 s |
-| interception timeout | 120 s, unused in M2 |
+| interception timeout | 120 s |
 | allow private upstreams | off |
 | scope | empty allowlist, default deny |
 
@@ -419,10 +454,25 @@ captures are clearly distinguished.
   starts the real worker, sends local HTTP traffic, drains real events, asserts
   the live capture reaches `App`, renders the Proxy screen with
   `LIVE ENGINE`/`LIVE REQUESTS`, stops the worker, and verifies clean exit.
+- **TLS integration** (`crates/rawframe-proxy/tests/tls_interception.rs`) uses a
+  self-contained local CA and local HTTPS origins for decrypted forwarding,
+  pause/modify/drop, upstream verification failure, SNI/authority rejection,
+  client/upstream disconnect, and proxy shutdown.
+- **CA CLI tests** (`crates/rawframe-cli/tests/tls_ca_cli.rs`) run against
+  isolated temporary CA directories and cover show/fingerprint/export,
+  regeneration, public-only export, permissions, and refusing to replace
+  invalid material.
+- **PTY TLS regression** (`crates/rawframe-cli/tests/tls_pty_tui.rs` +
+  `scripts/tui_tls_pty.py`) launches the real binary in a pseudo-terminal,
+  enables/disables TLS through Settings keystrokes, verifies decrypted requests
+  enter the queue, verifies a pre-enable CONNECT stays opaque after enabling,
+  verifies new CONNECT sessions are opaque after disabling, and captures genuine
+  terminal frames at 140×40, 100×30, and 80×24 under `docs/screenshots/tls/`.
 - Existing TUI unit/integration tests from Milestone 1 remain in place, including
   redaction, keyboard/mouse flows, and “no fabricated response” assertions.
 
-No test contacts an external website. No test claims TLS interception.
+No test contacts an external website. TLS tests use a self-contained local CA
+and local TLS servers.
 
 ## 12. Decisions and trade-offs
 
@@ -434,22 +484,25 @@ No test contacts an external website. No test claims TLS interception.
 | Conservative address policy | Blocks some legitimate special-purpose labs; safe by default |
 | Bounded event queue + async sends | Prevents unbounded memory from fast traffic; proxy can slow under UI pressure |
 | Bounded body capture with streaming | Caps memory and keeps responses flowing; captured body may be truncated |
-| CONNECT metadata only | Honest, safe M2 behavior; no HTTPS inspection until M3 |
+| CONNECT opaque by default | Safe default; interception requires explicit operator opt-in |
 | Session-only settings | No config/schema commitment before storage milestone |
 | Simulated fixtures retained | Reproducible demos and tests; requires explicit provenance labels everywhere |
 
 ## 13. Extension path
 
-**Milestone 3.** Add a local CA with owner-only key storage, client-facing
-Rustls termination, separate verified upstream TLS, per-host leaf caching, and
-explicit trust instructions. Add CONNECT interception behind an explicit mode;
-never disable upstream verification; keep opaque tunneling available.
+**Milestone 3 (implemented).** Live HTTP pause/forward/edit/drop with bounded
+queues, timeouts, cancellation, and TUI workbench integration.
 
-**Milestone 4.** Wire interception rules into live pause/forward/drop with
-timeouts and bounded queues. Add SQLite migrations, sessions, persisted history,
-redaction on write, export, and crash recovery.
+**Milestone 4 (implemented).** Local CA with owner-only key material,
+client-facing Rustls termination, separate verified upstream TLS, per-host leaf
+caching, explicit trust instructions, and opt-in HTTPS interception for
+HTTP/1.1. Future work: protocol coverage (HTTP/2, WebSocket) and richer CA
+lifecycle UX.
 
-**Milestone 5.** Add real Repeater transmission through the proxy stack,
+**Milestone 5.** Add SQLite migrations, sessions, persisted history, redaction
+on write, export, and crash recovery.
+
+**Milestone 6.** Add real Repeater transmission through the proxy stack,
 response comparison, then Intruder and Decoder.
 
 See [roadmap.md](roadmap.md) for acceptance criteria.

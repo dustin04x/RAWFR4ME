@@ -1,0 +1,24 @@
+ RAWFRAME  |  Proxy                         PROXY LISTENING  |  INTERCEPTION OFF
+────────────────────────────────────────────────────────────────────────────────
+╭ TRAFFIC ─────────────────────────────────────────────────────────────────────╮
+│ Stop proxy P    Interception off I    Inspect Enter    Replay R              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                           LISTENING WITH NO TRAFFIC                          │
+│                                                                              │
+│     The proxy is active. Live requests and CONNECT tunnel metadata appear    │
+│                                     here.                                    │
+│         Simulated fixtures stay in HTTP History and are labelled SIM.        │
+│                                                                              │
+│   Configure your client and send a request  ·  HTTPS CONNECT remains opaque  │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ✓ Proxy listening on 127.0.0.1:35393     ^K commands  ? help  ^C quit

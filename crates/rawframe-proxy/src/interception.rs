@@ -39,6 +39,46 @@ struct Pending {
     _id: TrafficId,
 }
 
+/// Removes a pending interception if the waiting request future is dropped
+/// (for example, the client disconnected while paused). Normal decisions remove
+/// the entry first, so this guard is a no-op on the normal path.
+struct PendingGuard {
+    inner: Arc<Mutex<State>>,
+    id: u64,
+    events: EventSender,
+    entry: TrafficEntry,
+}
+
+impl Drop for PendingGuard {
+    fn drop(&mut self) {
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let inner = self.inner.clone();
+        let events = self.events.clone();
+        let id = self.id;
+        let entry = self.entry.clone();
+        handle.spawn(async move {
+            let (removed, pending, capacity) = {
+                let mut state = inner.lock().await;
+                let removed = state.pending.remove(&id).is_some();
+                (removed, state.pending.len(), state.capacity)
+            };
+            if !removed {
+                return;
+            }
+            let mut entry = entry;
+            let _ = entry.cancel_interception("client disconnected before interception decision");
+            let _ = events
+                .send_async(AppEvent::TrafficUpdated(Box::new(entry)))
+                .await;
+            let _ = events
+                .send_async(AppEvent::InterceptionQueueChanged { pending, capacity })
+                .await;
+        });
+    }
+}
+
 struct State {
     pending: HashMap<u64, Pending>,
     capacity: usize,
@@ -140,6 +180,7 @@ impl InterceptionManager {
             pending_count = state.pending.len();
         }
 
+        let guard_entry = paused_entry.clone();
         let _ = self
             .events
             .send_async(AppEvent::InterceptionPaused(Box::new(paused_entry)))
@@ -151,6 +192,13 @@ impl InterceptionManager {
                 capacity,
             })
             .await;
+
+        let _pending_guard = PendingGuard {
+            inner: self.inner.clone(),
+            id: id.0,
+            events: self.events.clone(),
+            entry: guard_entry,
+        };
 
         let timeout_secs = self.timeout_secs.load(Ordering::Relaxed);
         let wait = timeout(Duration::from_secs(timeout_secs), async {

@@ -1,0 +1,30 @@
+ RAWFRAME  |  Proxy                 PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 2 allowlist rules
+────────────────────────────────────────────────────────────────────────────────────────────────────
+╭ TRAFFIC ──────────────────────────────────────────────────────────╮│╭ INSPECTOR ─────────────────╮
+│ Stop proxy P    Interception off I    Inspect Enter    Replay R   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││     NO REQUEST SELECTED    │
+│                                                                   │││                            │
+│                                                                   │││     Select a traffic or    │
+│                     LISTENING WITH NO TRAFFIC                     │││  history entry to inspect  │
+│                                                                   │││      protocol details.     │
+│  The proxy is active. Live requests and CONNECT tunnel metadata   │││  The main workspace stays  │
+│                           appear here.                            │││  focused on the queue and  │
+│   Simulated fixtures stay in HTTP History and are labelled SIM.   │││     active interception    │
+│                                                                   │││            work.           │
+│    Configure your client and send a request  ·  HTTPS CONNECT     │││                            │
+│                          remains opaque                           │││     Enter inspect  ·  I    │
+│                                                                   │││     toggle inspector  ·    │
+│                                                                   │││       Ctrl+4 Settings      │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+╰───────────────────────────────────────────────────────────────────╯│╰────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ✓ Proxy listening on 127.0.0.1:38735                         ^K commands  ? help  ^C quit

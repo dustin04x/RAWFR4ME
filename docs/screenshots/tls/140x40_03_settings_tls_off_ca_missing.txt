@@ -1,0 +1,40 @@
+ RAWFRAME  |  Settings                                                      PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 2 allowlist rules
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││SETTINGS  proxy · privacy · storage                                                                 SESSION-ONLY CONFIG
+ PRIMARY           ││
+  Proxy         ^1 ││╭ CONFIGURATION ──────────────────────────────────────────────────────────╮ ╭ DETAILS ────────────────────────────────╮
+  History       ^2 │││ PROXY                                                                   │ │Bind address                             │
+  Repeater      ^3 │││▌ Bind address                                                  127.0.0.1│ │                                         │
+▌ Settings      ^4 │││  Listen port                                                       37547│ │Value: 127.0.0.1                         │
+                   │││  HTTP interception                                                 ○ OFF│ │                                         │
+ PLANNED           │││  HTTPS TLS interception                                            ○ OFF│ │Local address the proxy will accept      │
+  Intruder planned │││  Upstream TLS verification                                 ● ON · locked│ │connections on. Loopback keeps the       │
+  Decoder  planned │││  Request body limit                                                2 MiB│ │workbench private to this machine.       │
+                   │││  Response body limit                                               2 MiB│ │                                         │
+                   │││  Concurrent connections                                              128│ │SECURITY                                 │
+                   │││  Connect timeout                                                    10 s│ │Settings refuse non-loopback binds; the  │
+                   │││  Upstream response timeout                                          30 s│ │CLI requires --bind ADDR with            │
+                   │││  Idle timeout                                                       60 s│ │--allow-remote-bind.                     │
+                   │││  Interception timeout                                              120 s│ │                                         │
+                   │││  Private upstreams                                                  ● ON│ │Changes apply to this session only. No   │
+                   │││ INTERFACE & PRIVACY                                                     │ │configuration file is written.           │
+                   │││  Redact sensitive headers                                           ● ON│ │                                         │
+                   │││  Accent                                                            ○ OFF│ │                                         │
+                   │││  Mouse support                                                     ○ OFF│ │                                         │
+                   │││ STORAGE & SCOPE                                                         │ │                                         │
+                   │││  Persist bodies                                                    ○ OFF│ │                                         │
+                   │││  Persist sensitive headers                                         ○ OFF│ │                                         │
+                   │││  Target scope                                          2 allowlist rules│ │                                         │
+                   │││ SECURITY & STORAGE                                                      │ │                                         │
+                   │││  Local certificate authority                             not initialised│ │                                         │
+                   │││  CA fingerprint                                          not initialised│ │                                         │
+                   │││  Database                /home/example/.local/share/rawframe/rawframe.db│ │                                         │
+                   │││                                                                         │ │                                         │
+                   │││                                                                         │ │                                         │
+ STATUS            │││                                                                         │ │                                         │
+ Engine active     │││                                                                         │ │                                         │
+ Interception off  │││                                                                         │ │                                         │
+ No pending        │││↑↓ select   Enter edit/toggle   Esc cancel edit                          │ │                                         │
+                   ││╰─────────────────────────────────────────────────────────────────────────╯ ╰─────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ✓ Proxy listening on 127.0.0.1:37547                                                                 ^K commands  ? help  ^C quit

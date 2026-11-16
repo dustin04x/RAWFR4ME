@@ -21,7 +21,7 @@ pub mod security;
 
 pub use events::{
     AppCommand, AppEvent, CommandSender, EventBus, EventReceiver, EventSendError, EventSender,
-    Notice, NoticeLevel, ProxyState,
+    Notice, NoticeLevel, ProxyState, TlsStatus,
 };
 pub use filter::{HistoryFilter, StatusFilter};
 pub use models::{

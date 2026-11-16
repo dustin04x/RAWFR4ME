@@ -1,0 +1,30 @@
+ RAWFRAME  |  Proxy                 PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 2 allowlist rules
+────────────────────────────────────────────────────────────────────────────────────────────────────
+╭ TRAFFIC · 6 live capture(s) · DECRYPTED CAPTURE (TLS NOW OFF) ────╮│╭ INSPECTOR ─────────────────╮
+│ Stop proxy P    Interception off I    Inspect Enter    Replay R   │││                            │
+│ID    METHOD  HOST          PATH        STATUS          DUR    SRC │││                            │
+│ 1005 CONNECT localhost     (CONNECT t… TUNNEL CLOSED   3ms    LIVE│││                            │
+│ 1004 CONNECT localhost     localhost:… 200             1ms    LIVE│││                            │
+│ 1003 CONNECT localhost     (CONNECT t… TUNNEL FAILED   4s     LIVE│││                            │
+│ 1002 GET     localhost     /secure     200             0ms    LIVE│││     NO REQUEST SELECTED    │
+│ 1001 CONNECT localhost     localhost:… 200             2ms    LIVE│││                            │
+│ 1000 CONNECT localhost     (CONNECT t… TUNNEL CLOSED   3288ms LIVE│││     Select a traffic or    │
+│                                                                   │││  history entry to inspect  │
+│                                                                   │││      protocol details.     │
+│                                                                   │││  The main workspace stays  │
+│                                                                   │││  focused on the queue and  │
+│                                                                   │││     active interception    │
+│                                                                   │││            work.           │
+│                                                                   │││                            │
+│                                                                   │││     Enter inspect  ·  I    │
+│                                                                   │││     toggle inspector  ·    │
+│                                                                   │││       Ctrl+4 Settings      │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+╰───────────────────────────────────────────────────────────────────╯│╰────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · Captured CONNECT localhost:44821 from localhost            ^K commands  ? help  ^C quit

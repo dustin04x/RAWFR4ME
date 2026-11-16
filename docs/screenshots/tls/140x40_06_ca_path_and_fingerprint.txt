@@ -1,0 +1,40 @@
+ RAWFRAME  |  Settings                                                      PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 2 allowlist rules
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││SETTINGS  proxy · privacy · storage                                                                 SESSION-ONLY CONFIG
+ PRIMARY           ││
+  Proxy         ^1 ││╭ CONFIGURATION ──────────────────────────────────────────────────────────╮ ╭ DETAILS ────────────────────────────────╮
+  History       ^2 │││ PROXY                                                                   │ │CA fingerprint                           │
+  Repeater      ^3 │││  Bind address                                                  127.0.0.1│ │                                         │
+▌ Settings      ^4 │││  Listen port                                                       37547│ │Value:                                   │
+                   │││  HTTP interception                                                 ○ OFF│ │SHA256:faq4qf3yTYc4t0hGZ/QHcb5kfZb/4Sb88Z│
+ PLANNED           │││  HTTPS TLS interception                                             ● ON│ │deezx82IY=                               │
+  Intruder planned │││  Upstream TLS verification                                 ● ON · locked│ │                                         │
+  Decoder  planned │││  Request body limit                                                2 MiB│ │SHA-256 fingerprint of the public CA     │
+                   │││  Response body limit                                               2 MiB│ │certificate. Compare it before trusting  │
+                   │││  Concurrent connections                                              128│ │the CA in a client.                      │
+                   │││  Connect timeout                                                    10 s│ │                                         │
+                   │││  Upstream response timeout                                          30 s│ │SECURITY                                 │
+                   │││  Idle timeout                                                       60 s│ │The fingerprint identifies public        │
+                   │││  Interception timeout                                              120 s│ │certificate material only; it is not a   │
+                   │││  Private upstreams                                                  ● ON│ │secret and never reveals the private key.│
+                   │││ INTERFACE & PRIVACY                                                     │ │                                         │
+                   │││  Redact sensitive headers                                           ● ON│ │LOCAL CA                                 │
+                   │││  Accent                                                            ○ OFF│ │/tmp/rawframe-tui-tls-gupc138_/ca/rawfram│
+                   │││  Mouse support                                                     ○ OFF│ │e-ca.crt.pem                             │
+                   │││ STORAGE & SCOPE                                                         │ │Fingerprint                              │
+                   │││  Persist bodies                                                    ○ OFF│ │SHA256:faq4qf3yTYc4t0hGZ/QHcb5kfZb/4Sb88Z│
+                   │││  Persist sensitive headers                                         ○ OFF│ │deezx82IY=                               │
+                   │││  Target scope                                          2 allowlist rules│ │                                         │
+                   │││ SECURITY & STORAGE                                                      │ │Changes apply to this session only. No   │
+                   │││  Local certifica…  /tmp/rawframe-tui-tls-gupc138_/ca/rawframe-ca.crt.pem│ │configuration file is written.           │
+                   │││▌ CA fingerprint      SHA256:faq4qf3yTYc4t0hGZ/QHcb5kfZb/4Sb88Zdeezx82IY=│ │                                         │
+                   │││  Database                /home/example/.local/share/rawframe/rawframe.db│ │                                         │
+                   │││                                                                         │ │                                         │
+                   │││                                                                         │ │                                         │
+ STATUS            │││                                                                         │ │                                         │
+ Engine active     │││                                                                         │ │                                         │
+ Interception off  │││                                                                         │ │                                         │
+ No pending        │││↑↓ select   Enter edit/toggle   Esc cancel edit                          │ │                                         │
+                   ││╰─────────────────────────────────────────────────────────────────────────╯ ╰─────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · CA certificate: /tmp/rawframe-tui-tls-gupc138_/ca/rawframe-ca.crt.pem · SHA256:faq4qf3yTYc4t0hGZ/… ^K commands  ? help  ^C quit

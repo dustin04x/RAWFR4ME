@@ -6,6 +6,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Paragraph, Row, Table};
+use rawframe_core::models::Scheme;
 use rawframe_core::models::traffic::{TrafficEntry, TrafficKind, TrafficState};
 
 use crate::app::App;
@@ -80,6 +81,18 @@ fn render_traffic_area(
         format!("TRAFFIC · {} live capture(s)", app.live_capture_count())
     } else {
         "TRAFFIC".to_string()
+    };
+    let decrypted_https = app.traffic().iter().any(|entry| {
+        entry.is_live_capture()
+            && entry.kind == TrafficKind::Http
+            && entry.request.scheme == Scheme::Https
+    });
+    let title = if decrypted_https && app.tls_status.enabled {
+        format!("{title} · TLS DECRYPTED")
+    } else if decrypted_https {
+        format!("{title} · DECRYPTED CAPTURE (TLS NOW OFF)")
+    } else {
+        title
     };
     let block = focused_panel(theme, &title, focused);
     let inner = block.inner(area);
@@ -573,7 +586,11 @@ fn render_empty_for_state(frame: &mut Frame, area: Rect, app: &App, theme: &Them
                 "The proxy is active. Live requests and CONNECT tunnel metadata appear here.",
                 "Simulated fixtures stay in HTTP History and are labelled SIM.",
             ],
-            Some("Configure your client and send a request  ·  HTTPS CONNECT remains opaque"),
+            Some(if app.tls_status.enabled {
+                "Configure your client and send a request  ·  scoped HTTPS CONNECT is decrypted"
+            } else {
+                "Configure your client and send a request  ·  HTTPS CONNECT remains opaque"
+            }),
         ),
     }
 }

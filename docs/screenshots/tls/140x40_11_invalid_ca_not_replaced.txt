@@ -1,0 +1,40 @@
+ RAWFRAME  |  Settings                                                       PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 1 allowlist rule
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││SETTINGS  proxy · privacy · storage                                                                 SESSION-ONLY CONFIG
+ PRIMARY           ││
+  Proxy         ^1 ││╭ CONFIGURATION ──────────────────────────────────────────────────────────╮ ╭ DETAILS ────────────────────────────────╮
+  History       ^2 │││ PROXY                                                                   │ │HTTPS TLS interception                   │
+  Repeater      ^3 │││  Bind address                                                  127.0.0.1│ │                                         │
+▌ Settings      ^4 │││  Listen port                                                       36293│ │Value: OFF                               │
+                   │││  HTTP interception                                                 ○ OFF│ │                                         │
+ PLANNED           │││▌ HTTPS TLS interception                                            ○ OFF│ │Terminate authorized CONNECT sessions and│
+  Intruder planned │││  Upstream TLS verification                                 ● ON · locked│ │inspect decrypted HTTP/1.1. Off by       │
+  Decoder  planned │││  Request body limit                                                2 MiB│ │default; opaque tunnelling is preserved  │
+                   │││  Response body limit                                               2 MiB│ │when disabled.                           │
+                   │││  Concurrent connections                                              128│ │                                         │
+                   │││  Connect timeout                                                    10 s│ │SECURITY                                 │
+                   │││  Upstream response timeout                                          30 s│ │Enabling makes HTTPS content readable to │
+                   │││  Idle timeout                                                       60 s│ │RAWFRAME. Trust the exported CA          │
+                   │││  Interception timeout                                              120 s│ │certificate explicitly; the private key  │
+                   │││  Private upstreams                                                 ○ OFF│ │is never exported.                       │
+                   │││ INTERFACE & PRIVACY                                                     │ │                                         │
+                   │││  Redact sensitive headers                                           ● ON│ │LOCAL CA                                 │
+                   │││  Accent                                                            ○ OFF│ │Not initialised. Enabling intercept      │
+                   │││  Mouse support                                                     ○ OFF│ │generates a local CA on explicit operator│
+                   │││ STORAGE & SCOPE                                                         │ │action.                                  │
+                   │││  Persist bodies                                                    ○ OFF│ │invalid proxy configuration: CA          │
+                   │││  Persist sensitive headers                                         ○ OFF│ │certificate file is not a valid PEM      │
+                   │││  Target scope                                           1 allowlist rule│ │certificate                              │
+                   │││ SECURITY & STORAGE                                                      │ │                                         │
+                   │││  Local certificate authority                             not initialised│ │Changes apply to this session only. No   │
+                   │││  CA fingerprint                                          not initialised│ │configuration file is written.           │
+                   │││  Database                /home/example/.local/share/rawframe/rawframe.db│ │                                         │
+                   │││                                                                         │ │                                         │
+                   │││                                                                         │ │                                         │
+ STATUS            │││                                                                         │ │                                         │
+ Engine active     │││                                                                         │ │                                         │
+ Interception off  │││                                                                         │ │                                         │
+ No pending        │││↑↓ select   Enter edit/toggle   Esc cancel edit                          │ │                                         │
+                   ││╰─────────────────────────────────────────────────────────────────────────╯ ╰─────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   × TLS interception could not be enabled: invalid proxy configuration: CA certificate file is not a … ^K commands  ? help  ^C quit

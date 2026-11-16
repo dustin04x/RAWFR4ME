@@ -1,0 +1,30 @@
+ RAWFRAME  |  Settings               PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 1 allowlist rule
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││SETTINGS  proxy · privacy · storage                         SESSION-ONLY CONFIG
+ PRIMARY           ││
+  Proxy         ^1 ││╭ CONFIGURATION ──────────────────────────────────────────────────────────────╮
+  History       ^2 │││ PROXY                                                                       │
+  Repeater      ^3 │││  Bind address                                                      127.0.0.1│
+▌ Settings      ^4 │││  Listen port                                                           35839│
+                   │││  HTTP interception                                                     ○ OFF│
+ PLANNED           │││▌ HTTPS TLS interception                                                ○ OFF│
+  Intruder planned │││  Upstream TLS verification                                     ● ON · locked│
+  Decoder  planned │││  Request body limit                                                    2 MiB│
+                   │││  Response body limit                                                   2 MiB│
+                   │││  Concurrent connections                                                  128│
+                   │││  Connect timeout                                                        10 s│
+                   │││  Upstream response timeout                                              30 s│
+                   │││  Idle timeout                                                           60 s│
+                   │││  Interception timeout                                                  120 s│
+                   │││  Private upstreams                                                     ○ OFF│
+                   │││ INTERFACE & PRIVACY                                                         │
+                   │││  Redact sensitive headers                                               ● ON│
+                   │││  Accent                                                                ○ OFF│
+                   │││  Mouse support                                                         ○ OFF│
+ STATUS            │││ STORAGE & SCOPE                                                             │
+ Engine active     │││  Persist bodies                                                        ○ OFF│
+ Interception off  │││  Persist sensitive headers                                             ○ OFF│
+ No pending        │││↑↓ select   Enter edit/toggle   Esc cancel edit                              │
+                   ││╰─────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   × TLS interception could not be enabled: invalid proxy conf… ^K commands  ? help  ^C quit

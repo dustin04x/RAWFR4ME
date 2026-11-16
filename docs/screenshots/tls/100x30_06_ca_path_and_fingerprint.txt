@@ -1,0 +1,30 @@
+ RAWFRAME  |  Settings              PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 2 allowlist rules
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││SETTINGS  proxy · privacy · storage                         SESSION-ONLY CONFIG
+ PRIMARY           ││
+  Proxy         ^1 ││╭ CONFIGURATION ──────────────────────────────────────────────────────────────╮
+  History       ^2 │││  HTTPS TLS interception                                                 ● ON│
+  Repeater      ^3 │││  Upstream TLS verification                                     ● ON · locked│
+▌ Settings      ^4 │││  Request body limit                                                    2 MiB│
+                   │││  Response body limit                                                   2 MiB│
+ PLANNED           │││  Concurrent connections                                                  128│
+  Intruder planned │││  Connect timeout                                                        10 s│
+  Decoder  planned │││  Upstream response timeout                                              30 s│
+                   │││  Idle timeout                                                           60 s│
+                   │││  Interception timeout                                                  120 s│
+                   │││  Private upstreams                                                      ● ON│
+                   │││ INTERFACE & PRIVACY                                                         │
+                   │││  Redact sensitive headers                                               ● ON│
+                   │││  Accent                                                                ○ OFF│
+                   │││  Mouse support                                                         ○ OFF│
+                   │││ STORAGE & SCOPE                                                             │
+                   │││  Persist bodies                                                        ○ OFF│
+                   │││  Persist sensitive headers                                             ○ OFF│
+                   │││  Target scope                                              2 allowlist rules│
+ STATUS            │││ SECURITY & STORAGE                                                          │
+ Engine active     │││  Local certificate a…  /tmp/rawframe-tui-tls-nuq_l4hy/ca/rawframe-ca.crt.pem│
+ Interception off  │││▌ CA fingerprint          SHA256:op6rHlprLU+2qNDE2jvwINzfOPaweT89vot91KVPItY=│
+ No pending        │││↑↓ select   Enter edit/toggle   Esc cancel edit                              │
+                   ││╰─────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · CA certificate: /tmp/rawframe-tui-tls-nuq_l4hy/ca/rawfram… ^K commands  ? help  ^C quit

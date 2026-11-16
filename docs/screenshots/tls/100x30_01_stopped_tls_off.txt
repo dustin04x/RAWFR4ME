@@ -1,0 +1,30 @@
+ RAWFRAME  |  Proxy                   PROXY STOPPED  |  INTERCEPTION OFF  |  SCOPE 2 allowlist rules
+────────────────────────────────────────────────────────────────────────────────────────────────────
+╭ TRAFFIC ──────────────────────────────────────────────────────────╮│╭ INSPECTOR ─────────────────╮
+│ Start proxy P    Interception off I    Inspect Enter    Replay R  │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││     NO REQUEST SELECTED    │
+│                                                                   │││                            │
+│                                                                   │││     Select a traffic or    │
+│                                                                   │││  history entry to inspect  │
+│                           PROXY STOPPED                           │││      protocol details.     │
+│                                                                   │││  The main workspace stays  │
+│   The proxy engine is not running. 17 simulated fixture(s) are    │││  focused on the queue and  │
+│             listed in HTTP History, not live traffic.             │││     active interception    │
+│      Start the engine, then point a client at the listener.       │││            work.           │
+│                                                                   │││                            │
+│        Press P to start the proxy  ·  Ctrl+4 reviews scope        │││     Enter inspect  ·  I    │
+│                                                                   │││     toggle inspector  ·    │
+│                                                                   │││       Ctrl+4 Settings      │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+╰───────────────────────────────────────────────────────────────────╯│╰────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · Fixtures loaded. Press P on the Proxy screen to start the… ^K commands  ? help  ^C quit
