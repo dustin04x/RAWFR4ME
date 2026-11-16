@@ -1,0 +1,45 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/rawframe-core",
+    "crates/rawframe-http",
+    "crates/rawframe-proxy",
+    "crates/rawframe-tui",
+    "crates/rawframe-cli",
+]
+default-members = ["crates/rawframe-cli"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+authors = ["RAWFRAME contributors"]
+description = "Terminal-native HTTP interception and security testing workbench"
+
+[workspace.dependencies]
+rawframe-core = { path = "crates/rawframe-core" }
+rawframe-http = { path = "crates/rawframe-http" }
+rawframe-proxy = { path = "crates/rawframe-proxy" }
+rawframe-tui = { path = "crates/rawframe-tui" }
+
+anyhow = "1.0"
+bytes = "1.10"
+http-body-util = "0.1"
+hyper = { version = "1.7", features = ["http1", "server", "client"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.6", features = ["derive"] }
+httparse = "1.10"
+ratatui = "0.30"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"
+tokio = { version = "1.54", features = ["sync"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

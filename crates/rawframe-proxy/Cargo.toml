@@ -1,0 +1,37 @@
+[package]
+name = "rawframe-proxy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "HTTP/1.1 forwarding and opaque CONNECT proxy for RAWFRAME"
+
+[dependencies]
+bytes.workspace = true
+chrono.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+rawframe-core.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = [
+    "io-util",
+    "macros",
+    "net",
+    "rt",
+    "rt-multi-thread",
+    "time",
+] }
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = [
+    "io-util",
+    "macros",
+    "net",
+    "rt",
+    "rt-multi-thread",
+    "sync",
+    "time",
+] }

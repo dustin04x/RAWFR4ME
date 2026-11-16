@@ -1,0 +1,12 @@
+[package]
+name = "rawframe-http"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "HTTP/1.x message parsing for RAWFRAME documents"
+
+[dependencies]
+httparse.workspace = true
+rawframe-core.workspace = true
+thiserror.workspace = true

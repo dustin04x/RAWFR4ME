@@ -1,0 +1,31 @@
+[package]
+name = "rawframe-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RAWFRAME command-line entry point"
+
+[[bin]]
+name = "rawframe"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+rawframe-core.workspace = true
+rawframe-proxy.workspace = true
+rawframe-tui.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+ratatui.workspace = true
+tokio = { workspace = true, features = [
+    "io-util",
+    "macros",
+    "net",
+    "rt-multi-thread",
+    "time",
+] }

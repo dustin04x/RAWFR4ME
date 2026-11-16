@@ -1,0 +1,13 @@
+[package]
+name = "rawframe-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Shared data models, events, and security primitives for RAWFRAME"
+
+[dependencies]
+chrono.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true

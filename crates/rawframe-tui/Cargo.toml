@@ -1,0 +1,17 @@
+[package]
+name = "rawframe-tui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Interactive terminal interface for RAWFRAME"
+
+[dependencies]
+chrono.workspace = true
+ratatui.workspace = true
+rawframe-core.workspace = true
+rawframe-http.workspace = true
+
+[dev-dependencies]
+rawframe-proxy.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
