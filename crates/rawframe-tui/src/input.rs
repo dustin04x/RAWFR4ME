@@ -45,6 +45,14 @@ impl App {
             self.handle_menu_key(key);
             return;
         }
+        if self.scope_editor.is_some() {
+            self.handle_scope_editor_key(key);
+            return;
+        }
+        if self.sessions_open {
+            self.handle_sessions_key(key);
+            return;
+        }
         if self.help_open {
             if matches!(key.code, KeyCode::Esc) || plain_char(&key) == Some('?') {
                 self.help_open = false;
@@ -111,6 +119,10 @@ impl App {
                     self.help_open = true;
                     return;
                 }
+                'B' => {
+                    self.open_sessions();
+                    return;
+                }
                 'q' => {
                     self.request_quit();
                     return;
@@ -136,6 +148,12 @@ impl App {
     }
 
     pub fn handle_paste(&mut self, text: &str) {
+        if self.scope_editor.is_some() {
+            for ch in single_line(text).chars() {
+                self.scope_input_push(ch);
+            }
+            return;
+        }
         if self.settings.edit.is_some() {
             let single_line = single_line(text);
             if let Some(edit) = &mut self.settings.edit {
@@ -475,6 +493,42 @@ impl App {
             KeyCode::Left => self.repeater.select_previous(),
             KeyCode::Right => self.repeater.select_next(),
             KeyCode::Char('s') | KeyCode::Char('S') => self.send_repeater_request(),
+            _ => {}
+        }
+    }
+
+    fn handle_sessions_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('B') => self.close_sessions(),
+            KeyCode::Up | KeyCode::Char('k') => self.move_sessions_selection(-1),
+            KeyCode::Down | KeyCode::Char('j') => self.move_sessions_selection(1),
+            KeyCode::PageUp => self.move_sessions_selection(-8),
+            KeyCode::PageDown => self.move_sessions_selection(8),
+            KeyCode::Home => self.select_session_edge(false),
+            KeyCode::End => self.select_session_edge(true),
+            KeyCode::Enter => self.restore_selected_session(),
+            KeyCode::Char('e') | KeyCode::Char('E') => self.export_selected_session(),
+            KeyCode::Char('r') | KeyCode::Char('R') => self.refresh_sessions(),
+            _ => {}
+        }
+    }
+
+    fn handle_scope_editor_key(&mut self, key: KeyEvent) {
+        let control = key.modifiers.contains(KeyModifiers::CONTROL);
+        if control && matches!(key.code, KeyCode::Char('b') | KeyCode::Char('B')) {
+            self.toggle_scope_block_unlisted();
+            return;
+        }
+        match key.code {
+            KeyCode::Esc => self.close_scope_editor(),
+            KeyCode::Up => self.move_scope_selection(-1),
+            KeyCode::Down => self.move_scope_selection(1),
+            KeyCode::Home => self.select_scope_edge(false),
+            KeyCode::End => self.select_scope_edge(true),
+            KeyCode::Enter => self.commit_scope_rule(),
+            KeyCode::Backspace => self.scope_input_backspace(),
+            KeyCode::Delete => self.remove_selected_scope_rule(),
+            KeyCode::Char(ch) if !control => self.scope_input_push(ch),
             _ => {}
         }
     }
@@ -931,6 +985,17 @@ impl App {
                 self.activate_setting();
             }
             HitTarget::SearchField => self.start_search(),
+            HitTarget::SessionRow(index) => {
+                self.sessions_selected = index;
+                if double {
+                    self.restore_selected_session();
+                }
+            }
+            HitTarget::ScopeRuleRow(index) => {
+                if let Some(editor) = &mut self.scope_editor {
+                    editor.selected = index;
+                }
+            }
             HitTarget::PaletteRow(_)
             | HitTarget::MenuItem(_)
             | HitTarget::DismissOverlay

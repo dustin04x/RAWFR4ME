@@ -372,16 +372,22 @@ fn describe(id: SettingId) -> (&'static str, Option<&'static str>) {
             None,
         ),
         SettingId::PersistBodies => (
-            "When enabled, captured bodies may be written to the session database.",
-            Some("Off by default because bodies commonly contain credentials and personal data."),
+            "When enabled, the bodies of new captures are written to the session database.",
+            Some(
+                "Off by default because bodies commonly contain credentials and personal data. Changing this never rewrites entries already stored.",
+            ),
         ),
         SettingId::PersistSensitive => (
-            "When enabled, sensitive header values may be written to the session database.",
-            Some("Off by default. Enabling this persists credentials in plain form."),
+            "When enabled, sensitive header values are written instead of the placeholder <redacted>.",
+            Some(
+                "Off by default. Enabling this persists credentials in plain form and applies only to future writes.",
+            ),
         ),
         SettingId::Scope => (
-            "Allowlist of hosts the proxy may contact. An empty allowlist denies all upstream traffic.",
-            Some("Explicit target authorization is required before testing any system."),
+            "Live allowlist of hosts the proxy may contact. Edit rules without restarting the listener.",
+            Some(
+                "An empty allowlist denies all upstream traffic. Explicit target authorization is required before testing any system.",
+            ),
         ),
         SettingId::CertificateAuthority => (
             "The local certificate authority used for HTTPS interception and per-host leaf certificates.",
@@ -396,8 +402,10 @@ fn describe(id: SettingId) -> (&'static str, Option<&'static str>) {
             ),
         ),
         SettingId::DatabasePath => (
-            "Location of the SQLite session database for captured history and migrations.",
-            Some("Not created yet. Storage lands in Milestone 5."),
+            "Location of the SQLite session database holding captured history and schema migrations.",
+            Some(
+                "Bodies and sensitive header values follow the persistence toggles above. The database is created on first launch unless --no-persist is used.",
+            ),
         ),
     }
 }

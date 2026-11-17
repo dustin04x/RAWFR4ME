@@ -1,7 +1,7 @@
 # Security Model
 
 RAWFRAME is security-sensitive infrastructure. This document records the threat
-model, the controls implemented through Milestone 4 (0.2.0), and the gaps that
+model, the controls implemented through Milestone 5 (0.2.0), and the gaps that
 must stay visible until later milestones close them.
 
 RAWFRAME must only be used against systems for which the operator has explicit
@@ -77,6 +77,11 @@ database libraries need deliberate review and version pinning.
   `https`; default ports are 80 and 443.
 - Scope is checked before DNS resolution or any upstream connection. A denial is
   recorded as a failed capture (`403`) and no socket is opened.
+- The allowlist can be edited live in Settings. New requests and CONNECT
+  sessions use the updated rules immediately; established connections and
+  already-forwarded requests keep the rules they were admitted under. Rules use
+  the same parser as `--scope`, and adding a rule never opens a host by
+  accident: an empty allowlist with default-deny still denies everything.
 - The destination hostname is resolved **once**. Every returned address is
   checked by an address policy, and the connection is made to that exact
   validated address list. No second lookup occurs, preventing a rebinding
@@ -148,8 +153,11 @@ network limits apply after the proxy is restarted.
 - `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`,
   `X-Auth-Token`, and `X-Csrf-Token` are redacted by default in the inspector's
   raw, headers, and body views.
-- Redaction is presentation-level; the in-memory model retains values for
-  authorized inspection. Nothing is written to disk.
+- Redaction is applied at display time for in-memory traffic. For persistence,
+  `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`,
+  `X-Auth-Token`, and `X-Csrf-Token` values are replaced with `<redacted>`
+  **before SQL**, and bodies are stored as `NULL`, unless the operator explicitly
+  opts in with `--persist-sensitive-headers` / `--persist-bodies`.
 - The inspector shows a `REDACTED` or `UNREDACTED` indicator. Disabling redaction
   requires an explicit action through Settings, the palette, or `--no-redact`,
   and produces a warning.
@@ -169,9 +177,11 @@ network limits apply after the proxy is restarted.
 - Logs contain startup configuration, warnings, lifecycle markers, and proxy
   worker errors. The proxy does not log request/response headers, bodies, query
   strings, credentials, cookies, or CONNECT payloads.
-- No SQLite database is created. Bodies and sensitive headers are off by default
-  in configuration, and nothing is persisted in this build.
-- Settings and history are in-memory only.
+- Captured traffic can be persisted to a local SQLite database (Section 2.1).
+  Persistence is on by default; `--no-persist` keeps everything in memory only.
+- History and sessions are stored in the database. Settings, the storage
+  policy, and the target scope rules are runtime state only: they come from CLI
+  flags or UI edits for the current run and are not written to a config file.
 - No telemetry endpoint, external website, or shell command is used.
 - CA material and private keys are never written to logs, exports, events, or history. The CA exists only when the operator explicitly enables interception or runs a CA command.
 
@@ -196,6 +206,76 @@ network limits apply after the proxy is restarted.
 - Interception decisions are real proxy decisions; dropped/timed-out/cancelled requests must not fabricate upstream responses.
 - **HTTPS TLS interception is opt-in.** When disabled (default), `CONNECT` tunnels remain opaque: no TLS termination, no certificate issuance, and no visibility into tunneled payloads. When explicitly enabled, decrypted HTTP/1.1 requests use the same interception queue, validation, history, and lifecycle as HTTP. Opaque tunnels are never represented as decrypted traffic.
 
+## 2.1 Durable storage (implemented)
+
+### Data inventory
+
+When persistence is active, the database contains for each session:
+
+- session and project identifiers, names, timestamps, close reason, and an
+  `incomplete`/`recovered` marker;
+- request method, scheme, host, port, target, HTTP version, ordered headers
+  (including duplicates), response status/reason/version, timestamps, duration,
+  error/note text, interception and tunnel metadata;
+- bodies **only** when body persistence is enabled; otherwise SQL `NULL`;
+- sensitive header values only when sensitive-header persistence is enabled;
+  otherwise the literal `<redacted>`.
+
+Never stored: the CA private key, TLS session keys, tunnel payloads, raw TLS
+bytes, terminal input, or logs. Live/decrypted HTTP traffic is stored according
+to the policy above; opaque CONNECT payloads remain unreadable and unstored.
+
+### Defaults and opt-in
+
+| Option | Default | Effect |
+|---|---|---|
+| persistence | on | `--no-persist` disables the database entirely |
+| bodies | off | `--persist-bodies`/Settings stores future bodies |
+| sensitive headers | off | `--persist-sensitive-headers`/Settings stores future values |
+| database location | platform data dir | `--db FILE` |
+
+A policy change affects **future writes only**. Entries already stored keep the
+redaction they were written with, so enabling body storage cannot retroactively
+recover old bodies and disabling sensitive storage cannot erase already-written
+credentials. The interface states this.
+
+### File protection and durability
+
+- The database, WAL, and SHM files live in a directory created/forced to `0700`
+  on Unix; the database and export files are `0600`.
+- SQLite runs in WAL mode with `synchronous=FULL`, a 5 s busy timeout, and a
+  configurable page ceiling (512 MiB default) so a runaway capture session stops
+  writing instead of filling the disk.
+- Batches are written in one transaction. Every write is ordered after the
+  capture event, never before it; the proxy is never blocked on I/O.
+- Opening runs `quick_check`. A corrupt database, a newer schema, a full disk, or
+  an unwritable location disables persistence with an explicit UI/log error. The
+  file is left in place for inspection or recovery; RAWFRAME never deletes it.
+- On the next run, sessions that did not close cleanly are marked `recovered`,
+  and unfinished transactions remain `incomplete` rather than being reported as
+  completed.
+
+### Redacted export
+
+Export writes redacted JSON Lines from the stored rows, not from memory. It is
+built in a sibling temporary file, flushed, given `0600` permissions, and renamed
+into place. Redacted header values and withheld bodies are marked explicitly.
+Export does not include CA material or any value that was not already in the
+database.
+
+### Remaining storage risks
+
+- Stored metadata (hostnames, paths, session names, non-sensitive headers) can
+  still be sensitive. Protect the data directory and delete sessions you no
+  longer need.
+- Enabling body or sensitive-header persistence stores credentials in plain
+  form in SQLite. This is an explicit operator decision and is warned about in
+  the UI; full-disk encryption is strongly recommended.
+- A local attacker who can read the operator's files can read the database if
+  file permissions are bypassed (root, backups, sync clients).
+- The database ceiling is a safety limit, not a retention policy; old sessions
+  are not pruned automatically.
+
 ## 3. Explicit limitations and gaps
 
 | Gap | Consequence | Planned handling |
@@ -206,7 +286,9 @@ network limits apply after the proxy is restarted.
 | No per-client rate limit | One authorized client can use the global connection/body budget | Global semaphores and body caps; add quotas later if needed |
 | Connection-limit overflow closes the socket | Client sees a transport error, not an HTTP `503` | Documented behavior; revisit with later protocol work |
 | No HTTP/2, HTTP/3, WebSocket forwarding | Some traffic cannot traverse the proxy; `Upgrade` is stripped | Future protocol work |
-| No persistence | History and settings vanish on exit; no export | Milestone 5, with redaction on write and opt-in bodies |
+| Persisted metadata can be sensitive | Hostnames, paths, and non-sensitive headers remain on disk | Protect/delete the database; body and credential storage stay opt-in |
+| Stored bodies/credentials are plaintext when opted in | A local reader or backup can expose them | Owner-only permissions, warning, full-disk encryption; off by default |
+| No automatic retention limit | Long-running sessions grow until the 512 MiB ceiling | Manual session management/export; retention policy is future work |
 | Intercepted sessions are bound to one authority | Modified requests cannot switch to a different host/port inside an intercepted TLS session | Reject the modification and start a new connection instead |
 | DNS policy is conservative | Some special-purpose/lab ranges are refused | Explicit, reviewed policy extension rather than bypass |
 | No automated dependency audit | Supply-chain drift is possible | Add `cargo audit`/`cargo deny` in CI |
@@ -214,9 +296,10 @@ network limits apply after the proxy is restarted.
 | Redaction toggle does not rewrite existing Repeater buffers | A tab seeded while redaction was off retains visible secrets until reopened | Deliberate: editing must not silently mutate documents; warning shown |
 | No clipboard/copy action | Operators cannot copy from RAWFRAME | Consider an explicit, reviewed action later |
 
-TLS interception, CA generation, and live pause/edit/drop are covered by local
-integration tests, including a real-binary PTY regression. Persistence is still
-not implemented; do not describe it as working.
+TLS interception, CA generation, live pause/edit/drop, SQLite persistence,
+redaction-on-write, export, crash recovery, and live scope updates are covered by
+local integration tests, including a real-binary PTY regression. Storage tests'
+assertions check the actual database rows, not an in-memory mock.
 
 ## 4. Certificate authority design (implemented)
 

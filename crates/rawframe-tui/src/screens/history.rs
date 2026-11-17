@@ -43,7 +43,8 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, output: &
             .iter()
             .filter(|e| e.source == TrafficSource::Simulated)
             .count();
-        let hint = Line::from(vec![
+        let restored = app.restored_entry_count();
+        let mut spans = vec![
             Span::styled(
                 format!(" {} shown / {} total ", entries.len(), total),
                 theme.muted(),
@@ -52,11 +53,20 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, output: &
             Span::styled(format!(" {live} live "), theme.success()),
             Span::styled("·", theme.faint()),
             Span::styled(format!(" {sim} simulated "), theme.warning()),
-            Span::styled(
-                "  Live and simulated traffic are labeled in the table.",
-                theme.faint(),
-            ),
-        ]);
+        ];
+        if restored > 0 {
+            spans.push(Span::styled("·", theme.faint()));
+            spans.push(Span::styled(
+                format!(" {restored} restored "),
+                theme.accent(),
+            ));
+        }
+        let note = match app.restored_session_label() {
+            Some(label) => format!("  Read-only history from {label}."),
+            None => "  Live, simulated and restored traffic are labeled in the table.".to_string(),
+        };
+        spans.push(Span::styled(note, theme.faint()));
+        let hint = Line::from(spans);
         frame.render_widget(
             Paragraph::new(hint).style(Style::new().bg(theme.palette.bg)),
             Rect::new(area.x, y, area.width, 1),

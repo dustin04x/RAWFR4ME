@@ -321,6 +321,8 @@ pub enum HitTarget {
     RepeaterEditor,
     InterceptionEditor,
     Setting(SettingId),
+    SessionRow(usize),
+    ScopeRuleRow(usize),
     PaletteRow(usize),
     MenuItem(usize),
     Splitter(DragTarget),

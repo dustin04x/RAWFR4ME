@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Rust 1.88+ (edition 2024).
+- Rust 1.89+ (edition 2024).
 - A truecolor terminal for a representative visual check. Tests use
   `TestBackend`, so they run headlessly.
 - `cargo fmt`, `cargo clippy`, and `cargo test` from the standard toolchain.
@@ -49,6 +49,11 @@ silence a lint without fixing or documenting the underlying design issue.
 | `crates/rawframe-proxy/src/tls/` | CA management, leaf issuance/cache, TLS session helpers |
 | `crates/rawframe-proxy/tests/tls_interception.rs` | Local HTTPS interception, verification, and fail-closed tests |
 | `crates/rawframe-proxy/tests/forwarding.rs` | Local-only proxy integration suite |
+| `crates/rawframe-store/src/schema.rs` | Versioned SQLite migrations |
+| `crates/rawframe-store/src/record.rs` | Policy-applied entry <-> row encoding and restore decoding |
+| `crates/rawframe-store/src/store.rs` | Connection owner, batched upserts, session queries, export |
+| `crates/rawframe-store/src/worker.rs` | Storage thread, capture queue, status events |
+| `crates/rawframe-store/tests/persistence.rs` | Real-SQLite integration tests |
 | `crates/rawframe-tui/src/app.rs` | Application controller and actions |
 | `crates/rawframe-tui/src/input.rs` | Keyboard and mouse precedence |
 | `crates/rawframe-tui/src/ui.rs` | Shell composition and overlays |
@@ -75,8 +80,9 @@ silence a lint without fixing or documenting the underlying design issue.
 3. Run `cargo fmt --all`, then the quality gate.
 4. Do not claim a feature works if its milestone’s integration test does not
    exist. Simulated fixtures are not evidence for proxy behaviour.
-5. Preserve the dependency boundary: the TUI must not import `rawframe-proxy`.
-   New engine-facing types shared by both belong in `rawframe-core`.
+5. Preserve the dependency boundary: the TUI must not import `rawframe-proxy`
+   or `rusqlite`. New engine/storage-facing types shared across boundaries
+   belong in `rawframe-core`; only `rawframe-cli` wires all services together.
 
 ### Working on the proxy
 
@@ -95,6 +101,24 @@ silence a lint without fixing or documenting the underlying design issue.
   whenever the filter list changes.
 - Update `TunnelMetadata` and the TUI tunnel view if relay outcomes or byte
   accounting change.
+
+### Working on persistence
+
+- Never open SQLite from the proxy, TUI, or an async task. The single writer
+  connection belongs to the storage thread; everything else exchanges contracts
+  defined in `rawframe_core::storage`.
+- Apply redaction while encoding rows (`record.rs`), not at render time. A new
+  sensitive header belongs in `SENSITIVE_HEADERS`; a new body path must respect
+  `StoragePolicy::persist_bodies` and write SQL `NULL` when off.
+- Append migrations instead of editing an applied one. Bump `SCHEMA_VERSION`,
+  add the SQL to the versioned batch, and test an upgrade from an existing
+  database as well as a fresh one.
+- Keep writes batched and transactional. Do not make the proxy await the store,
+  and do not silently drop errors: emit `StorageEvent::Failed` and keep queries
+  honest.
+- Use isolated `tempfile` directories in tests. Never point a test at the
+  operator's real data directory.
+- Do not store CA keys, TLS secrets, tunnel payloads, or logs in the database.
 
 ### Logging and debugging
 
@@ -236,6 +260,12 @@ TUI-to-engine boundary:
 cargo test -p rawframe-cli --test proxy_tui -- --nocapture
 ```
 
+Storage (real SQLite, isolated temp databases):
+
+```bash
+cargo test -p rawframe-store -- --nocapture
+```
+
 CLI:
 
 ```bash
@@ -266,6 +296,28 @@ let position = testing::position_for(&app, &HitTarget::Nav(rawframe_tui::NavSect
 works exactly as it does in the real terminal loop. `App::drain_events` applies
 queued proxy events without a terminal, which is how the CLI boundary test waits
 for real captures.
+
+### Manual persistence check
+
+```bash
+# isolated database and an authorized local upstream
+cargo run -p rawframe-cli --bin rawframe -- \
+  --db /tmp/rawframe-dev.db \
+  --scope http://127.0.0.1:8000 \
+  --allow-private-upstreams --persist-bodies
+# press P, send a request with curl, then press B and restore/export it
+
+# inspect the real rows (redaction and NULL bodies are visible here)
+sqlite3 /tmp/rawframe-dev.db 'SELECT session_id, method, host, state, request_body FROM traffic;'
+
+# headless redacted export
+cargo run -p rawframe-cli --bin rawframe -- \
+  --db /tmp/rawframe-dev.db --export-history /tmp/rawframe-dev.jsonl
+```
+
+With body persistence left off, `request_body` must be SQL `NULL`, never an
+empty blob. Sensitive header values must be `<redacted>` unless explicitly
+enabled. Do not commit a database or export.
 
 ### Manual proxy check
 

@@ -9,7 +9,9 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::app::App;
 use crate::components::inspector::{InspectorContext, render_inspector};
-use crate::components::overlay::{render_confirm, render_help, render_menu, render_palette};
+use crate::components::overlay::{
+    render_confirm, render_help, render_menu, render_palette, render_scope_editor, render_sessions,
+};
 use crate::components::truncate;
 use crate::interaction::{Focus, HitTarget, NavSection, RenderOutput};
 use crate::layout::{DragTarget, compute};
@@ -74,6 +76,10 @@ pub fn render(frame: &mut Frame, app: &App) -> RenderOutput {
         render_palette(frame, area, &theme, palette, &results, &mut output);
     } else if let Some(menu) = &app.context_menu {
         render_menu(frame, area, &theme, menu, &mut output);
+    } else if app.scope_editor().is_some() {
+        render_scope_editor(frame, area, &theme, app, &mut output);
+    } else if app.sessions_open() {
+        render_sessions(frame, area, &theme, app, &mut output);
     } else if app.help_open {
         render_help(frame, area, &theme, &mut output);
     }
@@ -527,22 +533,33 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     );
 
     if inner.height > 1 {
+        let storage = if app.storage_status().enabled {
+            format!("  ·  DB ON ({} writes)", app.storage_status().persisted)
+        } else if app.storage_status().error.is_some() {
+            "  ·  DB ERROR".to_string()
+        } else {
+            "  ·  DB OFF".to_string()
+        };
         let left = if app.live_capture_count() > 0 {
             format!(
-                " Live captures: {}  ·  Simulated fixtures retained separately",
+                " Live captures: {}  ·  Simulated fixtures retained separately{storage}",
                 app.live_capture_count()
             )
         } else if app.proxy_state == rawframe_core::ProxyState::Listening {
-            if app.tls_status.enabled {
+            let base = if app.tls_status.enabled {
                 " Live engine listening  ·  No traffic yet  ·  TLS interception ON for scoped HTTPS"
-                    .to_string()
             } else {
-                " Live engine listening  ·  No traffic yet  ·  HTTPS CONNECT opaque (TLS interception off)".to_string()
-            }
+                " Live engine listening  ·  No traffic yet  ·  HTTPS CONNECT opaque (TLS interception off)"
+            };
+            format!("{base}{storage}")
         } else if app.tls_status.enabled {
-            " Simulated data only  ·  Start proxy for live capture  ·  TLS interception ON for scoped HTTPS".to_string()
+            format!(
+                " Simulated data only  ·  Start proxy for live capture  ·  TLS interception ON for scoped HTTPS{storage}"
+            )
         } else {
-            " Simulated data only  ·  Start proxy for live HTTP capture  ·  HTTPS CONNECT opaque (TLS interception off)".to_string()
+            format!(
+                " Simulated data only  ·  Start proxy for live HTTP capture  ·  HTTPS CONNECT opaque (TLS interception off){storage}"
+            )
         };
         let left_style = if app.live_capture_count() > 0
             || app.proxy_state == rawframe_core::ProxyState::Listening
@@ -605,7 +622,7 @@ fn context_hints(app: &App) -> &'static str {
             }
         }
         NavSection::History => {
-            "↑↓ select  ·  Enter inspect  ·  / or ^F search  ·  M/S/H filters  ·  R replay"
+            "↑↓ select  ·  Enter inspect  ·  / search  ·  M/S/H filters  ·  R replay  ·  B sessions"
         }
         NavSection::Repeater => {
             if app.repeater.editing {

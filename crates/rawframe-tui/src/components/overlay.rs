@@ -6,6 +6,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
 
+use crate::app::App;
 use crate::commands::CommandSpec;
 use crate::components::{panel, truncate};
 use crate::interaction::{HitTarget, RenderOutput, ScrollRegion};
@@ -43,6 +44,274 @@ fn clamp_rect(screen: Rect, width: u16, height: u16) -> Rect {
         width,
         height,
     )
+}
+
+/// Session browser. Restores stored history read-only; it never changes the
+/// session being recorded.
+pub fn render_sessions(
+    frame: &mut Frame,
+    screen: Rect,
+    theme: &Theme,
+    app: &App,
+    output: &mut RenderOutput,
+) {
+    output.hit(screen, HitTarget::DismissOverlay);
+    let width = screen.width.saturating_sub(12).clamp(48, 92);
+    let height = screen.height.saturating_sub(8).clamp(10, 22);
+    let area = clamp_rect(screen, width, height);
+    let inner = overlay_frame(frame, area, theme, "STORED SESSIONS");
+    output.hit(area, HitTarget::OverlaySurface);
+    if inner.height < 5 || inner.width < 30 {
+        return;
+    }
+
+    let status = app.storage_status();
+    let header = if let Some(error) = &status.error {
+        Line::from(Span::styled(
+            format!("Persistence disabled: {error}"),
+            theme.danger(),
+        ))
+    } else if status.enabled {
+        Line::from(vec![
+            Span::styled("DB ", theme.label()),
+            Span::styled(
+                truncate(
+                    &status
+                        .database_path
+                        .as_ref()
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_else(|| "(default)".into()),
+                    inner.width.saturating_sub(24) as usize,
+                ),
+                theme.muted(),
+            ),
+            Span::styled(
+                format!("  ·  {} writes this session", status.persisted),
+                theme.faint(),
+            ),
+        ])
+    } else {
+        Line::from(Span::styled("Persistence is not active.", theme.warning()))
+    };
+    frame.render_widget(
+        Paragraph::new(header),
+        Rect::new(inner.x, inner.y, inner.width, 1),
+    );
+
+    let list_top = inner.y + 2;
+    let footer_rows = 2;
+    let list_height = inner.height.saturating_sub(2 + footer_rows) as usize;
+    if app.sessions_loading() && app.sessions().is_empty() {
+        frame.render_widget(
+            Paragraph::new(Span::styled("Loading stored sessions…", theme.faint()))
+                .style(Style::new().bg(theme.palette.surface)),
+            Rect::new(inner.x, list_top, inner.width, 1),
+        );
+    } else if app.sessions().is_empty() {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "No stored sessions yet. Captured traffic is written here automatically.",
+                theme.faint(),
+            ))
+            .style(Style::new().bg(theme.palette.surface)),
+            Rect::new(inner.x, list_top, inner.width, 1),
+        );
+    }
+
+    let selected = app.sessions_selected();
+    let start = if app.sessions().len() <= list_height {
+        0
+    } else {
+        selected
+            .saturating_sub(list_height.saturating_sub(1))
+            .min(app.sessions().len() - list_height)
+    };
+    for (row, session) in app
+        .sessions()
+        .iter()
+        .skip(start)
+        .take(list_height)
+        .enumerate()
+    {
+        let index = start + row;
+        let is_selected = index == selected;
+        let rect = Rect::new(inner.x, list_top + row as u16, inner.width, 1);
+        let base = if is_selected {
+            theme.selected()
+        } else {
+            Style::new().bg(theme.palette.surface)
+        };
+        frame.render_widget(
+            Paragraph::new(" ".repeat(inner.width as usize)).style(base),
+            rect,
+        );
+
+        let marker = if is_selected { "▌" } else { " " };
+        let label = format!("{}/{}", session.project_name, session.name);
+        let name = truncate(&label, 30);
+        let mut spans = vec![
+            Span::styled(marker, theme.accent()),
+            Span::styled(
+                format!(" {name:<30} "),
+                if is_selected {
+                    theme.selected_accent()
+                } else {
+                    theme.text()
+                },
+            ),
+            Span::styled(format!("{:>5} rec ", session.records), theme.muted()),
+        ];
+        if session.incomplete > 0 {
+            spans.push(Span::styled(
+                format!("{} incomplete ", session.incomplete),
+                theme.warning(),
+            ));
+        } else {
+            spans.push(Span::styled("complete ", theme.faint()));
+        }
+        if session.recovered {
+            spans.push(Span::styled("recovered ", theme.warning()));
+        }
+        spans.push(Span::styled(
+            session.created_at.format("%m-%d %H:%M").to_string(),
+            theme.faint(),
+        ));
+        frame.render_widget(Paragraph::new(Line::from(spans)).style(base), rect);
+        output.hit(rect, HitTarget::SessionRow(index));
+    }
+
+    let hint_y = inner.bottom().saturating_sub(2);
+    if hint_y > list_top {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "↑↓ select  ·  Enter restore read-only  ·  E export  ·  R refresh  ·  Esc close",
+                theme.faint(),
+            )),
+            Rect::new(inner.x, hint_y, inner.width, 1),
+        );
+    }
+    if app.sessions_loading() && !app.sessions().is_empty() {
+        frame.render_widget(
+            Paragraph::new(Span::styled("Refreshing…", theme.faint())),
+            Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
+        );
+    }
+}
+
+/// Live target-scope editor. Rules use the same parser as `--scope`.
+pub fn render_scope_editor(
+    frame: &mut Frame,
+    screen: Rect,
+    theme: &Theme,
+    app: &App,
+    output: &mut RenderOutput,
+) {
+    let Some(editor) = app.scope_editor() else {
+        return;
+    };
+    output.hit(screen, HitTarget::DismissOverlay);
+    let width = screen.width.saturating_sub(16).clamp(46, 84);
+    let height = screen.height.saturating_sub(10).clamp(12, 20);
+    let area = clamp_rect(screen, width, height);
+    let inner = overlay_frame(frame, area, theme, "TARGET SCOPE — LIVE ALLOWLIST");
+    output.hit(area, HitTarget::OverlaySurface);
+    if inner.height < 7 || inner.width < 30 {
+        return;
+    }
+
+    let scope = &app.config.proxy.scope;
+    let policy = if scope.block_unlisted {
+        "Default: DENY unlisted targets".to_string()
+    } else {
+        "Default: ALLOW unlisted targets (open proxy)".to_string()
+    };
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            policy,
+            if scope.block_unlisted {
+                theme.success()
+            } else {
+                theme.danger()
+            },
+        )),
+        Rect::new(inner.x, inner.y, inner.width, 1),
+    );
+
+    let list_top = inner.y + 2;
+    let list_height = inner.height.saturating_sub(6) as usize;
+    if scope.allowlist.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "No rules: every upstream request and CONNECT is denied.",
+                theme.warning(),
+            )),
+            Rect::new(inner.x, list_top, inner.width, 1),
+        );
+    }
+    let start = if scope.allowlist.len() <= list_height {
+        0
+    } else {
+        editor
+            .selected
+            .saturating_sub(list_height.saturating_sub(1))
+            .min(scope.allowlist.len() - list_height)
+    };
+    for (row, rule) in scope
+        .allowlist
+        .iter()
+        .skip(start)
+        .take(list_height)
+        .enumerate()
+    {
+        let index = start + row;
+        let is_selected = index == editor.selected;
+        let rect = Rect::new(inner.x, list_top + row as u16, inner.width, 1);
+        let base = if is_selected {
+            theme.selected()
+        } else {
+            Style::new().bg(theme.palette.surface)
+        };
+        frame.render_widget(
+            Paragraph::new(" ".repeat(inner.width as usize)).style(base),
+            rect,
+        );
+        let mut spans = vec![
+            Span::styled(if is_selected { "▌ " } else { "  " }, theme.accent()),
+            Span::styled(rule.spec(), theme.text()),
+        ];
+        if let Some(scheme) = rule.scheme {
+            spans.push(Span::styled(
+                format!("  {}", scheme.as_str().to_uppercase()),
+                theme.faint(),
+            ));
+        }
+        frame.render_widget(Paragraph::new(Line::from(spans)).style(base), rect);
+        output.hit(rect, HitTarget::ScopeRuleRow(index));
+    }
+
+    let input_y = inner.bottom().saturating_sub(3);
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("Add rule ❯ ", theme.label()),
+            Span::styled(editor.input.clone(), theme.text()),
+            Span::styled("▏", theme.accent()),
+        ])),
+        Rect::new(inner.x, input_y, inner.width, 1),
+    );
+    if let Some(error) = &editor.error {
+        frame.render_widget(
+            Paragraph::new(Span::styled(error.clone(), theme.danger())),
+            Rect::new(inner.x, input_y + 1, inner.width, 1),
+        );
+    } else {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "Enter add  ·  Del remove selected  ·  ^B toggle default deny  ·  Esc close",
+                theme.faint(),
+            )),
+            Rect::new(inner.x, input_y + 1, inner.width, 1),
+        );
+    }
 }
 
 pub fn render_palette(

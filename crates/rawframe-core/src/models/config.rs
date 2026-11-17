@@ -324,6 +324,99 @@ impl ScopeRule {
     pub fn validate(&self) -> Result<(), ScopeError> {
         validate_host_pattern(&self.host_pattern)
     }
+
+    /// Parses `host`, `host:port`, `http://host[:port]`, `https://host[:port]`,
+    /// `[::1]:port`, and leading wildcard hosts. Shared by the CLI flag parser
+    /// and the Settings scope editor so both accept exactly the same syntax.
+    pub fn parse(spec: &str) -> Result<Self, ScopeParseError> {
+        let spec = spec.trim();
+        if spec.is_empty() {
+            return Err(ScopeParseError::Empty);
+        }
+        let (scheme, authority) = if let Some((scheme, rest)) = spec.split_once("://") {
+            let scheme = match scheme.to_ascii_lowercase().as_str() {
+                "http" => Scheme::Http,
+                "https" => Scheme::Https,
+                other => return Err(ScopeParseError::UnsupportedScheme(other.to_string())),
+            };
+            (Some(scheme), rest)
+        } else {
+            (None, spec)
+        };
+
+        let (host, port) = parse_scope_authority(authority)?;
+        let rule = Self {
+            host_pattern: host.to_ascii_lowercase(),
+            scheme,
+            port,
+        };
+        rule.validate()?;
+        Ok(rule)
+    }
+
+    /// Human-readable form that round-trips through [`ScopeRule::parse`].
+    pub fn spec(&self) -> String {
+        let mut spec = String::new();
+        if let Some(scheme) = self.scheme {
+            spec.push_str(scheme.as_str());
+            spec.push_str("://");
+        }
+        if self.host_pattern.contains(':') && !self.host_pattern.starts_with('[') {
+            spec.push('[');
+            spec.push_str(&self.host_pattern);
+            spec.push(']');
+        } else {
+            spec.push_str(&self.host_pattern);
+        }
+        if let Some(port) = self.port {
+            spec.push(':');
+            spec.push_str(&port.to_string());
+        }
+        spec
+    }
+}
+
+fn parse_scope_authority(authority: &str) -> Result<(String, Option<u16>), ScopeParseError> {
+    if authority.is_empty() || authority.contains('/') || authority.contains('@') {
+        return Err(ScopeParseError::InvalidAuthority);
+    }
+    if let Some(bracketed) = authority.strip_prefix('[') {
+        let end = bracketed
+            .find(']')
+            .ok_or(ScopeParseError::InvalidAuthority)?;
+        let host = &bracketed[..end];
+        let suffix = &bracketed[end + 1..];
+        let port = if suffix.is_empty() {
+            None
+        } else if let Some(port) = suffix.strip_prefix(':') {
+            Some(parse_scope_port(port)?)
+        } else {
+            return Err(ScopeParseError::InvalidAuthority);
+        };
+        if host.is_empty() {
+            return Err(ScopeParseError::InvalidAuthority);
+        }
+        return Ok((host.to_string(), port));
+    }
+
+    if authority.matches(':').count() == 1 {
+        let (host, port) = authority.rsplit_once(':').unwrap_or((authority, ""));
+        if host.is_empty() {
+            return Err(ScopeParseError::InvalidAuthority);
+        }
+        return Ok((host.to_string(), Some(parse_scope_port(port)?)));
+    }
+    Ok((authority.to_string(), None))
+}
+
+fn parse_scope_port(port: &str) -> Result<u16, ScopeParseError> {
+    let port: u16 = port
+        .parse()
+        .map_err(|_| ScopeParseError::InvalidPort(port.to_string()))?;
+    if port == 0 {
+        return Err(ScopeParseError::InvalidPort(port.to_string()));
+    }
+    Ok(port)
 }
 
 fn host_matches(pattern: &str, host: &str) -> bool {
@@ -448,6 +541,20 @@ pub enum ScopeError {
     EmptyRuleName,
 }
 
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
+pub enum ScopeParseError {
+    #[error("scope rule must not be empty")]
+    Empty,
+    #[error("unsupported scope scheme '{0}' (use http or https)")]
+    UnsupportedScheme(String),
+    #[error("scope authority must be a host with an optional port")]
+    InvalidAuthority,
+    #[error("invalid scope port '{0}'")]
+    InvalidPort(String),
+    #[error(transparent)]
+    Invalid(#[from] ScopeError),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -567,6 +674,35 @@ mod tests {
         config.proxy.max_body_bytes = 1024;
         config.proxy.connect_timeout_secs = 0;
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn scope_rule_parsing_round_trips() {
+        for spec in [
+            "api.example.test",
+            "https://api.example.test:8443",
+            "http://127.0.0.1:8081",
+            "*.rawframe.test",
+            "https://[::1]:8443",
+        ] {
+            let rule = ScopeRule::parse(spec).unwrap();
+            assert_eq!(rule.spec(), spec);
+            rule.validate().unwrap();
+        }
+    }
+
+    #[test]
+    fn scope_rule_parsing_rejects_invalid_input() {
+        for spec in [
+            "",
+            "ftp://host",
+            "host:not-a-port",
+            "host/path",
+            "[::1",
+            "host:0",
+        ] {
+            assert!(ScopeRule::parse(spec).is_err(), "accepted: {spec}");
+        }
     }
 
     #[test]

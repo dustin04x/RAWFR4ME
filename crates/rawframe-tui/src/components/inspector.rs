@@ -117,6 +117,21 @@ pub fn render_inspector(
         return;
     }
 
+    if entry.body_omitted && inspector.view == InspectorView::Body {
+        empty_state(
+            frame,
+            content,
+            theme,
+            "Body not stored",
+            &[
+                "This restored entry was written while body persistence was OFF.",
+                "The body was never placed in the database, so it cannot be shown.",
+            ],
+            Some("Enable Persist bodies in Settings to store bodies of new captures."),
+        );
+        return;
+    }
+
     match inspector.side {
         MessageSide::Request => {
             render_request_inspection(frame, content, theme, entry, inspector, redact);
@@ -248,6 +263,10 @@ fn render_meta(frame: &mut Frame, inner: Rect, entry: &TrafficEntry, theme: &The
     if inner.width >= 34 {
         spans.push(Span::raw("  "));
         spans.push(source_badge(theme, entry.source));
+    }
+    if entry.body_omitted && inner.width >= 60 {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled("BODY NOT STORED", theme.warning()));
     }
     if inner.width >= 44 {
         spans.push(Span::raw("  "));

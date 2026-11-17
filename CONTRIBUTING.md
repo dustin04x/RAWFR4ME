@@ -6,11 +6,11 @@ Thanks for your interest in improving RAWFRAME. This repository is a Rust worksp
 
 - RAWFRAME is intended **only** for systems you own or are explicitly authorized to test.
 - Do not add features that weaken security defaults (default-deny scope, loopback-by-default binding, explicit private-upstream opt-in, TLS verification, redaction/sanitization).
-- Do not claim unimplemented functionality (e.g. TLS/HTTPS decryption, local CA/certificate management, SQLite persistence, Intruder/Decoder, or Repeater transmission unless the code actually supports it).
+- Do not claim unimplemented functionality (e.g. Repeater transmission, Intruder, Decoder, HTTP/2, or WebSocket support unless the code actually supports it). TLS interception, the local CA, and SQLite session persistence are implemented and tested; keep their documentation accurate.
 
 ## Development
 
-Prerequisites: Rust **1.88+** (edition 2024). See `docs/development.md` for workflow details.
+Prerequisites: Rust **1.89+** (edition 2024). See `docs/development.md` for workflow details.
 
 Run the quality gates before submitting changes:
 
@@ -24,7 +24,7 @@ Or run `./scripts/check.sh`.
 
 ## Guidelines
 
-- Keep changes focused and consistent with the existing workspace architecture (`rawframe-core`, `rawframe-http`, `rawframe-proxy`, `rawframe-tui`, `rawframe-cli`).
+- Keep changes focused and consistent with the existing workspace architecture (`rawframe-core`, `rawframe-http`, `rawframe-proxy`, `rawframe-store`, `rawframe-tui`, `rawframe-cli`).
 - Preserve the event/command boundaries and existing backend behavior unless a change is explicitly intended and verified.
 - Add or update tests for behavioral changes where appropriate.
 - Do not commit secrets, private keys/certificates, local databases, logs, or build artifacts (`target/`).

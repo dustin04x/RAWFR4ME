@@ -6,6 +6,7 @@
 //! * the shared request/response/traffic models ([`models`]),
 //! * the event and command boundary between services and the UI ([`events`]),
 //! * history filtering ([`filter`]),
+//! * persistence command/event contracts ([`storage`]),
 //! * terminal-safety primitives for hostile captured data ([`security`]),
 //! * clearly labelled simulated traffic used by the demo shell ([`fixtures`]).
 //!
@@ -18,6 +19,7 @@ pub mod filter;
 pub mod fixtures;
 pub mod models;
 pub mod security;
+pub mod storage;
 
 pub use events::{
     AppCommand, AppEvent, CommandSender, EventBus, EventReceiver, EventSendError, EventSender,
@@ -26,7 +28,12 @@ pub use events::{
 pub use filter::{HistoryFilter, StatusFilter};
 pub use models::{
     AccentPreset, AppConfig, CertificateMetadata, EditableHttpRequest, Header, Headers,
-    HttpRequest, HttpResponse, InterceptionMetadata, InterceptionRule, ProxyConfiguration,
-    RepeaterRequest, Scheme, Scope, Session, StatusClass, StorageConfiguration, TrafficEntry,
-    TrafficId, TrafficKind, TrafficSource, TrafficState, TunnelMetadata, TunnelOutcome,
+    HttpRequest, HttpResponse, InterceptionMetadata, InterceptionRule, Project, ProjectId,
+    ProxyConfiguration, RepeaterRequest, Scheme, Scope, Session, SessionId, SessionSummary,
+    StatusClass, StorageConfiguration, TrafficEntry, TrafficId, TrafficKind, TrafficSource,
+    TrafficState, TunnelMetadata, TunnelOutcome,
+};
+pub use storage::{
+    STORAGE_COMMAND_QUEUE, StorageCommand, StorageCommandReceiver, StorageCommandSender,
+    StorageEvent, StoragePolicy, StorageStatus,
 };

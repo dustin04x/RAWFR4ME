@@ -1,10 +1,13 @@
 use std::fs;
 use std::io::Write;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 use rawframe_cli::cli::{CaAction, Cli};
 use rawframe_core::AppConfig;
+use rawframe_core::models::SessionId;
+use rawframe_core::storage::StoragePolicy;
+use rawframe_store::{StorageOptions, StorageService, Store, spawn_capture_pump};
 
 fn handle_ca_action(action: &CaAction, config: &AppConfig) -> Result<()> {
     use rawframe_proxy::tls_api::{CaManager, CaPaths, CaStatus};
@@ -65,12 +68,55 @@ fn handle_ca_action(action: &CaAction, config: &AppConfig) -> Result<()> {
     Ok(())
 }
 
+fn export_history(cli: &Cli, config: &AppConfig) -> Result<()> {
+    let Some(output) = &cli.export_history else {
+        return Ok(());
+    };
+    let store = Store::open_existing(
+        &config.storage.database_path,
+        StoragePolicy::from_config(&config.storage),
+    )
+    .with_context(|| {
+        format!(
+            "opening {} for export (capture some traffic first, or pass --db)",
+            config.storage.database_path.display()
+        )
+    })?;
+    let sessions = store.list_sessions()?;
+    let session_id = match &cli.export_session {
+        Some(id) => SessionId(id.clone()),
+        None => sessions
+            .first()
+            .map(|session| session.id.clone())
+            .ok_or_else(|| anyhow::anyhow!("the database contains no sessions to export"))?,
+    };
+    let summary = store.export_session(&session_id, output)?;
+    println!(
+        "Exported {} records from {} to {}",
+        summary.records,
+        session_id,
+        output.display()
+    );
+    println!(
+        "Redacted header values: {} · records without stored bodies: {}",
+        summary.redacted_headers, summary.bodies_omitted
+    );
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let config = cli.apply(AppConfig::default())?;
     if let Some(action) = cli.ca_action() {
         // CA management actions do not start the TUI/proxy runtime.
         return handle_ca_action(&action, &config);
+    }
+    if cli.export_history.is_some() {
+        // Export is a headless action; it never starts the listener or UI.
+        return export_history(&cli, &config);
+    }
+    if cli.export_session.is_some() {
+        bail!("--export-session requires --export-history FILE");
     }
     let log_path = rawframe_cli::logging::init(cli.log_path().map(std::path::PathBuf::as_path))
         .context("initializing diagnostics")?;
@@ -100,8 +146,40 @@ fn main() -> Result<()> {
         "proxy scope configured (default deny when zero rules)"
     );
 
+    let persistence_enabled = cli.persistence_enabled();
+    let database_path = config.storage.database_path.clone();
     let mut app = rawframe_tui::App::new(config);
     let events = app.event_sender();
+
+    // Storage is created before the UI loop so failures are reported in the
+    // interface instead of being discovered on the first write.
+    let mut storage: Option<(StorageService, std::thread::JoinHandle<()>)> = None;
+    if persistence_enabled {
+        let (session, project) = cli.session_and_project();
+        let mut options = StorageOptions::new(
+            database_path.clone(),
+            session,
+            StoragePolicy::from_config(&app.config().storage),
+        );
+        options.project = project;
+        let pump_events = app.subscribe_events();
+        match StorageService::spawn(options, events.clone()) {
+            Ok(service) => {
+                app.attach_storage_commands(service.handle().command_sender());
+                let pump = spawn_capture_pump(pump_events, service.handle())
+                    .context("starting capture pump")?;
+                storage = Some((service, pump));
+                tracing::info!(database = %database_path.display(), "session persistence enabled");
+            }
+            Err(error) => {
+                tracing::error!(%error, database = %database_path.display(), "persistence unavailable");
+                app.report_storage_failure(Some(database_path.clone()), error.to_string());
+            }
+        }
+    } else {
+        tracing::warn!("persistence disabled by --no-persist");
+        app.report_storage_disabled();
+    }
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_name("rawframe-proxy")
@@ -118,6 +196,10 @@ fn main() -> Result<()> {
         }
     });
     runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+    if let Some((service, pump)) = storage {
+        service.shutdown();
+        let _ = pump.join();
+    }
     tracing::info!("RAWFRAME stopped");
     ui_result
 }

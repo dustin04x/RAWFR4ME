@@ -129,7 +129,33 @@ Exit criteria / tests:
 - Opaque CONNECT still works when interception is disabled.
 - Real TUI controls are exercised through a PTY at 140×40, 100×30, and 80×24.
 
-## Milestone 5 — History, sessions, and protocol coverage
+## Milestone 5 — History, sessions, and protocol coverage (implemented)
+
+### M5 status (this workspace)
+
+- New `rawframe-store` crate owns SQLite and a single writer thread; the proxy,
+  core, and TUI never link SQLite.
+- Versioned migrations (`schema_migrations` + `user_version`) create projects,
+  sessions, and traffic tables with ordered-header JSON, nullable body BLOBs,
+  lifecycle state, timestamps, durations, notes, tunnel metadata, and an
+  `incomplete` flag for interrupted transactions.
+- Captures are written by an independent event-bus subscriber, so the proxy
+  request path never waits on disk. The writer batches transactions, uses WAL
+  with `synchronous=FULL`, and counts captures it cannot enqueue.
+- Redaction happens before SQL: sensitive header values become `<redacted>`
+  unless explicitly opted in; bodies are stored as SQL `NULL` unless opted in.
+  Restored entries expose that omission instead of showing an empty body.
+- Sessions are listed, restored read-only into History, exported as redacted
+  JSON Lines, and filtered with the existing History filters. Restored entries
+  use a distinct `RESTORED` provenance and are never treated as live.
+- Interrupted sessions are closed on the next open and their unfinished
+  transactions stay marked incomplete; corruption, a full database, a newer
+  schema, or an unwritable location disables persistence with a visible error
+  while the proxy keeps running.
+- The target scope is editable from Settings and applied to new requests
+  without restarting the listener; the CLI and the editor share one rule parser.
+- Protocol coverage was not expanded. HTTP/2, HTTP/3, and WebSocket remain
+  explicitly unsupported rather than half-implemented.
 
 Goal: durable history, sessions, and broader protocol coverage.
 
@@ -190,11 +216,16 @@ Decoder:
   handshake by design; RAWFRAME does not bypass certificate pinning.
 - Opaque `CONNECT` captures only destination/outcome/byte/duration metadata; no
   URL, headers, body, or tunneled certificate is visible.
-- Scope rules are configured on the command line; there is no rule editor yet.
+- Scope rules are editable in Settings while the proxy runs. Established
+  connections and already-forwarded requests keep the rules they were admitted
+  under; changes apply to new requests.
 - Interception is scoped per CONNECT session; a modified request cannot switch
   to a different authority inside the same intercepted TLS session.
-- No SQLite database, persistence, export, or configuration file. History and
-  settings are session-only.
+- Persisted history is a local SQLite database with a 512 MiB default ceiling.
+  Bodies and sensitive header values are off by default; changing the policy
+  never rewrites entries already stored. Settings themselves (limits, accent)
+  remain session-only because there is no configuration file.
+- Protocol coverage is HTTP/1.1 only.
 - Repeater “Send” reports that transmission is unavailable; no response is
   fabricated.
 - No listener authentication. Keep the proxy on loopback; remote binding
@@ -209,7 +240,7 @@ Decoder:
 
 ## Recommended next step
 
-**Milestone 5: durable history.** The live interception and TLS paths now
-produce real lifecycle events. Add SQLite persistence, sessions, redaction on
-write, export, and crash recovery without weakening the current loopback,
-scope, redaction, or verification defaults.
+**Milestone 6: Repeater transmission.** Durable history, sessions, export, and
+live scope editing now exist. Add real Repeater transmission through the proxy
+stack with scope checks, response capture, and comparison, then Intruder and
+Decoder.

@@ -34,6 +34,10 @@ use crate::tunnel::relay;
 #[derive(Clone)]
 pub(crate) struct ServiceContext {
     pub config: Arc<AppConfig>,
+    /// Live scope rules. Edited from the interface without restarting the
+    /// listener; every new request and CONNECT is checked against the current
+    /// snapshot, and a read lock is held only for the lookup itself.
+    pub scope: Arc<std::sync::RwLock<rawframe_core::models::config::Scope>>,
     pub events: EventSender,
     pub ids: Arc<AtomicU64>,
     pub tracker: TaskTracker,
@@ -41,6 +45,15 @@ pub(crate) struct ServiceContext {
     pub shutdown: watch::Receiver<bool>,
     pub interception: InterceptionManager,
     pub tls: Arc<TlsController>,
+}
+
+impl ServiceContext {
+    fn scope_snapshot(&self) -> rawframe_core::models::config::Scope {
+        self.scope
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
 }
 
 pub(crate) async fn handle_request(
@@ -67,7 +80,7 @@ async fn handle_http(request: Request<Incoming>, context: ServiceContext) -> Res
     };
     let id = next_id(&context.ids);
     let captured_request = destination.capture_request(&request);
-    if !destination.is_permitted(&context.config.proxy.scope) {
+    if !destination.is_permitted(&context.scope_snapshot()) {
         let rejection = destination.scope_rejection();
         return reject_live(
             &context,
@@ -470,7 +483,7 @@ async fn handle_http_intercepted(
                     return error_response(rejection.status, rejection.message);
                 }
             };
-            if !dest.is_permitted(&context.config.proxy.scope) {
+            if !dest.is_permitted(&context.scope_snapshot()) {
                 let rejection = dest.scope_rejection();
                 let mut entry = live_entry(id, captured_request.clone(), started_at);
                 entry.original_request = Some(captured_request.clone());
@@ -952,7 +965,7 @@ async fn handle_connect_intercepted(
     let captured_request = destination.capture_connect_request(&request);
 
     // Scope/address policy before leaf issuance, upstream resolution/connect, or TLS.
-    if !destination.is_permitted(&context.config.proxy.scope) {
+    if !destination.is_permitted(&context.scope_snapshot()) {
         let rejection = destination.scope_rejection();
         return reject_connect(
             &context,
@@ -1281,7 +1294,7 @@ async fn handle_intercepted_https_request(
     );
 
     // Scope check per request (defense in depth).
-    if !tunnel_destination.is_permitted(&context.config.proxy.scope) {
+    if !tunnel_destination.is_permitted(&context.scope_snapshot()) {
         let rejection = tunnel_destination.scope_rejection();
         return reject_live(
             &context,
@@ -1413,7 +1426,7 @@ async fn handle_intercepted_https_request(
                         return error_response(rejection.status, rejection.message);
                     }
                 };
-                if !dest.is_permitted(&context.config.proxy.scope) {
+                if !dest.is_permitted(&context.scope_snapshot()) {
                     let rejection = dest.scope_rejection();
                     let mut entry = live_entry(id, captured_request.clone(), started_at);
                     entry.original_request = Some(captured_request.clone());
@@ -1702,7 +1715,7 @@ async fn handle_connect(
     };
     let id = next_id(&context.ids);
     let captured_request = destination.capture_connect_request(&request);
-    if !destination.is_permitted(&context.config.proxy.scope) {
+    if !destination.is_permitted(&context.scope_snapshot()) {
         let rejection = destination.scope_rejection();
         return reject_connect(
             &context,

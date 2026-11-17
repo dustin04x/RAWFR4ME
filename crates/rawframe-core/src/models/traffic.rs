@@ -76,10 +76,14 @@ impl TunnelMetadata {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TrafficSource {
+    /// Captured live from a proxied connection during this run.
     Intercepted,
     Simulated,
     /// Authored in the Repeater rather than captured from a connection.
     Authored,
+    /// Loaded from the session database. Restored entries are never live and are
+    /// never forwarded, even though they were originally intercepted.
+    Restored,
 }
 
 impl TrafficSource {
@@ -88,11 +92,16 @@ impl TrafficSource {
             Self::Intercepted => "LIVE",
             Self::Simulated => "SIM",
             Self::Authored => "AUTH",
+            Self::Restored => "RESTORED",
         }
     }
 
     pub const fn is_simulated(self) -> bool {
         matches!(self, Self::Simulated)
+    }
+
+    pub const fn is_restored(self) -> bool {
+        matches!(self, Self::Restored)
     }
 }
 
@@ -237,6 +246,14 @@ pub struct TrafficEntry {
     pub final_request: Option<HttpRequest>,
     #[serde(default)]
     pub interception: InterceptionMetadata,
+    /// True when this entry was restored from the session database and the
+    /// operator's storage policy did not allow bodies to be written. The
+    /// inspector states this explicitly instead of showing an empty body.
+    #[serde(default)]
+    pub body_omitted: bool,
+    /// Number of sensitive header values masked before this entry was written.
+    #[serde(default)]
+    pub redacted_headers: usize,
 }
 
 impl TrafficEntry {
@@ -255,6 +272,8 @@ impl TrafficEntry {
             original_request: None,
             final_request: None,
             interception: InterceptionMetadata::default(),
+            body_omitted: false,
+            redacted_headers: 0,
         }
     }
 
@@ -273,6 +292,8 @@ impl TrafficEntry {
             original_request: None,
             final_request: None,
             interception: InterceptionMetadata::default(),
+            body_omitted: false,
+            redacted_headers: 0,
         }
     }
 
@@ -415,6 +436,11 @@ impl TrafficEntry {
         self.source == TrafficSource::Intercepted
     }
 
+    /// Restored entries are read-only history loaded from the session database.
+    pub fn is_restored(&self) -> bool {
+        self.source.is_restored()
+    }
+
     pub fn timeout_interception(
         &mut self,
         message: impl Into<String>,
@@ -508,6 +534,15 @@ mod tests {
         assert!(entry.source.is_simulated());
         assert_eq!(entry.source.label(), "SIM");
         assert!(!entry.is_live_capture());
+    }
+
+    #[test]
+    fn restored_entries_are_never_live() {
+        let mut entry = entry();
+        entry.source = TrafficSource::Restored;
+        assert!(entry.is_restored());
+        assert!(!entry.is_live_capture());
+        assert_eq!(entry.source.label(), "RESTORED");
     }
 
     #[test]

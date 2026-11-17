@@ -275,6 +275,27 @@ pub struct SettingsState {
     pub edit: Option<SettingEdit>,
 }
 
+/// Inline editor for the live target-scope allowlist. Rules are parsed with the
+/// same grammar as `--scope`, so the interface cannot invent a rule the proxy
+/// would interpret differently.
+#[derive(Debug, Clone, Default)]
+pub struct ScopeEditorState {
+    pub selected: usize,
+    pub input: String,
+    pub error: Option<String>,
+}
+
+impl ScopeEditorState {
+    pub fn move_selection(&mut self, delta: i32, len: usize) {
+        if len == 0 {
+            self.selected = 0;
+            return;
+        }
+        let next = (self.selected as i64 + i64::from(delta)).clamp(0, len as i64 - 1);
+        self.selected = next as usize;
+    }
+}
+
 impl SettingsState {
     pub fn select_next(&mut self) {
         self.selected = (self.selected + 1).min(SettingId::ALL.len() - 1);

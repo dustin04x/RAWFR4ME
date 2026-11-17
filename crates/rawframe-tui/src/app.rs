@@ -6,11 +6,18 @@
 
 use std::collections::BTreeSet;
 use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use chrono::Utc;
 use ratatui::layout::{Position, Rect};
-use rawframe_core::models::traffic::{TrafficEntry, TrafficId, TrafficState};
+use rawframe_core::models::config::ScopeRule;
+use rawframe_core::models::session::{SessionId, SessionSummary};
+use rawframe_core::models::traffic::{TrafficEntry, TrafficId, TrafficSource, TrafficState};
 use rawframe_core::models::{AppConfig, Session};
+use rawframe_core::storage::{
+    StorageCommand, StorageCommandSender, StorageEvent, StoragePolicy, StorageStatus,
+};
 use rawframe_core::{
     AppCommand, AppEvent, CommandSender, EventBus, EventSender, HistoryFilter, Notice, ProxyState,
     TlsStatus,
@@ -22,8 +29,8 @@ use crate::interaction::{ActionId, Focus, HitTarget, MessageSide, NavSection, Se
 use crate::layout::{AppLayout, DragTarget, LayoutState, compute};
 use crate::state::{
     ConfirmAction, ConfirmState, ContextMenuState, InspectorState, MenuAction, MenuItem,
-    PaletteState, RepeaterOrigin, RepeaterState, RepeaterTab, SearchState, SettingEdit,
-    SettingsState, Toast,
+    PaletteState, RepeaterOrigin, RepeaterState, RepeaterTab, ScopeEditorState, SearchState,
+    SettingEdit, SettingsState, Toast,
 };
 use crate::text::TextBuffer;
 use crate::theme::Theme;
@@ -97,6 +104,17 @@ pub struct App {
     pub(crate) last_click: Option<(Instant, Position, HitTarget)>,
     pub(crate) interception: InterceptionWorkbench,
     pub(crate) tls_status: TlsStatus,
+    /// Persistence status as reported by the storage worker. The TUI never
+    /// opens the database; it only renders this state and sends commands.
+    pub(crate) storage: StorageStatus,
+    pub(crate) storage_sender: Option<StorageCommandSender>,
+    pub(crate) sessions: Vec<SessionSummary>,
+    pub(crate) sessions_open: bool,
+    pub(crate) sessions_selected: usize,
+    pub(crate) sessions_loading: bool,
+    /// Session whose history was restored into the read-only History view.
+    pub(crate) restored_session: Option<(SessionId, String)>,
+    pub(crate) scope_editor: Option<ScopeEditorState>,
 }
 
 impl App {
@@ -142,6 +160,14 @@ impl App {
             last_click: None,
             interception: InterceptionWorkbench::default(),
             tls_status: TlsStatus::disabled(),
+            storage: StorageStatus::disabled(),
+            storage_sender: None,
+            sessions: Vec::new(),
+            sessions_open: false,
+            sessions_selected: 0,
+            sessions_loading: false,
+            restored_session: None,
+            scope_editor: None,
         };
         app.ensure_selections();
         app.notify(Notice::info(
@@ -156,6 +182,29 @@ impl App {
 
     pub fn event_sender(&self) -> EventSender {
         self.events.sender()
+    }
+
+    /// Registers an independent event stream for a background service (the CLI
+    /// capture pump). Events already queued before subscribing are not replayed.
+    pub fn subscribe_events(&mut self) -> rawframe_core::EventReceiver {
+        self.events.subscribe()
+    }
+
+    /// Marks persistence as deliberately disabled (for example `--no-persist`).
+    pub fn report_storage_disabled(&mut self) {
+        self.storage = StorageStatus::disabled();
+        self.notify_warning(
+            "Persistence is disabled (--no-persist): captures are kept in memory only and are lost on exit.",
+        );
+    }
+
+    /// Reports a persistence failure that happened before the storage worker
+    /// existed, so the interface never implies traffic is being stored.
+    pub fn report_storage_failure(&mut self, path: Option<std::path::PathBuf>, error: String) {
+        self.storage = StorageStatus::failed(path, error.clone());
+        self.notify_error(format!(
+            "Persistence unavailable: {error}. The proxy runs, but captured traffic will not be stored."
+        ));
     }
 
     pub fn nav(&self) -> NavSection {
@@ -198,6 +247,52 @@ impl App {
     /// depend on the proxy crate; the CLI composition root owns that wiring.
     pub fn attach_proxy_commands(&mut self, sender: CommandSender) {
         self.proxy_sender = Some(sender);
+    }
+
+    /// Connects storage commands. The database itself stays in the worker.
+    pub fn attach_storage_commands(&mut self, sender: StorageCommandSender) {
+        self.storage_sender = Some(sender);
+    }
+
+    pub fn storage_status(&self) -> &StorageStatus {
+        &self.storage
+    }
+
+    pub fn sessions_open(&self) -> bool {
+        self.sessions_open
+    }
+
+    pub fn sessions(&self) -> &[SessionSummary] {
+        &self.sessions
+    }
+
+    pub fn sessions_selected(&self) -> usize {
+        self.sessions_selected
+    }
+
+    pub fn sessions_loading(&self) -> bool {
+        self.sessions_loading
+    }
+
+    pub fn restored_session_label(&self) -> Option<&str> {
+        self.restored_session
+            .as_ref()
+            .map(|(_, name)| name.as_str())
+    }
+
+    pub fn restored_entry_count(&self) -> usize {
+        self.traffic
+            .iter()
+            .filter(|entry| entry.source == TrafficSource::Restored)
+            .count()
+    }
+
+    pub fn scope_editor(&self) -> Option<&ScopeEditorState> {
+        self.scope_editor.as_ref()
+    }
+
+    pub fn scope_rules(&self) -> &[ScopeRule] {
+        &self.config.proxy.scope.allowlist
     }
 
     pub fn proxy_address(&self) -> Option<SocketAddr> {
@@ -423,7 +518,92 @@ impl App {
                 self.tls_status = status;
             }
             AppEvent::Notice(notice) => self.notify(notice),
+            AppEvent::Storage(event) => self.handle_storage_event(event),
             AppEvent::Shutdown => self.should_quit = true,
+        }
+    }
+
+    fn handle_storage_event(&mut self, event: StorageEvent) {
+        match event {
+            StorageEvent::Status(status) => {
+                let previous = self.storage.clone();
+                if status.enabled
+                    && let Some(path) = &status.database_path
+                {
+                    self.config.storage.database_path = path.clone();
+                }
+                self.config.storage.persist_bodies = status.policy.persist_bodies;
+                self.config.storage.persist_sensitive_headers =
+                    status.policy.persist_sensitive_headers;
+                if status.error != previous.error
+                    && let Some(error) = &status.error
+                {
+                    self.notify_error(format!(
+                        "Persistence disabled: {error}. The proxy keeps running; captured traffic is no longer stored."
+                    ));
+                }
+                if status.dropped > previous.dropped {
+                    self.notify_warning(format!(
+                        "{} captures were dropped instead of stored: the database writer is slower than traffic.",
+                        status.dropped - previous.dropped
+                    ));
+                }
+                self.storage = status;
+            }
+            StorageEvent::Sessions(list) => {
+                let count = list.len();
+                self.sessions = list;
+                self.sessions_loading = false;
+                self.sessions_selected = self.sessions_selected.min(count.saturating_sub(1));
+                if self.sessions_open {
+                    self.notify_info(format!("Loaded {count} stored sessions."));
+                }
+            }
+            StorageEvent::SessionLoaded {
+                session_id,
+                entries,
+                truncated,
+            } => {
+                let name = self
+                    .sessions
+                    .iter()
+                    .find(|session| session.id == session_id)
+                    .map(|session| session.name.clone())
+                    .unwrap_or_else(|| session_id.0.clone());
+                let count = entries.len();
+                let last = entries.last().map(|entry| entry.id);
+                for entry in entries {
+                    self.upsert_traffic(entry);
+                }
+                if let Some(id) = last {
+                    self.history_selected = Some(id);
+                }
+                self.restored_session = Some((session_id, name.clone()));
+                self.sessions_open = false;
+                self.nav = NavSection::History;
+                self.focus = Focus::Content;
+                self.notify_success(format!(
+                    "Restored {count} transactions from {name} as read-only history."
+                ));
+                if truncated {
+                    self.notify_warning(
+                        "The stored session is larger than the restore limit; older transactions were not loaded.",
+                    );
+                }
+            }
+            StorageEvent::Exported {
+                session_id,
+                path,
+                records,
+                redacted_headers,
+                bodies_omitted,
+            } => {
+                self.notify_success(format!(
+                    "Exported {records} records from {session_id} to {} ({redacted_headers} header values redacted, {bodies_omitted} records without stored bodies).",
+                    path.display()
+                ));
+            }
+            StorageEvent::Failed(error) => self.notify_error(format!("Storage: {error}")),
         }
     }
 
@@ -700,6 +880,20 @@ impl App {
                     self.notify_warning("Proxy worker is not attached.");
                 }
             }
+            AppCommand::UpdateScope(scope) => {
+                if let Some(sender) = &self.proxy_sender {
+                    match sender.try_send(AppCommand::UpdateScope(scope)) {
+                        Ok(()) => self.notify_success(
+                            "Scope updated: new requests use the edited allowlist immediately.",
+                        ),
+                        Err(_) => self.notify_error("Proxy command queue is unavailable."),
+                    }
+                } else {
+                    self.notify_info(
+                        "Scope updated for this session. It applies when the proxy starts.",
+                    );
+                }
+            }
             AppCommand::ForwardRequest(id) => {
                 if self.is_live_pending_interception(id) {
                     if let Some(sender) = &self.proxy_sender {
@@ -886,6 +1080,8 @@ impl App {
             CommandId::ClearHistoryFilters => self.clear_filters(),
             CommandId::ToggleMouse => self.toggle_mouse(),
             CommandId::ShowHelp => self.help_open = true,
+            CommandId::OpenStoredSessions => self.open_sessions(),
+            CommandId::ExportStoredSession => self.export_current_session(),
             CommandId::Quit => self.request_quit(),
         }
         self.close_palette();
@@ -1147,6 +1343,10 @@ impl App {
 
     pub(crate) fn activate_setting(&mut self) {
         let id = self.settings.selected_id();
+        if id == SettingId::Scope {
+            self.open_scope_editor();
+            return;
+        }
         if id.is_editable() {
             let buffer = self.setting_edit_value(id);
             self.settings.edit = Some(SettingEdit { id, buffer });
@@ -1288,21 +1488,30 @@ impl App {
             SettingId::Accent => self.cycle_accent(),
             SettingId::Mouse => self.toggle_mouse(),
             SettingId::PersistBodies => {
-                self.config.storage.persist_bodies = !self.config.storage.persist_bodies;
-                if self.config.storage.persist_bodies {
+                let next = StoragePolicy {
+                    persist_bodies: !self.config.storage.persist_bodies,
+                    persist_sensitive_headers: self.config.storage.persist_sensitive_headers,
+                };
+                self.apply_storage_policy(next);
+                if next.persist_bodies {
                     self.notify_warning(
-                        "Body persistence enabled for this session. SQLite storage is not active yet; captured bodies can contain credentials.",
+                        "Body persistence enabled: bodies of new captures are written to the session database.",
                     );
                 } else {
-                    self.notify_info("Body persistence disabled.");
+                    self.notify_info(
+                        "Body persistence disabled. Existing stored bodies are left untouched.",
+                    );
                 }
             }
             SettingId::PersistSensitive => {
-                self.config.storage.persist_sensitive_headers =
-                    !self.config.storage.persist_sensitive_headers;
-                if self.config.storage.persist_sensitive_headers {
+                let next = StoragePolicy {
+                    persist_bodies: self.config.storage.persist_bodies,
+                    persist_sensitive_headers: !self.config.storage.persist_sensitive_headers,
+                };
+                self.apply_storage_policy(next);
+                if next.persist_sensitive_headers {
                     self.notify_error(
-                        "Sensitive-header persistence enabled. This is a deliberate confidentiality risk and storage is not active yet.",
+                        "Sensitive-header persistence enabled: Authorization, Cookie and API-key values will be stored in plain form for new captures.",
                     );
                 } else {
                     self.notify_info("Sensitive-header persistence disabled.");
@@ -1314,10 +1523,12 @@ impl App {
 
     fn setting_read_only_notice(&mut self, id: SettingId) {
         match id {
-            SettingId::Scope => self.notify_warning(format!(
-                "Scope: {}. Edit scope with --scope when launching; upstream traffic is denied by default.",
-                self.config.proxy.scope.summary()
-            )),
+            SettingId::Scope => {
+                self.notify_info(format!(
+                    "Scope: {}. Press Enter to edit rules.",
+                    self.config.proxy.scope.summary()
+                ));
+            }
             SettingId::CertificateAuthority => match &self.tls_status.ca_fingerprint {
                 Some(fingerprint) => self.notify_info(format!(
                     "CA certificate: {} · {}",
@@ -1337,9 +1548,30 @@ impl App {
                     "No local CA fingerprint is available. Enable HTTPS TLS interception or run --tls-ca-fingerprint.",
                 ),
             },
-            SettingId::DatabasePath => self.notify_warning(
-                "SQLite persistence is not implemented yet (Milestone 5). No database file has been created.",
-            ),
+            SettingId::DatabasePath => {
+                if self.storage.enabled {
+                    self.notify_info(format!(
+                        "SQLite session database: {} · {} transactions stored · session {}",
+                        self.storage
+                            .database_path
+                            .as_ref()
+                            .map(|path| path.display().to_string())
+                            .unwrap_or_else(|| self.config.storage.database_path.display().to_string()),
+                        self.storage.persisted,
+                        self.storage
+                            .session_id
+                            .as_ref()
+                            .map(|id| id.0.clone())
+                            .unwrap_or_else(|| "(unknown)".into()),
+                    ));
+                } else if let Some(error) = &self.storage.error {
+                    self.notify_error(format!("Persistence is disabled: {error}"));
+                } else {
+                    self.notify_warning(
+                        "Persistence is not attached in this process. Run the packaged binary without --no-persist to store sessions.",
+                    );
+                }
+            }
             _ => {}
         }
     }
@@ -1386,7 +1618,21 @@ impl App {
                 .ca_fingerprint
                 .clone()
                 .unwrap_or_else(|| "not initialised".to_string()),
-            SettingId::DatabasePath => self.config.storage.database_path.display().to_string(),
+            SettingId::DatabasePath => {
+                let path = self
+                    .storage
+                    .database_path
+                    .clone()
+                    .unwrap_or_else(|| self.config.storage.database_path.clone());
+                let state = if self.storage.enabled {
+                    format!("ON · {} stored", self.storage.persisted)
+                } else if self.storage.error.is_some() {
+                    "ERROR".to_string()
+                } else {
+                    "OFF".to_string()
+                };
+                format!("{} · {state}", path.display())
+            }
         }
     }
 
@@ -1401,6 +1647,265 @@ impl App {
             SettingId::PersistBodies => self.config.storage.persist_bodies,
             SettingId::PersistSensitive => self.config.storage.persist_sensitive_headers,
             _ => false,
+        }
+    }
+
+    fn apply_storage_policy(&mut self, policy: StoragePolicy) {
+        policy.apply_to_config(&mut self.config.storage);
+        if let Some(sender) = &self.storage_sender {
+            let _ = sender.try_send(StorageCommand::SetPolicy(policy));
+        } else {
+            self.storage.policy = policy;
+            self.notify_warning(
+                "Persistence is not attached: this policy applies to the next launch only.",
+            );
+        }
+    }
+
+    // --- Stored sessions ---
+
+    pub(crate) fn open_sessions(&mut self) {
+        if self.storage_sender.is_none() {
+            if let Some(error) = &self.storage.error {
+                self.notify_error(format!("Persistence is unavailable: {error}"));
+            } else {
+                self.notify_warning(
+                    "Persistence is not attached in this process. Run the packaged binary without --no-persist to browse stored sessions.",
+                );
+            }
+            return;
+        }
+        self.sessions_open = true;
+        self.sessions_loading = true;
+        self.refresh_sessions();
+    }
+
+    pub(crate) fn close_sessions(&mut self) {
+        self.sessions_open = false;
+        self.sessions_loading = false;
+    }
+
+    pub(crate) fn refresh_sessions(&mut self) {
+        let Some(sender) = &self.storage_sender else {
+            self.notify_warning("Persistence is not attached.");
+            return;
+        };
+        self.sessions_loading = true;
+        match sender.try_send(StorageCommand::ListSessions) {
+            Ok(()) => {}
+            Err(_) => {
+                self.sessions_loading = false;
+                self.notify_error("Storage command queue is unavailable.");
+            }
+        }
+    }
+
+    pub(crate) fn move_sessions_selection(&mut self, delta: i32) {
+        if self.sessions.is_empty() {
+            self.sessions_selected = 0;
+            return;
+        }
+        let next = (self.sessions_selected as i64 + i64::from(delta))
+            .clamp(0, self.sessions.len() as i64 - 1);
+        self.sessions_selected = next as usize;
+    }
+
+    pub(crate) fn select_session_edge(&mut self, last: bool) {
+        self.sessions_selected = if last {
+            self.sessions.len().saturating_sub(1)
+        } else {
+            0
+        };
+    }
+
+    pub(crate) fn restore_selected_session(&mut self) {
+        let Some(summary) = self.sessions.get(self.sessions_selected).cloned() else {
+            self.notify_warning("No stored session is selected.");
+            return;
+        };
+        let Some(sender) = &self.storage_sender else {
+            self.notify_warning("Persistence is not attached.");
+            return;
+        };
+        match sender.try_send(StorageCommand::LoadSession {
+            session_id: summary.id.clone(),
+            limit: 5_000,
+        }) {
+            Ok(()) => self.notify_info(format!(
+                "Restoring {} transactions from {}…",
+                summary.records, summary.name
+            )),
+            Err(_) => self.notify_error("Storage command queue is unavailable."),
+        }
+    }
+
+    pub(crate) fn export_selected_session(&mut self) {
+        let Some(summary) = self.sessions.get(self.sessions_selected).cloned() else {
+            self.notify_warning("No stored session is selected.");
+            return;
+        };
+        self.export_session(summary.id, &summary.name);
+    }
+
+    pub(crate) fn export_current_session(&mut self) {
+        let Some(session_id) = self.storage.session_id.clone() else {
+            self.notify_warning("No persisted session is active.");
+            return;
+        };
+        let name = self.session.name.clone();
+        self.export_session(session_id, &name);
+    }
+
+    fn export_session(&mut self, session_id: SessionId, name: &str) {
+        let Some(sender) = &self.storage_sender else {
+            self.notify_warning("Persistence is not attached.");
+            return;
+        };
+        let path = self.export_path(name);
+        match sender.try_send(StorageCommand::ExportSession {
+            session_id,
+            path: path.clone(),
+        }) {
+            Ok(()) => {
+                self.notify_info(format!("Exporting redacted history to {}…", path.display()))
+            }
+            Err(_) => self.notify_error("Storage command queue is unavailable."),
+        }
+    }
+
+    fn export_path(&self, name: &str) -> PathBuf {
+        let directory = self
+            .storage
+            .database_path
+            .as_ref()
+            .or(Some(&self.config.storage.database_path))
+            .and_then(|path| path.parent().map(|parent| parent.join("exports")))
+            .unwrap_or_else(|| PathBuf::from("exports"));
+        let safe: String = name
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                    ch
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        directory.join(format!(
+            "{safe}-{}.jsonl",
+            Utc::now().format("%Y%m%dT%H%M%SZ")
+        ))
+    }
+
+    // --- Live scope editing ---
+
+    pub(crate) fn open_scope_editor(&mut self) {
+        self.scope_editor = Some(ScopeEditorState::default());
+    }
+
+    pub(crate) fn close_scope_editor(&mut self) {
+        self.scope_editor = None;
+    }
+
+    pub(crate) fn move_scope_selection(&mut self, delta: i32) {
+        let len = self.config.proxy.scope.allowlist.len();
+        if let Some(editor) = &mut self.scope_editor {
+            editor.move_selection(delta, len);
+        }
+    }
+
+    pub(crate) fn select_scope_edge(&mut self, last: bool) {
+        let len = self.config.proxy.scope.allowlist.len();
+        if let Some(editor) = &mut self.scope_editor {
+            editor.selected = if last { len.saturating_sub(1) } else { 0 };
+        }
+    }
+
+    pub(crate) fn scope_input_push(&mut self, ch: char) {
+        if let Some(editor) = &mut self.scope_editor {
+            if editor.input.chars().count() < 128 {
+                editor.input.push(ch);
+            }
+            editor.error = None;
+        }
+    }
+
+    pub(crate) fn scope_input_backspace(&mut self) {
+        if let Some(editor) = &mut self.scope_editor {
+            editor.input.pop();
+            editor.error = None;
+        }
+    }
+
+    /// Parses the typed rule with the shared grammar and adds it to the live
+    /// allowlist. Invalid input is reported instead of being guessed at.
+    pub(crate) fn commit_scope_rule(&mut self) {
+        let Some(editor) = &mut self.scope_editor else {
+            return;
+        };
+        let text = editor.input.trim().to_string();
+        if text.is_empty() {
+            editor.error =
+                Some("Enter a rule such as api.example.test:443 or *.example.test.".into());
+            return;
+        }
+        match ScopeRule::parse(&text) {
+            Ok(rule) => {
+                if self.config.proxy.scope.allowlist.contains(&rule) {
+                    editor.error = Some("That rule is already in the allowlist.".into());
+                    return;
+                }
+                self.config.proxy.scope.allowlist.push(rule);
+                editor.input.clear();
+                editor.error = None;
+                self.apply_scope_change();
+            }
+            Err(error) => editor.error = Some(error.to_string()),
+        }
+    }
+
+    pub(crate) fn remove_selected_scope_rule(&mut self) {
+        let Some(editor) = &self.scope_editor else {
+            return;
+        };
+        if self.config.proxy.scope.allowlist.is_empty() {
+            return;
+        }
+        let index = editor
+            .selected
+            .min(self.config.proxy.scope.allowlist.len() - 1);
+        self.config.proxy.scope.allowlist.remove(index);
+        let len = self.config.proxy.scope.allowlist.len();
+        if let Some(editor) = &mut self.scope_editor {
+            editor.selected = editor.selected.min(len.saturating_sub(1));
+            editor.error = None;
+        }
+        self.apply_scope_change();
+    }
+
+    pub(crate) fn toggle_scope_block_unlisted(&mut self) {
+        self.config.proxy.scope.block_unlisted = !self.config.proxy.scope.block_unlisted;
+        if let Some(editor) = &mut self.scope_editor {
+            editor.error = if self.config.proxy.scope.allowlist.is_empty()
+                && self.config.proxy.scope.block_unlisted
+            {
+                Some("The allowlist is empty: every upstream request will be denied.".into())
+            } else {
+                None
+            };
+        }
+        self.apply_scope_change();
+    }
+
+    fn apply_scope_change(&mut self) {
+        let scope = self.config.proxy.scope.clone();
+        if self.proxy_sender.is_some() {
+            self.dispatch_command(AppCommand::UpdateScope(scope));
+        } else {
+            self.notify_info(format!(
+                "Scope updated for this session: {}. It applies when the proxy starts.",
+                self.config.proxy.scope.summary()
+            ));
         }
     }
 
@@ -2027,6 +2532,174 @@ mod tests {
         app.cycle_accent();
         assert_ne!(app.theme.accent, before);
         assert_eq!(app.config.appearance.accent, app.theme.accent);
+    }
+
+    #[test]
+    fn persistence_status_is_visible_and_policy_changes_are_forwarded() {
+        let mut app = App::demo();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        app.attach_storage_commands(tx);
+
+        app.handle_event(AppEvent::Storage(StorageEvent::Status(
+            StorageStatus::enabled(
+                "/tmp/rawframe-test.db",
+                SessionId("sess-1".into()),
+                StoragePolicy::metadata_only(),
+            ),
+        )));
+        assert!(app.storage_status().enabled);
+        assert!(app.setting_value(SettingId::DatabasePath).contains("ON"));
+
+        app.toggle_setting(SettingId::PersistBodies);
+        assert!(app.config.storage.persist_bodies);
+        match rx.try_recv().expect("policy command") {
+            StorageCommand::SetPolicy(policy) => {
+                assert!(policy.persist_bodies);
+                assert!(!policy.persist_sensitive_headers);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        app.handle_event(AppEvent::Storage(StorageEvent::Failed("disk full".into())));
+        assert!(
+            app.notices
+                .last()
+                .unwrap()
+                .notice
+                .message
+                .contains("disk full")
+        );
+    }
+
+    #[test]
+    fn restored_history_is_marked_read_only_and_never_live() {
+        let mut app = App::demo();
+        let mut entry = TrafficEntry::new(
+            TrafficId(1_000_001),
+            HttpRequest::new("GET", Scheme::Https, "api.rawframe.test", 443, "/stored"),
+        );
+        entry.source = TrafficSource::Restored;
+        entry.body_omitted = true;
+        entry.note = Some("restored from database".into());
+
+        app.handle_event(AppEvent::Storage(StorageEvent::SessionLoaded {
+            session_id: SessionId("sess-previous".into()),
+            entries: vec![entry],
+            truncated: false,
+        }));
+
+        assert_eq!(app.nav, NavSection::History);
+        assert_eq!(app.restored_entry_count(), 1);
+        assert_eq!(app.restored_session_label(), Some("sess-previous"));
+        assert!(app.proxy_entries().iter().all(|entry| !entry.is_restored()));
+        let selected = app.selected_traffic().unwrap();
+        assert!(selected.is_restored());
+        assert!(selected.body_omitted);
+
+        // Persisted history uses the same search/filter path. Searching for
+        // provenance finds restored rows; a non-matching host hides them.
+        app.history_filter.query = "restored".into();
+        app.ensure_selections();
+        assert_eq!(app.history_entries().len(), 1);
+        app.history_filter.query.clear();
+        app.history_filter.host = Some("other.test".into());
+        app.ensure_selections();
+        assert!(app.history_entries().is_empty());
+        app.clear_filters();
+        assert!(
+            app.notices
+                .last()
+                .unwrap()
+                .notice
+                .message
+                .contains("Restored 1 transactions")
+        );
+    }
+
+    #[test]
+    fn stored_session_browser_renders_real_state_and_requests_restore() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut app = App::demo();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        app.attach_storage_commands(tx);
+        app.handle_event(AppEvent::Storage(StorageEvent::Sessions(vec![
+            SessionSummary {
+                id: SessionId("sess-previous".into()),
+                name: "previous".into(),
+                project_id: rawframe_core::models::ProjectId::default_project(),
+                project_name: "default".into(),
+                created_at: Utc::now(),
+                records: 3,
+                incomplete: 1,
+                last_activity_at: None,
+                recovered: true,
+            },
+        ])));
+        app.open_sessions();
+        assert!(app.sessions_open());
+        assert!(matches!(rx.try_recv(), Ok(StorageCommand::ListSessions)));
+
+        let buffer = crate::testing::render_frame(&mut app, 120, 36);
+        let text = crate::testing::text(&buffer);
+        assert!(text.contains("STORED SESSIONS"), "{text}");
+        assert!(text.contains("default/previous"), "{text}");
+        assert!(text.contains("3 rec"), "{text}");
+        assert!(text.contains("1 incomplete"), "{text}");
+        assert!(text.contains("recovered"), "{text}");
+
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(StorageCommand::LoadSession { session_id, .. }) if session_id.0 == "sess-previous"
+        ));
+    }
+
+    #[test]
+    fn scope_editor_renders_rules_and_default_deny_state() {
+        let mut app = App::demo();
+        app.open_scope_editor();
+        for ch in "api.example.test".chars() {
+            app.scope_input_push(ch);
+        }
+        app.commit_scope_rule();
+
+        let buffer = crate::testing::render_frame(&mut app, 120, 36);
+        let text = crate::testing::text(&buffer);
+        assert!(text.contains("TARGET SCOPE"), "{text}");
+        assert!(text.contains("Default: DENY"), "{text}");
+        assert!(text.contains("api.example.test"), "{text}");
+    }
+
+    #[test]
+    fn scope_editor_uses_the_shared_parser_and_updates_the_live_rules() {
+        let mut app = App::demo();
+        app.open_scope_editor();
+        for ch in "https://api.example.test:443".chars() {
+            app.scope_input_push(ch);
+        }
+        app.commit_scope_rule();
+
+        assert_eq!(app.scope_rules().len(), 1);
+        assert_eq!(app.scope_rules()[0].spec(), "https://api.example.test:443");
+        assert!(
+            app.setting_value(SettingId::Scope)
+                .contains("1 allowlist rule")
+        );
+
+        for ch in "not/a/host".chars() {
+            app.scope_input_push(ch);
+        }
+        app.commit_scope_rule();
+        assert!(app.scope_editor().unwrap().error.is_some());
+        assert_eq!(app.scope_rules().len(), 1);
+
+        app.remove_selected_scope_rule();
+        assert!(app.scope_rules().is_empty());
+        assert!(
+            app.scope_editor().is_some(),
+            "editor stays open to add another rule"
+        );
     }
 
     #[test]

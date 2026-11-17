@@ -1,9 +1,9 @@
 # RAWFRAME Architecture
 
-**Status:** Milestone 4 — HTTPS interception (0.2.0). HTTP/1.1 forwarding,
-opaque HTTPS CONNECT tunnels, live pause/edit/forward/drop, and opt-in HTTP/1.1
-TLS interception are implemented. Durable storage and Repeater transmission are
-not.
+**Status:** Milestone 5 — durable history (0.2.0). HTTP/1.1 forwarding, opaque
+HTTPS CONNECT tunnels, live pause/edit/forward/drop, opt-in HTTP/1.1 TLS
+interception, SQLite sessions/persistence, redacted export, and live scope
+editing are implemented. Repeater transmission is not.
 
 ## 1. Design constraints
 
@@ -45,6 +45,12 @@ rawframe/
 │   │   ├── body.rs             bounded streaming body with capture
 │   │   ├── tunnel.rs           opaque relay, half-close, idle timeout
 │   │   └── error.rs            typed startup/worker errors
+│   ├── rawframe-store/         SQLite persistence (no TUI/proxy dependency)
+│   │   ├── schema.rs           versioned migrations
+│   │   ├── record.rs           policy-redacted entry <-> row encoding
+│   │   ├── store.rs            one writer connection, queries, export
+│   │   ├── worker.rs           storage thread, batching, status events
+│   │   └── error.rs            typed storage failures
 │   ├── rawframe-tui/           terminal application
 │   │   ├── app.rs              controller state and actions
 │   │   ├── input.rs            keyboard + mouse dispatch
@@ -60,13 +66,12 @@ rawframe/
 │   │   ├── terminal.rs         terminal lifecycle + event loop
 │   │   └── testing.rs          in-memory frame helper for tests
 │   └── rawframe-cli/           composition root, args, logging
-│       └── main.rs             Tokio runtime + proxy worker + TUI
+│       └── main.rs             runtime + proxy worker + store + capture pump + TUI
 ├── docs/
 └── scripts/
 ```
 
-The storage crate remains intentionally absent until Milestone 5. Repeater
-document logic currently lives in `rawframe-core` + `rawframe-http` +
+Repeater document logic currently lives in `rawframe-core` + `rawframe-http` +
 `rawframe-tui`; it can be extracted when transmission exists.
 
 ## 3. Dependency direction
@@ -74,17 +79,21 @@ document logic currently lives in `rawframe-core` + `rawframe-http` +
 ```
                  ┌────────────────┐        ┌─────────────────┐
                  │  rawframe-cli  │───────▶│ rawframe-proxy  │
-                 └───────┬────────┘        └────────┬────────┘
-                         │                          │
-                 ┌───────▼────────┐        ┌────────▼────────┐
-                 │  rawframe-tui  │───────▶│  rawframe-http  │
-                 └───────┬────────┘        └────────┬────────┘
-                         │                          │
-                         └──────────┬───────────────┘
-                                    ▼
-                           ┌────────────────┐
-                           │ rawframe-core  │
-                           └────────────────┘
+                 └───┬────┬───┬───┘        └────────┬────────┘
+                     │    │   │                     │
+        ┌────────────▼─┐  │   │            ┌────────▼────────┐
+        │rawframe-store│  │   │            │  rawframe-http  │
+        └──────┬───────┘  │   │            └────────┬────────┘
+               │          │   │                     │
+               │   ┌──────▼───▼────┐                │
+               │   │  rawframe-tui │────────────────┘
+               │   └──────┬────────┘
+               │          │
+               └──────────▼─────────┐
+                          ▼          ▼
+                   ┌────────────────────┐
+                   │   rawframe-core    │
+                   └────────────────────┘
 ```
 
 Rules:
@@ -97,29 +106,38 @@ Rules:
 - `rawframe-tui` depends on `rawframe-core` and `rawframe-http`; it **must not**
   depend on `rawframe-proxy`. It sees the engine only through shared events and
   the `CommandSender` type defined in core.
-- `rawframe-cli` is the only composition root and may depend on all crates.
-- A future `rawframe-storage` may depend on `rawframe-core`; it must not depend
-  on the TUI.
+- `rawframe-store` depends on `rawframe-core` and SQLite; it must not depend on
+  the proxy or the TUI. The TUI never links SQLite.
+- `rawframe-cli` is the only composition root and may depend on all crates. It
+  hosts the capture pump that bridges the event bus to the storage worker.
 
 ## 4. Runtime data flow
 
 ```
  client ──▶ rawframe-proxy ──AppEvent──▶ bounded EventBus ──poll()──▶ App (TUI)
-                                                                        │
- rawframe-proxy ◀──AppCommand── bounded command channel ◀────────────────┘
+                                                │
+                                                └──subscribe()──▶ capture pump
+                                                                     │ try_record
+                                                                     ▼
+                                                          storage thread (SQLite)
+                                                App (TUI) ──StorageCommand──▶ store
+                                                store ──StorageEvent──▶ EventBus
 ```
 
 `rawframe-cli` owns a multi-thread Tokio runtime. It spawns
-`rawframe_proxy::run_service(command_rx, event_sender)`, then runs the
-synchronous TUI. The UI runtime is independent: input arrives on a Crossterm
-reader thread, events are polled, and frames redraw on input or at a 250 ms idle
-cadence. No proxy task is awaited on the UI thread.
+`rawframe_proxy::run_service(command_rx, event_sender)`, starts the storage
+worker and capture pump, then runs the synchronous TUI. The UI runtime is
+independent: input arrives on a Crossterm reader thread, events are polled, and
+frames redraw on input or at a 250 ms idle cadence. No proxy or storage task is
+awaited on the UI thread.
 
-`rawframe_core::events::EventBus` is a **bounded** Tokio MPSC channel
+`rawframe_core::events::EventBus` is a **bounded** fan-out of Tokio MPSC queues
 (`EVENT_QUEUE_CAPACITY = 4096`). Synchronous UI/test producers use
 `EventSender::send` (non-blocking `try_send`); async proxy paths use
 `send_async` and therefore apply backpressure instead of growing memory without
-bound. The command channel from UI to proxy is also bounded (capacity 32).
+bound. `EventBus::subscribe` registers the capture pump. Dropped subscribers are
+skipped so they cannot abort the proxy. The command channel from UI to proxy is
+also bounded (capacity 32).
 
 Commands:
 
@@ -129,6 +147,8 @@ Commands:
   new CONNECT sessions in this running proxy.
 - `ForwardRequest`, `ForwardModified`, and `DropRequest` resolve pending
   interception entries. Dropped requests never reach upstream.
+- `UpdateScope(Scope)` replaces the live allowlist. New HTTP requests and
+  CONNECT sessions use it immediately; already-forwarded work is unchanged.
 
 Events:
 
@@ -140,6 +160,8 @@ Events:
 - `InterceptionPaused` / `InterceptionQueueChanged` drive the pending queue.
 - `TlsStateChanged` publishes TLS enabled/disabled state, the public CA path and
   fingerprint, or a non-secret enable error.
+- `Storage(StorageEvent)` carries persistence status, stored session lists,
+  restored entries, export results, and storage failures.
 - `Notice` surfaces lifecycle warnings/errors.
 
 Events carry IDs, not UI selections; the TUI resolves selected entries by
@@ -267,6 +289,81 @@ events and the TUI.
 - The TUI consumes interception events and renders a Proxy interception workbench (queue, raw editor, actions) with real command dispatch; UI outcomes must reflect actual proxy events (no optimistic success, no fabricated responses for dropped/cancelled).
 - **TLS interception is implemented behind an explicit switch.** When disabled (default), `CONNECT` remains the opaque tunnel above. When enabled, see §5.4.
 
+## 5.6 Durable history (SQLite)
+
+### Ownership and threading
+
+`rawframe-store` owns one `rusqlite::Connection` on one OS thread. The worker
+receives captures on a bounded **synchronous** channel using `try_send`, so the
+proxy never waits on disk; when the queue is full the capture is dropped and the
+count is surfaced as `StorageStatus::dropped`. Commands (`ListSessions`,
+`LoadSession`, `ExportSession`, `SetPolicy`, `Shutdown`) arrive on the async
+command channel and are drained with `try_recv` between batches. Results are
+published as `AppEvent::Storage`.
+
+`rawframe-cli` subscribes to the event bus independently of the TUI and forwards
+`TrafficCaptured`/`TrafficUpdated` entries whose source is `Intercepted` to the
+worker. Simulations and Repeater drafts are never stored.
+
+### Schema and migrations
+
+Schema version 1 creates:
+
+| Table | Contents |
+|---|---|
+| `schema_migrations` | applied version and timestamp |
+| `projects` | id, name, created timestamp |
+| `sessions` | project, name, created/closed time, close reason, recovered flag |
+| `traffic` | one row per transaction, unique per `(session_id, traffic_id)` |
+
+The traffic row preserves method, scheme, host, port, target, version, ordered
+headers as a JSON array of name/value pairs (duplicates intact), request and
+response body BLOBs, response status/reason, start/completion timestamps,
+duration, error, note, interception metadata, tunnel metadata, original/final
+subrequest JSON, a redaction count, and an `incomplete` flag. Indexes cover
+session/start order, host, method, status, and state.
+
+Migrations run in an `IMMEDIATE` transaction, are recorded in both
+`schema_migrations` and `user_version`, and are idempotent. A database newer than
+the build is refused instead of modified.
+
+### Durability and failure behavior
+
+- `journal_mode=WAL`, `synchronous=FULL`, a 5 s busy timeout, and a bounded
+  `max_page_count` (512 MiB default) limit damage from crashes and disk growth.
+- Batches are committed in one transaction: either all rows in the batch are
+  durable or none are. Batch writes also update lifecycle rows by upsert, so a
+  request captured, forwarded, and completed remains one row.
+- A `quick_check` runs at open. Corruption, a newer schema, a full database, or
+  an unwritable path disables persistence with an explicit `StorageStatus`
+  error; the proxy keeps running and the file is never deleted.
+- On the next open, sessions without a clean close are marked recovered and
+  their non-terminal transactions stay `incomplete`.
+- Unix database files are `0600`; directories are `0700`; exports are `0600`
+  and are written to a sibling temporary file and renamed atomically.
+
+### Redaction on write
+
+`StoragePolicy` is applied while encoding a row, not at render time. Sensitive
+header values become `<redacted>` unless `persist_sensitive_headers` is on;
+bodies are written as SQL `NULL` unless `persist_bodies` is on. A policy change
+affects future writes only and never rewrites stored history. Restored entries
+set `body_omitted` when a body was withheld, and the inspector states that
+explicitly rather than showing an empty body.
+
+Exports are JSON Lines (`format: rawframe.history.v1`) built from the stored,
+already-redacted rows. They include headers, lifecycle state, timestamps,
+duration, tunnel metadata, and either UTF-8 text or a hex-encoded body, plus an
+explicit `omitted` marker for bodies withheld by policy.
+
+### Restore semantics
+
+Restored traffic is loaded as `TrafficSource::Restored` with interface IDs based
+on the row id (`1_000_000 + row_id`), never reusing live IDs. Restored entries
+are read-only history: they are excluded from the Proxy workspace, cannot be
+forwarded, and are labelled `RESTORED` in the table and inspector. Filters work
+across live, simulated, and restored entries.
+
 ## 6. Scope and destination address policy
 
 Scope uses the existing `rawframe_core` model:
@@ -337,8 +434,9 @@ Input never references literal screen positions. Tests render through
 ### 7.3 State ownership
 
 `App` owns navigation, focus, selections, filters, inspector state, Repeater
-tabs, Settings editing, overlays, notifications, proxy lifecycle state, and the
-bounded command sender. Domain data comes from `rawframe-core`.
+tabs, Settings editing, overlays, notifications, proxy lifecycle state, storage
+status, the stored-session list, the live scope editor, and the bounded command
+senders. Domain data comes from `rawframe-core`; the TUI never opens SQLite.
 
 Live traffic is inserted into `App::traffic` by `TrafficCaptured` /
 `TrafficUpdated`. Existing pending fixtures are retained but hidden from the
@@ -348,7 +446,15 @@ source badges keep provenance obvious. Tunnel entries render byte counts,
 outcome, duration, and a clear “payload not captured” message instead of a body.
 
 The TUI has no Tokio runtime. It polls the bounded event bus without blocking;
-the proxy runs on the CLI-owned runtime and meets the UI only at channels.
+the proxy and storage worker run on the CLI-owned runtime/thread and meet the UI
+only at channels. Session restore replaces nothing: restored entries are merged
+with unique IDs and the History line names the source session. The Settings
+scope editor parses rules with `ScopeRule::parse` and sends `UpdateScope`, so it
+cannot accept a rule the proxy would interpret differently.
+
+Persistence state is always visible: footer `DB ON/OFF/ERROR`, a status toast on
+failure, a dropped-capture warning, and the session browser's database line.
+There is no decorative “saved” indicator.
 
 ### 7.4 Input precedence and overlays
 
@@ -356,15 +462,16 @@ the proxy runs on the CLI-owned runtime and meets the UI only at channels.
 2. Confirmation dialog.
 3. Command palette.
 4. Context menu.
-5. Help overlay.
-6. Inline settings edit.
-7. Global control shortcuts (`Ctrl+K`, `Ctrl+1`…`6`, `Ctrl+F`, `Ctrl+N`,
+5. Scope editor / stored-session browser.
+6. Help overlay.
+7. Inline settings edit.
+8. Global control shortcuts (`Ctrl+K`, `Ctrl+1`…`6`, `Ctrl+F`, `Ctrl+N`,
    `Ctrl+W`, `Ctrl+Enter`, `Ctrl+U`).
-8. `Esc` / `Tab`.
-9. Search text entry.
-10. Repeater document editing.
-11. Global single-letter shortcuts (`?`, `Q`, `I`, `P`).
-12. Focus-specific navigation.
+9. `Esc` / `Tab`.
+10. Search text entry.
+11. Repeater document editing.
+12. Global single-letter shortcuts (`?`, `Q`, `I`, `P`, `B` for stored sessions).
+13. Focus-specific navigation.
 
 Text-entry contexts consume printable characters before shortcut handling.
 `Ctrl+C` is always an immediate exit. `P` toggles the proxy only when not
@@ -379,7 +486,7 @@ liveness in four places:
 
 - header badge `LIVE ENGINE` vs `SIMULATED`;
 - Proxy banner and status line with actual bound address/state;
-- row source badges (`LIVE`, `SIM`, `AUTH`);
+- row source badges (`LIVE`, `SIM`, `AUTH`, `RESTORED`);
 - footer line stating whether live captures exist, fixtures are retained, and
   whether TLS interception is absent.
 
@@ -418,6 +525,10 @@ duration. Errors and notes are sanitized before terminal rendering.
 | interception timeout | 120 s |
 | allow private upstreams | off |
 | scope | empty allowlist, default deny |
+| persistence | on; SQLite under the platform data directory |
+| stored bodies | off (SQL `NULL`) |
+| stored sensitive headers | off (`<redacted>` placeholder) |
+| database ceiling | 512 MiB |
 
 ## 9. HTTP document parser
 
@@ -462,6 +573,14 @@ captures are clearly distinguished.
   isolated temporary CA directories and cover show/fingerprint/export,
   regeneration, public-only export, permissions, and refusing to replace
   invalid material.
+- **Storage tests** (`crates/rawframe-store/tests/persistence.rs`) use isolated
+  temporary databases and the real worker: migrations, metadata-only redaction,
+  opt-in bodies/sensitive values, duplicate headers, binary bodies, lifecycle
+  upserts, session isolation, restart/truncation, interrupted-session recovery,
+  unknown sessions, corruption without deletion, unwritable locations,
+  transaction rollback, export contents and permissions, timestamp fidelity, and
+  worker status/query round-trips. A proxy integration test proves live scope
+  changes apply without a listener restart.
 - **PTY TLS regression** (`crates/rawframe-cli/tests/tls_pty_tui.rs` +
   `scripts/tui_tls_pty.py`) launches the real binary in a pseudo-terminal,
   enables/disables TLS through Settings keystrokes, verifies decrypted requests
@@ -485,7 +604,10 @@ and local TLS servers.
 | Bounded event queue + async sends | Prevents unbounded memory from fast traffic; proxy can slow under UI pressure |
 | Bounded body capture with streaming | Caps memory and keeps responses flowing; captured body may be truncated |
 | CONNECT opaque by default | Safe default; interception requires explicit operator opt-in |
-| Session-only settings | No config/schema commitment before storage milestone |
+| Separate storage crate, single writer thread | No SQLite in proxy/TUI; writes cannot block capture, and a slow disk drops counted captures instead |
+| Redaction on write, immutable policy for old rows | Stored history cannot reveal secrets the operator chose to mask; changing policy cannot retroactively add bodies |
+| Restored entries are a distinct provenance | Never mistaken for live traffic or forwarded; requires ID spacing and UI labels |
+| Runtime-only settings (limits, accent, policy, scope) | No configuration-file commitment yet; only history and sessions are persisted |
 | Simulated fixtures retained | Reproducible demos and tests; requires explicit provenance labels everywhere |
 
 ## 13. Extension path
@@ -499,8 +621,9 @@ caching, explicit trust instructions, and opt-in HTTPS interception for
 HTTP/1.1. Future work: protocol coverage (HTTP/2, WebSocket) and richer CA
 lifecycle UX.
 
-**Milestone 5.** Add SQLite migrations, sessions, persisted history, redaction
-on write, export, and crash recovery.
+**Milestone 5 (implemented).** SQLite migrations, projects/sessions, persisted
+history, redaction on write, redacted JSONL export, crash recovery, and live
+scope editing.
 
 **Milestone 6.** Add real Repeater transmission through the proxy stack,
 response comparison, then Intruder and Decoder.

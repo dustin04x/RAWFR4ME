@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::{Result, bail};
 use clap::Parser;
 use rawframe_core::AppConfig;
-use rawframe_core::models::{Scheme, ScopeRule};
+use rawframe_core::models::{ScopeRule, Session};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CaAction {
@@ -61,6 +61,38 @@ pub struct Cli {
     /// Write diagnostics to this file instead of the default local log path.
     #[arg(long, value_name = "FILE")]
     pub log_file: Option<PathBuf>,
+
+    /// SQLite database for captured history (defaults to the platform data dir).
+    #[arg(long, value_name = "FILE")]
+    pub db: Option<PathBuf>,
+
+    /// Run without persistence. Captured traffic stays in memory only.
+    #[arg(long)]
+    pub no_persist: bool,
+
+    /// Store captured request and response bodies (off by default).
+    #[arg(long)]
+    pub persist_bodies: bool,
+
+    /// Store sensitive header values instead of <redacted> (off by default).
+    #[arg(long)]
+    pub persist_sensitive_headers: bool,
+
+    /// Name for this capture session (recorded in the database).
+    #[arg(long, value_name = "NAME")]
+    pub session_name: Option<String>,
+
+    /// Name for the project that owns this session.
+    #[arg(long, value_name = "NAME")]
+    pub project: Option<String>,
+
+    /// Export stored history as redacted JSON Lines to FILE and exit.
+    #[arg(long, value_name = "FILE")]
+    pub export_history: Option<PathBuf>,
+
+    /// Session id to export with --export-history (defaults to the newest session).
+    #[arg(long, value_name = "ID")]
+    pub export_session: Option<String>,
 
     /// Explicitly enable HTTPS TLS interception for authorized scoped CONNECT
     /// targets (disabled by default; opaque tunnelling remains default).
@@ -118,10 +150,54 @@ impl Cli {
         config.proxy.scope.block_unlisted = true;
         config.appearance.mouse_enabled = !self.no_mouse;
         config.appearance.redact_sensitive_headers = !self.no_redact;
+        if let Some(path) = &self.db {
+            config.storage.database_path = path.clone();
+        }
+        config.storage.persist_bodies = self.persist_bodies;
+        config.storage.persist_sensitive_headers = self.persist_sensitive_headers;
         config
             .validate()
             .map_err(|error| anyhow::anyhow!("invalid configuration: {error}"))?;
         Ok(config)
+    }
+
+    /// The capture session for this run, owned by the named project (if any).
+    pub fn session_and_project(&self) -> (Session, rawframe_core::models::Project) {
+        let project = match &self.project {
+            Some(name) => {
+                // Stable identifier so repeated runs with the same project name
+                // group their sessions instead of creating a new project each time.
+                let slug: String = name
+                    .trim()
+                    .to_ascii_lowercase()
+                    .chars()
+                    .map(|ch| {
+                        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                            ch
+                        } else {
+                            '-'
+                        }
+                    })
+                    .collect();
+                let mut project = rawframe_core::models::Project::new(name.clone());
+                if !slug.is_empty() {
+                    project.id = rawframe_core::models::ProjectId(format!("proj-{slug}"));
+                }
+                project
+            }
+            None => rawframe_core::models::Project::default_project(),
+        };
+        let mut session = Session::new(
+            self.session_name
+                .clone()
+                .unwrap_or_else(|| "capture".to_string()),
+        );
+        session.project_id = project.id.clone();
+        (session, project)
+    }
+
+    pub fn persistence_enabled(&self) -> bool {
+        !self.no_persist
     }
 
     pub fn log_path(&self) -> Option<&PathBuf> {
@@ -144,79 +220,14 @@ impl Cli {
 }
 
 fn parse_scope_rule(spec: &str) -> Result<ScopeRule> {
-    let spec = spec.trim();
-    if spec.is_empty() {
-        bail!("--scope requires a non-empty host rule");
-    }
-    let (scheme, authority) = if let Some((scheme, rest)) = spec.split_once("://") {
-        let scheme = match scheme.to_ascii_lowercase().as_str() {
-            "http" => Scheme::Http,
-            "https" => Scheme::Https,
-            other => bail!("unsupported scope scheme '{other}' (use http or https)"),
-        };
-        (Some(scheme), rest)
-    } else {
-        (None, spec)
-    };
-
-    let (host, port) = parse_scope_authority(authority)?;
-    let rule = ScopeRule {
-        host_pattern: host.to_ascii_lowercase(),
-        scheme,
-        port,
-    };
-    rule.validate()
-        .map_err(|error| anyhow::anyhow!("invalid --scope '{spec}': {error}"))?;
-    Ok(rule)
-}
-
-fn parse_scope_authority(authority: &str) -> Result<(String, Option<u16>)> {
-    if authority.is_empty() || authority.contains('/') || authority.contains('@') {
-        bail!("--scope authority must be a host with an optional port");
-    }
-    if let Some(bracketed) = authority.strip_prefix('[') {
-        let end = bracketed
-            .find(']')
-            .ok_or_else(|| anyhow::anyhow!("unterminated IPv6 literal in --scope"))?;
-        let host = &bracketed[..end];
-        let suffix = &bracketed[end + 1..];
-        let port = if suffix.is_empty() {
-            None
-        } else if let Some(port) = suffix.strip_prefix(':') {
-            Some(parse_port(port)?)
-        } else {
-            bail!("invalid IPv6 scope authority '{authority}'");
-        };
-        if host.is_empty() {
-            bail!("--scope host must not be empty");
-        }
-        return Ok((host.to_string(), port));
-    }
-
-    if authority.matches(':').count() == 1 {
-        let (host, port) = authority.rsplit_once(':').unwrap_or((authority, ""));
-        if host.is_empty() {
-            bail!("--scope host must not be empty");
-        }
-        return Ok((host.to_string(), Some(parse_port(port)?)));
-    }
-    Ok((authority.to_string(), None))
-}
-
-fn parse_port(port: &str) -> Result<u16> {
-    let port: u16 = port
-        .parse()
-        .map_err(|_| anyhow::anyhow!("invalid scope port '{port}'"))?;
-    if port == 0 {
-        bail!("scope port must be between 1 and 65535");
-    }
-    Ok(port)
+    ScopeRule::parse(spec).map_err(|error| anyhow::anyhow!("invalid --scope '{spec}': {error}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use clap::Parser;
+    use rawframe_core::models::Scheme;
 
     fn parse(args: &[&str]) -> Cli {
         Cli::try_parse_from(args).expect("valid arguments")
@@ -303,6 +314,48 @@ mod tests {
     fn invalid_ports_are_rejected() {
         let cli = parse(&["rawframe", "--port", "0"]);
         assert!(cli.apply(AppConfig::default()).is_err());
+    }
+
+    #[test]
+    fn persistence_flags_shape_the_database_and_policy() {
+        let cli = parse(&[
+            "rawframe",
+            "--db",
+            "/tmp/rawframe-test.db",
+            "--persist-bodies",
+            "--persist-sensitive-headers",
+            "--session-name",
+            "engagement",
+            "--project",
+            "acme",
+        ]);
+        assert!(cli.persistence_enabled());
+        let config = cli.apply(AppConfig::default()).unwrap();
+        assert_eq!(
+            config.storage.database_path,
+            PathBuf::from("/tmp/rawframe-test.db")
+        );
+        assert!(config.storage.persist_bodies);
+        assert!(config.storage.persist_sensitive_headers);
+
+        let (session, project) = cli.session_and_project();
+        assert_eq!(session.name, "engagement");
+        assert_eq!(project.name, "acme");
+        assert_eq!(project.id.0, "proj-acme", "stable project id");
+        assert_eq!(session.project_id, project.id);
+
+        // Repeated runs with the same project name land in the same project.
+        let (_, second) = parse(&["rawframe", "--project", "acme"]).session_and_project();
+        assert_eq!(second.id, project.id);
+    }
+
+    #[test]
+    fn no_persist_leaves_the_default_policy_off() {
+        let cli = parse(&["rawframe", "--no-persist"]);
+        assert!(!cli.persistence_enabled());
+        let config = cli.apply(AppConfig::default()).unwrap();
+        assert!(!config.storage.persist_bodies);
+        assert!(!config.storage.persist_sensitive_headers);
     }
 
     #[test]

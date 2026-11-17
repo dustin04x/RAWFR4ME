@@ -378,6 +378,8 @@ fn completed(
         original_request: None,
         final_request: None,
         interception: crate::models::traffic::InterceptionMetadata::default(),
+        body_omitted: false,
+        redacted_headers: 0,
     }
 }
 
@@ -408,6 +410,8 @@ fn failed(
         original_request: None,
         final_request: None,
         interception: crate::models::traffic::InterceptionMetadata::default(),
+        body_omitted: false,
+        redacted_headers: 0,
     }
 }
 

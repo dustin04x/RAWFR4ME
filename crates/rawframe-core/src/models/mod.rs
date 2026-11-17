@@ -10,11 +10,14 @@ pub mod traffic;
 pub use certificate::CertificateMetadata;
 pub use config::{
     AccentPreset, AppConfig, AppearanceConfiguration, ConfigError, InterceptionAction,
-    InterceptionRule, ProxyConfiguration, Scope, ScopeError, ScopeRule, StorageConfiguration,
+    InterceptionRule, ProxyConfiguration, Scope, ScopeError, ScopeParseError, ScopeRule,
+    StorageConfiguration,
 };
 pub use headers::{Header, Headers, SENSITIVE_HEADERS};
 pub use message::{HttpRequest, HttpResponse, Scheme, StatusClass};
-pub use session::{RepeaterId, RepeaterRequest, Session, SessionId};
+pub use session::{
+    Project, ProjectId, RepeaterId, RepeaterRequest, Session, SessionId, SessionSummary,
+};
 pub use traffic::{
     EditableHttpRequest, InterceptionMetadata, TrafficEntry, TrafficId, TrafficKind, TrafficSource,
     TrafficState, TrafficTimings, TransitionError, TunnelMetadata, TunnelOutcome,

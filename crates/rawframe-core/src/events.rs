@@ -5,12 +5,15 @@
 //! the proxy. Commands flow the other way through [`AppCommand`].
 
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
 use thiserror::Error;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
 use crate::models::AppConfig;
+use crate::models::config::Scope;
 use crate::models::traffic::{TrafficEntry, TrafficId};
+use crate::storage::StorageEvent;
 
 /// Events are bounded so a fast proxy cannot grow the UI queue without limit.
 /// Producers that run asynchronously use [`EventSender::send_async`] and receive
@@ -21,26 +24,73 @@ pub const EVENT_QUEUE_CAPACITY: usize = 4096;
 #[error("application event queue is closed or full")]
 pub struct EventSendError;
 
+/// Fan-out sender. Every subscriber created through [`EventBus::subscribe`]
+/// receives each event, so background services (persistence) can observe
+/// captures without the interface relaying them.
 #[derive(Debug, Clone)]
 pub struct EventSender {
-    inner: Sender<AppEvent>,
+    sinks: Arc<Mutex<Vec<Sender<AppEvent>>>>,
 }
 
 impl EventSender {
-    fn new(inner: Sender<AppEvent>) -> Self {
-        Self { inner }
+    fn new(sinks: Arc<Mutex<Vec<Sender<AppEvent>>>>) -> Self {
+        Self { sinks }
     }
 
-    /// Non-blocking send for synchronous callers and tests. Returns an error when
-    /// the queue is full rather than blocking the caller.
+    /// Non-blocking send for synchronous callers and tests. The event is offered
+    /// to every subscriber; it succeeds if at least one queue accepted it.
     pub fn send(&self, event: AppEvent) -> Result<(), EventSendError> {
-        self.inner.try_send(event).map_err(|_| EventSendError)
+        let sinks = self
+            .sinks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut delivered = false;
+        for sink in sinks.iter() {
+            if sink.try_send(event.clone()).is_ok() {
+                delivered = true;
+            }
+        }
+        if delivered {
+            Ok(())
+        } else {
+            Err(EventSendError)
+        }
     }
 
-    /// Async send used by proxy tasks. This applies backpressure when the UI is
-    /// temporarily unable to drain captures.
+    /// Async send used by proxy tasks. This applies backpressure when a
+    /// subscriber is temporarily unable to drain captures.
     pub async fn send_async(&self, event: AppEvent) -> Result<(), EventSendError> {
-        self.inner.send(event).await.map_err(|_| EventSendError)
+        let sinks: Vec<Sender<AppEvent>> = {
+            let sinks = self
+                .sinks
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            sinks.clone()
+        };
+        if sinks.is_empty() {
+            return Err(EventSendError);
+        }
+        // A subscriber that has been dropped must never stall or abort the
+        // proxy; skip closed sinks and succeed if at least one queue accepted
+        // the event.
+        let mut delivered = false;
+        for sink in sinks {
+            if sink.send(event.clone()).await.is_ok() {
+                delivered = true;
+            }
+        }
+        if delivered {
+            Ok(())
+        } else {
+            Err(EventSendError)
+        }
+    }
+
+    pub fn subscriber_count(&self) -> usize {
+        self.sinks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .len()
     }
 }
 
@@ -159,6 +209,8 @@ pub enum AppEvent {
     /// is used in tests.
     ProxyBound(SocketAddr),
     TlsStateChanged(TlsStatus),
+    /// Persistence status, query results, exports, and storage failures.
+    Storage(StorageEvent),
     Notice(Notice),
     Shutdown,
 }
@@ -184,12 +236,19 @@ pub enum AppCommand {
         id: TrafficId,
         request: crate::models::traffic::EditableHttpRequest,
     },
+    /// Replace the live target-scope allowlist. New requests and CONNECT
+    /// sessions use the updated rules immediately; established connections keep
+    /// the rules they were admitted under.
+    UpdateScope(Scope),
 }
 
-/// Single-consumer event channel retained by the application shell.
+/// Event bus retained by the application shell. The shell owns the primary
+/// receiver; background services may take additional receivers.
 pub struct EventBus {
     sender: EventSender,
+    sinks: Arc<Mutex<Vec<Sender<AppEvent>>>>,
     receiver: EventReceiver,
+    capacity: usize,
 }
 
 impl EventBus {
@@ -198,16 +257,29 @@ impl EventBus {
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
-        let (sender, receiver) = mpsc::channel(capacity.max(1));
+        let capacity = capacity.max(1);
+        let sinks = Arc::new(Mutex::new(Vec::new()));
+        let (sender, receiver) = mpsc::channel(capacity);
+        sinks.lock().unwrap().push(sender);
         Self {
-            sender: EventSender::new(sender),
+            sender: EventSender::new(sinks.clone()),
+            sinks,
             receiver,
+            capacity,
         }
     }
 
     /// A clone of the sender for proxy, storage, or other workers.
     pub fn sender(&self) -> EventSender {
         self.sender.clone()
+    }
+
+    /// Registers an additional receiver. Events already queued before the
+    /// subscription are not replayed.
+    pub fn subscribe(&mut self) -> EventReceiver {
+        let (sender, receiver) = mpsc::channel(self.capacity);
+        self.sinks.lock().unwrap().push(sender);
+        receiver
     }
 
     /// Non-blocking poll used by the terminal event loop.
@@ -247,6 +319,21 @@ mod tests {
             other => panic!("unexpected event: {other:?}"),
         }
         assert!(bus.poll().is_none());
+    }
+
+    #[test]
+    fn subscribers_receive_every_event() {
+        let mut bus = EventBus::new();
+        let sender = bus.sender();
+        let mut storage = bus.subscribe();
+
+        sender
+            .send(AppEvent::Notice(Notice::info("hello")))
+            .unwrap();
+
+        assert!(matches!(bus.poll(), Some(AppEvent::Notice(_))));
+        assert!(matches!(storage.try_recv(), Ok(AppEvent::Notice(_))));
+        assert_eq!(sender.subscriber_count(), 2);
     }
 
     #[test]

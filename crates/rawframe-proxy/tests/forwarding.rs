@@ -359,6 +359,37 @@ async fn enforces_scope_and_request_limits_before_connecting() {
 }
 
 #[tokio::test]
+async fn live_scope_updates_apply_without_restarting_the_listener() {
+    let (upstream, _upstream_task) = spawn_http_upstream().await;
+    let (proxy, proxy_addr, _bus) = start_test_proxy("allowed.test").await;
+
+    let request = format!(
+        "GET http://{upstream}/scoped HTTP/1.1\r\nHost: {upstream}\r\nConnection: close\r\n\r\n"
+    );
+    let response = raw_request(proxy_addr, request.as_bytes()).await;
+    assert!(
+        String::from_utf8_lossy(&response).starts_with("HTTP/1.1 403"),
+        "scope must start closed"
+    );
+
+    // The operator adds the target in Settings; no listener restart happens.
+    proxy.update_scope(Scope::allow(ScopeRule::host("127.0.0.1")));
+    let response = raw_request(proxy_addr, request.as_bytes()).await;
+    let text = String::from_utf8_lossy(&response);
+    assert!(text.starts_with("HTTP/1.1 200"), "{text}");
+    assert!(text.contains("path=/scoped"), "{text}");
+
+    // Removing the rule closes the proxy to the same target again.
+    proxy.update_scope(Scope::default());
+    let response = raw_request(proxy_addr, request.as_bytes()).await;
+    assert!(
+        String::from_utf8_lossy(&response).starts_with("HTTP/1.1 403"),
+        "scope removal must take effect immediately"
+    );
+    proxy.shutdown().await;
+}
+
+#[tokio::test]
 async fn rejects_oversized_responses_and_invalid_destinations() {
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream = listener.local_addr().unwrap();

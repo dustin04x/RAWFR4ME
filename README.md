@@ -2,9 +2,9 @@
 
 **Terminal-native HTTP interception and security testing workbench.**
 
-RAWFRAME is an open-source Rust workspace for authorized HTTP/1.1 testing from the terminal. It provides a local forward proxy, opaque HTTPS tunnelling, opt-in TLS interception, an in-memory traffic history, and a live request workbench inside a keyboard-driven TUI. It is built for testers who want a compact terminal workflow with explicit scope and visible request lifecycle state.
+RAWFRAME is an open-source Rust workspace for authorized HTTP/1.1 testing from the terminal. It provides a local forward proxy, opaque HTTPS tunnelling, opt-in TLS interception, durable SQLite history with sessions and redacted export, and a live request workbench inside a keyboard-driven TUI. It is built for testers who want a compact terminal workflow with explicit scope and visible request lifecycle state.
 
-The current release is **0.2.0**. Milestones 1–4 are complete: core application, HTTP proxy, HTTP interception, and HTTPS TLS interception. Opaque `CONNECT` tunnelling is the default. Persistence, functional Repeater transmission, Intruder, Decoder, HTTP/2, and WebSocket support are not implemented.
+The current release is **0.2.0**. Milestones 1–5 are complete: core application, HTTP proxy, HTTP interception, HTTPS TLS interception, and durable history/sessions/export. Opaque `CONNECT` tunnelling is the default. Functional Repeater transmission, Intruder, Decoder, HTTP/2, and WebSocket support are not implemented.
 
 RAWFRAME is intended **only** for systems you own or are explicitly authorized to test.
 
@@ -50,6 +50,16 @@ Captured from real PTY sessions of the current TUI at 140×40. These are termina
 - Enabling or disabling interception applies to new `CONNECT` sessions; established sessions keep their configuration until close.
 - No certificate-pinning bypass.
 
+**Durable history and sessions**
+
+- SQLite persistence in a dedicated storage crate; the proxy and TUI never link SQLite.
+- Versioned schema migrations, crash recovery, and `incomplete` markers for interrupted transactions.
+- Captured traffic is written on a separate thread, so the proxy request path never waits on disk.
+- Sensitive header values are redacted before writing; bodies are stored only when explicitly opted in.
+- Browse stored sessions, restore them read-only into History, and export redacted JSON Lines.
+- Restored traffic is labelled `RESTORED`, is never live, and is never forwarded.
+- Live target-scope editing in Settings, applied to new requests without restarting the listener.
+
 **Request interception**
 
 - Pause matching requests before upstream contact.
@@ -69,32 +79,35 @@ Captured from real PTY sessions of the current TUI at 140×40. These are termina
 ### Planned, not implemented
 
 - Functional Repeater transmission and response capture/comparison.
-- SQLite persistence, projects, sessions, durable history, and export.
 - Decoder, Intruder, and advanced traffic analysis.
 - HTTP/2, HTTP/3, and WebSocket interception.
 - HTTP proxy authentication and per-client rate limits.
 
 ## Architecture
 
-RAWFRAME is a five-crate Cargo workspace. Dependency flow is one-way; the TUI never opens sockets and the proxy never depends on the TUI.
+RAWFRAME is a six-crate Cargo workspace. Dependency flow is one-way; the TUI never opens sockets or SQLite, and the proxy never depends on the TUI.
 
 | Crate | Responsibility |
 | --- | --- |
 | `rawframe-core` | Domain models, configuration, scope rules, lifecycle, filters, bounded event/command contracts, terminal-safety primitives, and labelled fixtures. No network or terminal I/O. |
 | `rawframe-http` | Authored HTTP/1.x document parser used by Repeater and tests. This is not the live proxy wire implementation. |
 | `rawframe-proxy` | Tokio/Hyper listener, HTTP forwarding, opaque `CONNECT` relay, TLS interception, destination policy, body guards, limits, and graceful shutdown. |
+| `rawframe-store` | SQLite schema/migrations, a single writer thread, redaction-on-write, session queries, restore, and redacted export. No proxy or TUI dependency. |
 | `rawframe-tui` | Ratatui/Crossterm application, workspaces, inspector, editor, layouts, input handling, and terminal lifecycle. |
-| `rawframe-cli` | Composition root: CLI validation, logging, Tokio runtime, proxy worker, and TUI loop. |
+| `rawframe-cli` | Composition root: CLI validation, logging, Tokio runtime, proxy worker, storage worker/capture pump, and TUI loop. |
 
 ```mermaid
 flowchart LR
     client[HTTP client / browser] -->|HTTP or CONNECT| proxy[rawframe-proxy]
     cli[rawframe-cli] --> tui[rawframe-tui]
     cli --> proxy
+    cli --> store[rawframe-store]
     tui --> http[rawframe-http]
     tui --> core[rawframe-core]
     proxy --> core
+    store --> core
     http --> core
+    proxy -. events .-> store
 ```
 
 ### Request lifecycle
@@ -106,7 +119,7 @@ flowchart LR
 5. Intercepted HTTPS traffic is terminated locally, decrypted, and handled through the existing HTTP interception lifecycle.
 6. Upstream TLS certificate-chain and hostname verification remains mandatory for intercepted sessions.
 
-`rawframe-cli` owns the Tokio runtime and spawns `rawframe_proxy::run_service`. The TUI exchanges commands and events through bounded channels, polls without blocking, and renders captured traffic and lifecycle state.
+`rawframe-cli` owns the Tokio runtime and spawns `rawframe_proxy::run_service`, plus the storage worker and a capture pump subscribed to the same event bus. The TUI exchanges commands and events through bounded channels, polls without blocking, and renders captured traffic and lifecycle state. Storage failures are reported in the UI; the proxy keeps running.
 
 See [docs/architecture.md](docs/architecture.md) for the full data flow, module map, and design decisions.
 
@@ -123,6 +136,9 @@ TLS interception is security-sensitive. RAWFRAME keeps it explicit and bounded.
 - **Loopback by default.** Remote binding requires both a non-loopback `--bind` and `--allow-remote-bind`. There is no proxy authentication; protect any remote listener with host firewalls or a trusted network.
 - **Bounded failure.** Bodies, connections, queues, and timeouts are bounded. Disabling interception or stopping the proxy cancels pending work instead of leaving it unresolved.
 - **Local data only.** No telemetry, external reporting, shell execution from captured content, or automatic trust-store modification. Diagnostics are written to a local log without captured headers or bodies.
+- **Redaction before storage.** Sensitive header values are replaced with `<redacted>` and bodies are stored as SQL `NULL` unless the operator explicitly opts in with `--persist-sensitive-headers` / `--persist-bodies`. Changing the policy never rewrites existing rows.
+- **Protected database.** On Unix the database and exports are `0600` in a `0700` directory; WAL + `synchronous=FULL` limit crash loss, and a 512 MiB ceiling stops runaway growth with an explicit error instead of filling the disk.
+- **Honest save state.** The footer shows `DB ON`, `DB OFF`, or `DB ERROR`; dropped captures are counted and surfaced. Corrupt or unavailable databases disable persistence without deleting the file.
 - **Presentation safety.** Sensitive headers are redacted by default, and captured text is sanitized before terminal rendering.
 
 ### Limitations
@@ -131,9 +147,10 @@ TLS interception is security-sensitive. RAWFRAME keeps it explicit and bounded.
 - TLS interception does not bypass certificate pinning. Pinned clients fail the intercepted handshake by design.
 - Modified HTTPS requests cannot change the original `CONNECT` authority; changing host or port requires a new connection.
 - Opaque tunnels expose only destination, duration, byte counts, and outcome; payload and inner headers are not captured.
-- History and settings are session-only. No database, project files, export, or persistent storage exists.
+- Captured history and sessions persist in SQLite. Settings, storage policy, and scope rules are runtime state: set them with CLI flags or in the UI for the current run. There is no configuration file.
+- Bodies and sensitive header values are absent from stored history unless explicitly enabled, and cannot be recovered later.
 - Repeater does not transmit requests yet.
-- Scope is configured from the CLI; there is no scope-rule editor.
+- Scope is edited in Settings or via `--scope`; wildcard and port rules apply to new requests immediately.
 - There is no proxy authentication, per-client rate limit, or HTTP `503` response for connection-limit overflow.
 
 See [docs/security.md](docs/security.md) for the threat model and the complete controls and gaps.
@@ -142,7 +159,7 @@ See [docs/security.md](docs/security.md) for the threat model and the complete c
 
 ### Prerequisites
 
-- Rust **1.88+** with edition 2024 support.
+- Rust **1.89+** with edition 2024 support.
 - A terminal of at least 64×18. The inspector requires 108 columns; 140×40 is recommended.
 - A truecolor terminal and a monospace font with box-drawing coverage for the intended appearance.
 - Python 3 with `cryptography` only for the real-binary PTY regression, not for normal operation.
@@ -176,6 +193,29 @@ curl --noproxy '' -x http://127.0.0.1:8080 http://127.0.0.1:8000/
 ```
 
 For a release build, use `cargo build --release -p rawframe-cli` and run `target/release/rawframe`.
+
+### Persisted history
+
+Captured traffic is written to a local SQLite database by default at `$XDG_DATA_HOME/rawframe/rawframe.db` or `~/.local/share/rawframe/rawframe.db`. The directory is `0700` and the database is `0600` on Unix.
+
+- Sensitive header values are stored as `<redacted>`; bodies are stored as SQL `NULL`. Both are opt-in: `--persist-sensitive-headers` and `--persist-bodies` (also toggles in Settings).
+- `--db FILE` chooses another database; `--no-persist` keeps everything in memory only.
+- Changing the policy affects new captures only. It never rewrites existing rows.
+- Press `B` to browse stored sessions, `Enter` to restore one read-only into History, and `E` to export it as redacted JSON Lines.
+- The footer shows `DB ON (n stored)`, `DB OFF`, or `DB ERROR`. Corrupt or unavailable databases disable persistence with an explicit message; the proxy keeps running.
+
+Export without starting the UI (newest session, or a specific one):
+
+```bash
+rawframe --db ~/.local/share/rawframe/rawframe.db \
+  --export-history ./engagement-history.jsonl
+
+rawframe --db ~/.local/share/rawframe/rawframe.db \
+  --export-session sess-abc123 \
+  --export-history ./engagement-history.jsonl
+```
+
+Exports contain the stored, already-redacted rows, not live in-memory values. Withheld bodies are marked `"omitted": true`; binary bodies are hex-encoded.
 
 ### Enable HTTPS interception
 
@@ -227,6 +267,14 @@ rawframe [OPTIONS]
 | `--no-mouse` | Disable mouse capture and interaction. |
 | `--no-redact` | Show sensitive header values. Dangerous in shared environments. |
 | `--log-file <FILE>` | Override the default local diagnostic log path. |
+| `--db <FILE>` | SQLite database for captured history. |
+| `--no-persist` | Do not create or write a database; history is memory-only. |
+| `--persist-bodies` | Store captured request/response bodies (off by default). |
+| `--persist-sensitive-headers` | Store sensitive header values instead of `<redacted>` (off by default). |
+| `--session-name <NAME>` | Name this capture session. |
+| `--project <NAME>` | Name the project that owns this session. |
+| `--export-history <FILE>` | Export stored history as JSON Lines and exit. |
+| `--export-session <ID>` | Session to export; defaults to the newest session. |
 | `--tls-intercept` | Enable HTTPS TLS interception for scoped `CONNECT` targets. |
 | `--tls-ca-dir <DIR>` | Override the local CA directory. |
 | `--tls-upstream-ca <FILE>` | Use an explicit PEM trust bundle for upstream TLS; verification stays on. |
@@ -252,6 +300,7 @@ Single-letter shortcuts are suppressed while typing in an editor, search field, 
 | `Ctrl+N` | Create a Repeater tab. |
 | `Ctrl+W` | Close the current Repeater tab. |
 | `Ctrl+U` | Clear HTTP History filters. |
+| `B` | Browse stored sessions (restore read-only, export). |
 | `Tab` / `Shift+Tab` | Move focus between navigation, content, and inspector. |
 | `?` | Show keyboard help. |
 | `Q` | Quit; confirmation is required with unsaved edits or paused requests. |
@@ -294,12 +343,14 @@ Single-letter shortcuts are suppressed while typing in an editor, search field, 
 | Repeater | `S` or `Ctrl+Enter` | Attempt to send. Transmission is not implemented and nothing is sent. |
 | Repeater | `←` / `→` | Switch tabs. |
 | Settings | `↑` / `↓`, `J` / `K` | Select a setting. |
-| Settings | `Enter` / `Space` | Toggle or edit the selected setting. |
+| Settings | `Enter` / `Space` | Toggle or edit the selected setting; **Target scope** opens the live rule editor. |
 | Settings | `Esc` | Cancel an inline edit. |
+| Scope editor | `Enter` / `Del` / `Ctrl+B` | Add typed rule / remove selected / toggle default-deny. |
+| Stored sessions | `↑` / `↓`, `Enter`, `E`, `R` | Select, restore read-only, export, refresh. |
 
 Mouse support includes click-to-select, double-click inspection, right-click context menus, wheel scrolling, and draggable pane dividers. Disable it with `--no-mouse`.
 
-Settings and traffic history are session-only. Network limit changes apply after the proxy is restarted.
+Captured history and sessions persist in SQLite. Settings, body limits, storage policy, and scope rules are not saved to a configuration file: choose them with CLI flags or in the UI for this run. Network limit changes apply after the proxy is restarted; scope edits apply to new requests immediately.
 
 ## Defaults
 
@@ -314,6 +365,9 @@ Settings and traffic history are session-only. Network limit changes apply after
 | HTTPS TLS interception | Off |
 | Upstream TLS verification | On; cannot be disabled |
 | Sensitive-header redaction | On |
+| Persistence | On; local SQLite database |
+| Stored bodies / sensitive headers | Off; SQL `NULL` and `<redacted>` |
+| Database ceiling | 512 MiB |
 
 Diagnostics default to `$XDG_DATA_HOME/rawframe/logs/rawframe.log` or `~/.local/share/rawframe/logs/rawframe.log`. Logs contain lifecycle data, not captured headers or bodies. The file is owner-only on Unix.
 
@@ -327,7 +381,7 @@ Milestone numbers follow [docs/roadmap.md](docs/roadmap.md).
 | M2 — HTTP proxy engine | Complete |
 | M3 — HTTP interception | Complete |
 | M4 — HTTPS TLS interception | Complete |
-| M5 — Persistence, sessions, and protocol coverage | Planned |
+| M5 — Persistence, sessions, and protocol coverage | Complete |
 | M6 — Functional Repeater | Planned |
 | Later — Intruder, Decoder, traffic analysis, protocol expansion, release hardening | Planned |
 
@@ -345,17 +399,17 @@ cargo test --workspace
 
 Or run `./scripts/check.sh`.
 
-The latest verified M4 release run reported:
+The latest verified M5 run reported:
 
-- **239 passing tests, 0 failed** across the workspace.
-- **89/89 PTY checks** passing at 140×40, 100×30, and 80×24.
-- A passing real-binary PTY regression that enables and disables TLS interception through the TUI.
+- **280 passing tests, 0 failed** across the workspace (M4 baseline: 239), including the real SQLite store, crash recovery, redaction-on-write, export, corruption handling, live scope updates, and worker round-trips.
+- The existing PTY screenshot and TLS enable/disable regressions still pass.
+- Storage tests use isolated temporary databases; proxy tests use local servers only.
 
 The PTY test requires Python 3 with `cryptography`; without it, that test skips while the remaining proxy-level HTTP/HTTPS tests still run. Test suites use local servers and self-contained test CAs; no test contacts an external website. These are milestone results, not a guarantee for every future commit.
 
 ## Project status and contribution
 
-RAWFRAME is under active pre-1.0 development. The M1–M4 foundations are implemented and tested; planned modules are visible in the navigation but clearly marked as placeholders. Interfaces and terminal behavior may change.
+RAWFRAME is under active pre-1.0 development. The M1–M5 foundations are implemented and tested; planned modules are visible in the navigation but clearly marked as placeholders. Interfaces and terminal behavior may change.
 
 Contributions should preserve the security defaults: loopback binding, default-deny scope, explicit private-upstream opt-in, mandatory upstream TLS verification, redaction, and terminal sanitization. Add tests for behavioral changes and run the quality gates before submitting. See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/development.md](docs/development.md).
 

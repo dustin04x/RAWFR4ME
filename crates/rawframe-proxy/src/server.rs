@@ -2,14 +2,15 @@
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use rawframe_core::models::AppConfig;
+use rawframe_core::models::config::Scope;
 use rawframe_core::{AppCommand, AppEvent, EventSender, Notice, ProxyState};
 use tokio::net::TcpListener;
 use tokio::sync::{Semaphore, mpsc, watch};
@@ -32,6 +33,7 @@ pub struct ProxyHandle {
     task: tokio::task::JoinHandle<()>,
     interception: InterceptionManager,
     tls: Arc<TlsController>,
+    scope: Arc<RwLock<Scope>>,
 }
 
 impl ProxyHandle {
@@ -47,6 +49,15 @@ impl ProxyHandle {
         decision: InterceptDecision,
     ) {
         let _ = self.interception.resolve(id, decision).await;
+    }
+
+    /// Replaces the live scope allowlist. Requests admitted after this call use
+    /// the new rules immediately; already-forwarded requests are untouched.
+    pub fn update_scope(&self, scope: Scope) {
+        *self
+            .scope
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = scope;
     }
 
     pub async fn shutdown(mut self) {
@@ -110,9 +121,11 @@ pub async fn start_proxy(
     } else {
         rawframe_core::TlsStatus::disabled()
     };
+    let live_scope = Arc::new(RwLock::new(config.proxy.scope.clone()));
     let context_tls = tls.clone();
     let context = ServiceContext {
         config: config.clone(),
+        scope: live_scope.clone(),
         events,
         ids,
         tracker: tracker.clone(),
@@ -139,6 +152,7 @@ pub async fn start_proxy(
         task,
         interception,
         tls: context_tls,
+        scope: live_scope,
     })
 }
 
@@ -198,6 +212,18 @@ pub async fn run_service(mut commands: mpsc::Receiver<AppCommand>, events: Event
                             .await;
                     }
                 }
+            }
+            AppCommand::UpdateScope(scope) => {
+                if let Some(active) = handle.as_ref() {
+                    active.update_scope(scope);
+                    let _ = events
+                        .send_async(AppEvent::Notice(Notice::success(
+                            "Scope updated: new requests use the edited allowlist.",
+                        )))
+                        .await;
+                }
+                // When the proxy is stopped the next StartProxy config already
+                // carries the edited scope; nothing else to apply.
             }
             AppCommand::StopProxy => {
                 if let Some(started) = handle.take() {

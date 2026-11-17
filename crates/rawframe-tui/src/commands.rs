@@ -24,6 +24,8 @@ pub enum CommandId {
     ClearHistoryFilters,
     ToggleMouse,
     ShowHelp,
+    OpenStoredSessions,
+    ExportStoredSession,
     Quit,
 }
 
@@ -190,6 +192,20 @@ pub const COMMANDS: &[CommandSpec] = &[
         group: "Help",
         shortcut: Some("?"),
         keywords: "shortcuts keys documentation",
+    },
+    CommandSpec {
+        id: CommandId::OpenStoredSessions,
+        title: "Browse stored sessions",
+        group: "Storage",
+        shortcut: Some("B"),
+        keywords: "history database restore saved project session sqlite",
+    },
+    CommandSpec {
+        id: CommandId::ExportStoredSession,
+        title: "Export current session to JSONL",
+        group: "Storage",
+        shortcut: None,
+        keywords: "download redacted save database jsonl",
     },
     CommandSpec {
         id: CommandId::Quit,

@@ -21,6 +21,11 @@ rawframe-cli
 │   ├── chrono
 │   ├── thiserror
 │   └── tracing
+├── rawframe-store
+│   ├── rawframe-core
+│   ├── rusqlite (bundled SQLite)
+│   ├── serde_json
+│   └── chrono
 ├── rawframe-core
 ├── clap
 ├── anyhow
@@ -42,9 +47,9 @@ UI, so the UI triggers engine commands without importing proxy internals.
 | `rawframe-core` | external domain libraries only | TUI, proxy, storage, CLI |
 | `rawframe-http` | `rawframe-core`, `httparse` | TUI, proxy, storage, CLI |
 | `rawframe-proxy` | `rawframe-core`, Hyper/Tokio networking libraries | TUI, storage, CLI |
-| `rawframe-tui` | `rawframe-core`, `rawframe-http`, Ratatui, Chrono | proxy or storage internals, sockets, Tokio runtime |
+| `rawframe-tui` | `rawframe-core`, `rawframe-http`, Ratatui, Chrono | proxy or storage internals, SQLite, sockets, Tokio runtime |
+| `rawframe-store` | `rawframe-core`, SQLite driver | TUI, proxy, CLI |
 | `rawframe-cli` | all workspace crates | — |
-| future `rawframe-storage` | core, SQLite driver | TUI, proxy, CLI |
 
 Only `rawframe-cli` constructs the Tokio runtime. `rawframe-proxy` is runtime-
 agnostic: its `run_service` future is spawned by the composition root.
@@ -73,6 +78,9 @@ Versions are declared once in the workspace manifest and inherited by crates.
 | `anyhow` | 1.0 | cli | top-level error context |
 | `tracing` | 0.1 | cli, proxy | structured local diagnostics |
 | `tracing-subscriber` | 0.3 | cli | file logging subscriber |
+| `rusqlite` | 0.41 (`bundled`) | store | SQLite driver with a bundled, reproducible SQLite build |
+| `serde_json` | 1.0 | store | ordered header arrays, sub-request metadata, export lines |
+| `tempfile` | 3.27 (dev) | store | isolated temporary databases in tests |
 
 Notes:
 
@@ -82,8 +90,9 @@ Notes:
   wire parser.
 - `tokio-util` is used only for task tracking; no runtime is embedded in a
   library crate.
-- No HTTP/2, HTTP/3, SQLite, UUID, clipboard, or network-logging dependency is
-  present. TLS/certificate dependencies are limited to the proxy crate.
+- No HTTP/2, HTTP/3, UUID, clipboard, or network-logging dependency is present.
+  TLS/certificate dependencies are limited to the proxy crate; SQLite is limited
+  to the storage crate.
 - Truecolor rendering needs no extra dependency; Ratatui RGB colors are used
   directly.
 
@@ -104,9 +113,8 @@ These are listed for design transparency only. They are not in `Cargo.lock`.
 
 | Milestone | Likely dependency | Purpose |
 |---|---|---|
-| 4 | `rusqlite` (bundled) or `sqlx` | SQLite migrations and history |
-| later | `serde_json` | export formats |
 | later | terminal clipboard helper | explicit copy actions, if implemented without shell execution |
+| later | protocol libraries | HTTP/2/WebSocket support, only when implemented and tested |
 
 Every planned addition must preserve the rule that networking and storage are
 invisible to the presentation crate.
