@@ -31,7 +31,7 @@ INSERT INTO traffic (
     redacted_headers, response_status, response_reason, response_version,
     response_headers, response_body, response_body_omitted, started_at,
     completed_at, duration_ms, error, note, original_request, final_request,
-    interception, tunnel, incomplete, updated_at
+    interception, tunnel, repeater_origin, incomplete, updated_at
 ) VALUES (
     :session_id, :traffic_id, :kind, :source, :state, :method, :scheme, :host,
     :port, :target, :version, :request_headers, :request_body,
@@ -39,7 +39,7 @@ INSERT INTO traffic (
     :response_reason, :response_version, :response_headers, :response_body,
     :response_body_omitted, :started_at, :completed_at, :duration_ms, :error,
     :note, :original_request, :final_request, :interception, :tunnel,
-    :incomplete, :updated_at
+    :repeater_origin, :incomplete, :updated_at
 )
 ON CONFLICT(session_id, traffic_id) DO UPDATE SET
     kind = excluded.kind,
@@ -70,6 +70,7 @@ ON CONFLICT(session_id, traffic_id) DO UPDATE SET
     final_request = excluded.final_request,
     interception = excluded.interception,
     tunnel = excluded.tunnel,
+    repeater_origin = excluded.repeater_origin,
     incomplete = excluded.incomplete,
     updated_at = excluded.updated_at
 "#;
@@ -79,7 +80,7 @@ const TRAFFIC_COLUMNS: &str = "row_id, traffic_id, kind, source, state, method, 
      redacted_headers, response_status, response_reason, response_version, \
      response_headers, response_body, response_body_omitted, started_at, completed_at, \
      duration_ms, error, note, original_request, final_request, interception, tunnel, \
-     incomplete";
+     repeater_origin, incomplete";
 
 /// An open, migrated database bound to the current session.
 pub struct Store {
@@ -305,6 +306,7 @@ impl Store {
                         ":final_request": record.final_request,
                         ":interception": record.interception,
                         ":tunnel": record.tunnel,
+                        ":repeater_origin": record.repeater_origin,
                         ":incomplete": record.incomplete,
                         ":updated_at": updated_at,
                     })
@@ -455,7 +457,9 @@ impl Store {
                     "restored_as": entry.id.0,
                     "restored": true,
                     "kind": record.kind,
-                    "stored_source": record.source,
+                    // decode_row labels loaded entries as restored; export must
+                    // report the producer that was actually stored instead.
+                    "stored_source": row.get::<_, String>("source").unwrap_or_else(|_| "restored".into()),
                     "state": record.state,
                     "method": entry.request.method,
                     "scheme": record.scheme,
@@ -479,6 +483,7 @@ impl Store {
                         "body": body_json(&response.body, response_omitted),
                     })),
                     "tunnel": entry.tunnel.as_ref().map(tunnel_json),
+                    "repeater_origin": entry.repeater_origin.map(|id| id.0),
                     "started_at": entry.timings.started_at.to_rfc3339(),
                     "completed_at": entry.timings.completed_at.map(|value| value.to_rfc3339()),
                     "duration_ms": entry.timings.duration_ms,

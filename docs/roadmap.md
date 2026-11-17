@@ -175,26 +175,42 @@ Exit criteria / tests:
 - Export redaction tests.
 - Persisted history relationships and incomplete-session recovery tests.
 
-## Milestone 6 — Repeater
+## Milestone 6 — Repeater (implemented)
 
-Goal: real request transmission and response comparison.
+### M6 status (this workspace)
 
-Scope:
+- New `rawframe-repeater` engine opens independent HTTP/1.1 connections over
+  HTTP or verified HTTPS. It does not use the proxy listener, CONNECT tunnel,
+  local CA, or interception queue.
+- It reuses the public `rawframe-proxy` destination resolution/address policy
+  and upstream TLS configuration, so scope, private-upstream opt-in, DNS
+  resolve-once, and certificate/hostname verification cannot diverge.
+- Real request validation, arbitrary methods, custom ports, query strings,
+  ordered duplicate headers, and binary bodies. `CONNECT` and ambiguous framing
+  are rejected before DNS.
+- Per-tab execution lifecycle: Draft, Validating, Connecting, Sending, Receiving,
+  Completed, Failed, Cancelled, TimedOut, and Blocked. Late events cannot
+  overwrite a newer execution or another tab.
+- Raw, Headers, Body, Pretty JSON, Hex, and Compare inspection. Comparison covers
+  status, headers, body bytes, size, and duration; the raw response model is not
+  mutated by display modes.
+- Safe redirects are opt-in, capped at five hops, scope-checked per hop, and
+  strip credentials cross-origin. 301/302 POST→GET and 303→GET rewrite; 307/308
+  preserve method/body.
+- Response limits, connect/header/body-idle/total timeouts, per-execution
+  cancellation, and a bounded concurrency limit are enforced.
+- Completed executions are labelled `REPEATER`, optionally reference the
+  original capture, and persist through the existing redaction/body policy.
+  Schema version 2 adds `repeater_origin` without rewriting M5 databases.
 
-- Send authored request documents through the proxy stack.
-- Multiple tabs (already present) with durable drafts.
-- Response timing, status, headers, and body inspection.
-- Response comparison across attempts.
-- Scope checks and explicit transmission confirmation.
-- Clear distinction between captured and authored requests.
+Exit criteria/tests are satisfied by `rawframe-repeater/tests/execution.rs`
+(real local HTTP and HTTPS servers), TUI controller/render tests, and store
+provenance/redaction tests. No execution occurs while typing; only an explicit
+send/cancel command reaches the engine.
 
-Exit criteria / tests:
-
-- Send to local test server, including malformed/failed requests.
-- Scope refusal test for out-of-scope targets.
-- Response capture and comparison tests.
-- Editing/transmission never fires while typing.
-- No transmission to any host without scope authorization.
+Explicitly not included: Intruder, Decoder, durable draft documents,
+HTTP/2/WebSocket, client certificates, proxy-auth, or replay through the proxy
+listener.
 
 ## Later — Intruder and Decoder
 
@@ -226,8 +242,10 @@ Decoder:
   never rewrites entries already stored. Settings themselves (limits, accent)
   remain session-only because there is no configuration file.
 - Protocol coverage is HTTP/1.1 only.
-- Repeater “Send” reports that transmission is unavailable; no response is
-  fabricated.
+- Repeater opens direct connections and supports HTTP/1.1 only. It cannot reuse
+  a captured connection, client certificate, or proxy-auth path; results may
+  differ from the original capture. Drafts are session-only; completed
+  executions are persisted.
 - No listener authentication. Keep the proxy on loopback; remote binding
   requires `--allow-remote-bind` and host-level protection.
 - Connection-limit overflow closes the socket rather than returning `503`.
@@ -240,7 +258,6 @@ Decoder:
 
 ## Recommended next step
 
-**Milestone 6: Repeater transmission.** Durable history, sessions, export, and
-live scope editing now exist. Add real Repeater transmission through the proxy
-stack with scope checks, response capture, and comparison, then Intruder and
-Decoder.
+**Milestone 7: Intruder and Decoder.** Repeater execution, history, sessions, and
+export now exist. Build payload-position/rate-controlled Intruder and chained
+Decoder transforms without fabricating findings or executing decoded content.

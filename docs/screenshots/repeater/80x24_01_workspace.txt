@@ -1,0 +1,24 @@
+ RAWFRAME  |  Repeater                        PROXY STOPPED  |  INTERCEPTION OFF
+────────────────────────────────────────────────────────────────────────────────
+REPEATER  execute · inspect · compare                               ENGINE READY
+ SIM POST /v1/orders   SIM GET /v1/users?page=2                             +
+ Send ^↵    Cancel C    New ^N    Dup   Close ^W                   REDIRECTS OFF
+DRAFT  https://api.rawframe.test/v1/orders
+╭ REQUEST · SIMULATED ORIGINAL ────────────────────────────────────────────────╮
+│ 1 │ POST https://api.rawframe.test/v1/orders HTTP/1.1                        │
+│ 2 │ Host: api.rawframe.test                                                  │
+│ 3 │ User-Agent: rawframe-sim/0.1 (fixture)                                   │
+│ 4 │ Accept: */*                                                              │
+│ 5 │ Authorization: <redacted>                                                │
+│ 6 │ Content-Type: application/json                                           │
+│ 7 │ X-Request-Id: fixture-4c1d9e                                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭ RESPONSE ────────────────────────────────────────────────────────────────────╮
+│Draft not sent. Press Send or Ctrl+Enter.                                  ×  │
+│BODY NOT PERSISTED · HEADERS REDACTEDre                                       │
+│Draft not sent. Press Send or Ctrl+Enter.                                     │
+│RAWFRAME never fabricates a response.                                         │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ! Persistence is disabled (--no-persist… ^K commands  ? help  ^C quit

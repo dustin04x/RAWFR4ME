@@ -49,6 +49,9 @@ silence a lint without fixing or documenting the underlying design issue.
 | `crates/rawframe-proxy/src/tls/` | CA management, leaf issuance/cache, TLS session helpers |
 | `crates/rawframe-proxy/tests/tls_interception.rs` | Local HTTPS interception, verification, and fail-closed tests |
 | `crates/rawframe-proxy/tests/forwarding.rs` | Local-only proxy integration suite |
+| `crates/rawframe-repeater/src/engine.rs` | Independent Repeater connections, TLS, redirects, bounded capture |
+| `crates/rawframe-repeater/src/service.rs` | Bounded Repeater command service, cancellation, traffic IDs |
+| `crates/rawframe-repeater/tests/execution.rs` | Real local HTTP/HTTPS Repeater matrix |
 | `crates/rawframe-store/src/schema.rs` | Versioned SQLite migrations |
 | `crates/rawframe-store/src/record.rs` | Policy-applied entry <-> row encoding and restore decoding |
 | `crates/rawframe-store/src/store.rs` | Connection owner, batched upserts, session queries, export |
@@ -101,6 +104,28 @@ silence a lint without fixing or documenting the underlying design issue.
   whenever the filter list changes.
 - Update `TunnelMetadata` and the TUI tunnel view if relay outcomes or byte
   accounting change.
+
+### Working on Repeater
+
+- Repeater must use `Destination::from_parts` + the proxy's public
+  resolve/validate/connect path and the shared upstream TLS builder. Do not add a
+  second address policy, trust store, or hostname-verification implementation.
+- Never route Repeater through the proxy listener, CONNECT tunnel, local CA, or
+  interception queue. It is a scoped direct client with its own lifecycle.
+- Revalidate in the engine, not only in the TUI. Scope must be re-read before
+  each connection and redirect hop. Every redirect destination must be checked
+  before it is followed, and credentials stripped on cross-origin hops.
+- Keep the concurrency, response-size, timeout, command, and cancellation bounds
+  in the engine. A UI queue failure or late event must not leave a tab stuck
+  busy; match completions by tab/execution ID.
+- Binary bodies are preserved only while the editor body section is unchanged.
+  Do not reconstruct bodies from lossy display text. Redacted header placeholders
+  are restored from the original capture by name/occurrence at send time.
+- Completed entries go through the shared event bus and storage pump. Preserve
+  `TrafficSource::Repeater` and `repeater_origin`; never label them as live proxy
+  captures.
+- Tests must use real local HTTP/HTTPS servers, including certificate mismatch
+  and untrusted-certificate cases. Do not mock the HTTP client.
 
 ### Working on persistence
 
@@ -258,6 +283,12 @@ TUI-to-engine boundary:
 
 ```bash
 cargo test -p rawframe-cli --test proxy_tui -- --nocapture
+```
+
+Repeater (real local HTTP/HTTPS servers, no mocks):
+
+```bash
+cargo test -p rawframe-repeater -- --nocapture
 ```
 
 Storage (real SQLite, isolated temp databases):

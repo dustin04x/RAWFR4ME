@@ -1,0 +1,30 @@
+ RAWFRAME  |  Repeater    PROXY STOPPED  |  INTERCEPTION OFF  |  SCOPE deny all (no allowlist rules)
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││REPEATER  execute · inspect · compare                              ENGINE READY
+ PRIMARY           ││ SIM POST /v1/orde…   SIM GET /v1/users…                                   +
+  Proxy         ^1 ││ Send ^↵    Cancel C    New ^N    Dup   Close ^W                  REDIRECTS OFF
+  History       ^2 ││DRAFT  https://api.rawframe.test/v1/orders
+▌ Repeater      ^3 ││╭ REQUEST · SIMULATED ORIGINAL ───────────────────────────────────────────────╮
+  Settings      ^4 │││ 1 │ POST https://api.rawframe.test/v1/orders HTTP/1.1                       │
+                   │││ 2 │ Host: api.rawframe.test                                                 │
+ PLANNED           │││ 3 │ User-Agent: rawframe-sim/0.1 (fixture)                                  │
+  Intruder planned │││ 4 │ Accept: */*                                                             │
+  Decoder  planned │││ 5 │ Authorization: <redacted>                                               │
+                   │││ 6 │ Content-Type: application/json                                          │
+                   │││ 7 │ X-Request-Id: fixture-4c1d9e                                            │
+                   │││ 8 │                                                                         │
+                   │││ 9 │ {"sku":"LAMP-01","quantity":1,"note":"fixture order"}                   │
+                   │││                                                                             │
+                   ││╰─────────────────────────────────────────────────────────────────────────────╯
+                   ││╭ RESPONSE ───────────────────────────────────────────────────────────────────╮
+                   │││Draft not sent. Press Send or Ctrl+Enter.                                 ×  │
+                   │││BODY NOT PERSISTED · HEADERS REDACTEDre                                      │
+                   │││                                                                             │
+                   │││Draft not sent. Press Send or Ctrl+Enter.                                    │
+ STATUS            │││RAWFRAME never fabricates a response.                                        │
+ Engine stopped    │││                                                                             │
+ Interception off  │││                                                                             │
+ No pending        │││                                                                             │
+                   ││╰─────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ! Persistence is disabled (--no-persist): captures are kept… ^K commands  ? help  ^C quit

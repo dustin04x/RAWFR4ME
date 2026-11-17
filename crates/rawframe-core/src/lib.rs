@@ -7,6 +7,7 @@
 //! * the event and command boundary between services and the UI ([`events`]),
 //! * history filtering ([`filter`]),
 //! * persistence command/event contracts ([`storage`]),
+//! * Repeater execution contracts and request validation ([`repeater`]),
 //! * terminal-safety primitives for hostile captured data ([`security`]),
 //! * clearly labelled simulated traffic used by the demo shell ([`fixtures`]).
 //!
@@ -18,6 +19,7 @@ pub mod events;
 pub mod filter;
 pub mod fixtures;
 pub mod models;
+pub mod repeater;
 pub mod security;
 pub mod storage;
 
@@ -32,6 +34,11 @@ pub use models::{
     ProxyConfiguration, RepeaterRequest, Scheme, Scope, Session, SessionId, SessionSummary,
     StatusClass, StorageConfiguration, TrafficEntry, TrafficId, TrafficKind, TrafficSource,
     TrafficState, TunnelMetadata, TunnelOutcome,
+};
+pub use repeater::{
+    ExecutionComparison, HeaderDifference, RedirectHop, RepeaterCommand, RepeaterCommandSender,
+    RepeaterEvent, RepeaterExecutionPhase, RepeaterResult, RepeaterTimings, RequestValidationError,
+    compare_executions, validate_request,
 };
 pub use storage::{
     STORAGE_COMMAND_QUEUE, StorageCommand, StorageCommandReceiver, StorageCommandSender,

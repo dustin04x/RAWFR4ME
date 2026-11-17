@@ -21,6 +21,20 @@ rawframe-cli
 │   ├── chrono
 │   ├── thiserror
 │   └── tracing
+├── rawframe-repeater
+│   ├── rawframe-core
+│   ├── rawframe-proxy (destination policy + upstream TLS builder only)
+│   ├── hyper
+│   ├── hyper-util
+│   ├── http-body-util
+│   ├── bytes
+│   ├── tokio
+│   ├── tokio-util
+│   ├── tokio-rustls
+│   ├── rustls
+│   ├── chrono
+│   ├── thiserror
+│   └── tracing
 ├── rawframe-store
 │   ├── rawframe-core
 │   ├── rusqlite (bundled SQLite)
@@ -36,9 +50,12 @@ rawframe-cli
 
 `rawframe-cli` is the only composition root and binary. The library crates form
 a directed acyclic graph. `rawframe-core` has no internal dependencies.
-`rawframe-proxy` does **not** depend on `rawframe-tui`; `rawframe-tui` does not
-depend on `rawframe-proxy`. The CLI attaches the shared `CommandSender` to the
-UI, so the UI triggers engine commands without importing proxy internals.
+`rawframe-proxy` does **not** depend on `rawframe-tui` or `rawframe-repeater`;
+`rawframe-repeater` reuses only public destination/TLS helpers from the proxy
+crate; `rawframe-tui` does not depend on `rawframe-proxy` or
+`rawframe-repeater` at runtime (a dev-dependency supports integration tests).
+The CLI attaches bounded command senders to the UI, so the UI triggers engine
+commands without importing proxy or Repeater internals.
 
 ### Dependency rules
 
@@ -46,15 +63,16 @@ UI, so the UI triggers engine commands without importing proxy internals.
 |---|---|---|
 | `rawframe-core` | external domain libraries only | TUI, proxy, storage, CLI |
 | `rawframe-http` | `rawframe-core`, `httparse` | TUI, proxy, storage, CLI |
-| `rawframe-proxy` | `rawframe-core`, Hyper/Tokio networking libraries | TUI, storage, CLI |
-| `rawframe-tui` | `rawframe-core`, `rawframe-http`, Ratatui, Chrono | proxy or storage internals, SQLite, sockets, Tokio runtime |
-| `rawframe-store` | `rawframe-core`, SQLite driver | TUI, proxy, CLI |
+| `rawframe-proxy` | `rawframe-core`, Hyper/Tokio networking libraries | TUI, storage, CLI, Repeater |
+| `rawframe-repeater` | `rawframe-core`, public proxy destination/TLS helpers, Hyper/Tokio/Rustls | TUI, storage, CLI, proxy listener/CA/queue |
+| `rawframe-tui` | `rawframe-core`, `rawframe-http`, Ratatui, Chrono | proxy/repeater or storage internals, SQLite, sockets, Tokio runtime |
+| `rawframe-store` | `rawframe-core`, SQLite driver | TUI, proxy, Repeater, CLI |
 | `rawframe-cli` | all workspace crates | — |
 
-Only `rawframe-cli` constructs the Tokio runtime. `rawframe-proxy` is runtime-
-agnostic: its `run_service` future is spawned by the composition root.
-`rawframe-tui`'s loop remains synchronous; it polls a bounded channel and never
-performs network or storage work.
+Only `rawframe-cli` constructs the Tokio runtime. `rawframe-proxy` and
+`rawframe-repeater` are runtime-agnostic: their `run_service` futures are spawned
+by the composition root. `rawframe-tui`'s loop remains synchronous; it polls a
+bounded channel and never performs network or storage work.
 
 ## External dependencies
 
@@ -64,8 +82,9 @@ Versions are declared once in the workspace manifest and inherited by crates.
 |---|---|---|---|
 | `serde` | 1.0 | core | derive serialization for models and config |
 | `chrono` | 0.4 | core, tui, proxy | UTC timestamps and durations |
-| `tokio` | 1.54 (`sync` in core; `net`, `rt`, `time`, `io-util` in proxy/CLI) | core, proxy, cli | bounded channels, runtime, async I/O, timeouts |
-| `tokio-util` | 0.7 (`rt`) | proxy | `TaskTracker` for graceful task draining |
+| `tokio` | 1.54 (`sync` in core; `net`, `rt`, `time`, `io-util` in proxy/repeater/CLI) | core, proxy, repeater, cli | bounded channels, runtime, async I/O, timeouts |
+| `tokio-util` | 0.7 (`rt`) | proxy, repeater | `TaskTracker`/`CancellationToken` for draining and cancellation |
+| `tokio-rustls`, `rustls` | 0.26 / 0.23 | repeater | verified upstream TLS client for direct HTTPS execution |
 | `thiserror` | 2.0 | core, http, proxy | typed errors with context |
 | `httparse` | 1.10 | http | HTTP/1.x document parsing |
 | `hyper` | 1.x (`http1`, `server`, `client`) | proxy | HTTP/1.1 wire parsing, client/server connections |
@@ -87,7 +106,11 @@ Notes:
 - Hyper and Tokio provide HTTP/1.1 parsing, framing, upgrades, and async I/O.
   RAWFRAME does not reimplement wire framing.
 - `rawframe-http` remains a document parser for the Repeater, not the proxy's
-  wire parser.
+  wire parser. The Repeater engine uses Hyper for wire framing, exactly like the
+  proxy's upstream path.
+- `rawframe-repeater` reuses public proxy destination and upstream-TLS helpers
+  rather than duplicating security policy. It does not depend on the proxy
+  server, CA manager, or interception queue.
 - `tokio-util` is used only for task tracking; no runtime is embedded in a
   library crate.
 - No HTTP/2, HTTP/3, UUID, clipboard, or network-logging dependency is present.

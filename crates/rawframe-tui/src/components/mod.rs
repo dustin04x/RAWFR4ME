@@ -239,6 +239,7 @@ pub fn source_badge(theme: &Theme, source: TrafficSource) -> Span<'static> {
         TrafficSource::Simulated => Span::styled("SIM", theme.warning()),
         TrafficSource::Intercepted => Span::styled("LIVE", theme.muted()),
         TrafficSource::Authored => Span::styled("AUTH", theme.faint()),
+        TrafficSource::Repeater => Span::styled("REPEATER", theme.success()),
         TrafficSource::Restored => Span::styled("RESTORED", theme.accent()),
     }
 }

@@ -6,7 +6,7 @@ Thanks for your interest in improving RAWFRAME. This repository is a Rust worksp
 
 - RAWFRAME is intended **only** for systems you own or are explicitly authorized to test.
 - Do not add features that weaken security defaults (default-deny scope, loopback-by-default binding, explicit private-upstream opt-in, TLS verification, redaction/sanitization).
-- Do not claim unimplemented functionality (e.g. Repeater transmission, Intruder, Decoder, HTTP/2, or WebSocket support unless the code actually supports it). TLS interception, the local CA, and SQLite session persistence are implemented and tested; keep their documentation accurate.
+- Do not claim unimplemented functionality (e.g. Intruder, Decoder, HTTP/2, or WebSocket support unless the code actually supports it). TLS interception, the local CA, SQLite session persistence, and real Repeater execution are implemented and tested; keep their documentation accurate.
 
 ## Development
 

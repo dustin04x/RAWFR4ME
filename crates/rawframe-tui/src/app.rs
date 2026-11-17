@@ -15,6 +15,9 @@ use rawframe_core::models::config::ScopeRule;
 use rawframe_core::models::session::{SessionId, SessionSummary};
 use rawframe_core::models::traffic::{TrafficEntry, TrafficId, TrafficSource, TrafficState};
 use rawframe_core::models::{AppConfig, Session};
+use rawframe_core::repeater::{
+    RepeaterCommand, RepeaterCommandSender, RepeaterEvent, RepeaterExecutionPhase, validate_request,
+};
 use rawframe_core::storage::{
     StorageCommand, StorageCommandSender, StorageEvent, StoragePolicy, StorageStatus,
 };
@@ -81,6 +84,7 @@ pub struct App {
     pub(crate) proxy_state: ProxyState,
     pub(crate) proxy_address: Option<SocketAddr>,
     pub(crate) proxy_sender: Option<CommandSender>,
+    pub(crate) repeater_sender: Option<RepeaterCommandSender>,
     pub(crate) traffic: Vec<TrafficEntry>,
     pub(crate) proxy_selected: Option<TrafficId>,
     pub(crate) history_selected: Option<TrafficId>,
@@ -137,6 +141,7 @@ impl App {
             proxy_state: ProxyState::Stopped,
             proxy_address: None,
             proxy_sender: None,
+            repeater_sender: None,
             traffic,
             proxy_selected: None,
             history_selected: None,
@@ -247,6 +252,16 @@ impl App {
     /// depend on the proxy crate; the CLI composition root owns that wiring.
     pub fn attach_proxy_commands(&mut self, sender: CommandSender) {
         self.proxy_sender = Some(sender);
+    }
+
+    /// Connects the independent Repeater execution service. Without it the
+    /// workspace can edit drafts but never pretends to transmit.
+    pub fn attach_repeater_commands(&mut self, sender: RepeaterCommandSender) {
+        self.repeater_sender = Some(sender);
+    }
+
+    pub fn repeater_engine_available(&self) -> bool {
+        self.repeater_sender.is_some()
     }
 
     /// Connects storage commands. The database itself stays in the worker.
@@ -517,9 +532,71 @@ impl App {
                 }
                 self.tls_status = status;
             }
+            AppEvent::Repeater(event) => self.handle_repeater_event(event),
             AppEvent::Notice(notice) => self.notify(notice),
             AppEvent::Storage(event) => self.handle_storage_event(event),
             AppEvent::Shutdown => self.should_quit = true,
+        }
+    }
+
+    fn handle_repeater_event(&mut self, event: RepeaterEvent) {
+        match event {
+            RepeaterEvent::Phase {
+                tab,
+                execution,
+                phase,
+            } => {
+                if let Some(tab) = self.repeater.active_tab_by_id(tab) {
+                    tab.set_phase(execution, phase);
+                }
+            }
+            RepeaterEvent::Completed {
+                tab,
+                execution,
+                phase,
+                result,
+                entry,
+            } => {
+                let mut applied = false;
+                if let Some(tab) = self.repeater.active_tab_by_id(tab) {
+                    applied = tab.complete(execution, phase.clone(), (*result).clone());
+                }
+                if applied {
+                    match phase {
+                        RepeaterExecutionPhase::Completed => {
+                            let status = result
+                                .response
+                                .as_ref()
+                                .map(|response| response.status.to_string())
+                                .unwrap_or_else(|| "no response".into());
+                            self.notify_success(format!(
+                                "Repeater {} · {} · {} B · {} ms",
+                                status,
+                                result.request.host,
+                                result.response_bytes,
+                                result.timings.total_ms
+                            ));
+                            if !result.warnings.is_empty() {
+                                self.notify_warning(result.warnings.join("; "));
+                            }
+                        }
+                        RepeaterExecutionPhase::Cancelled => {
+                            self.notify_info("Repeater execution cancelled.")
+                        }
+                        RepeaterExecutionPhase::Blocked => self.notify_warning(format!(
+                            "Repeater blocked: {}",
+                            result.error.as_deref().unwrap_or("blocked by policy")
+                        )),
+                        _ => self.notify_error(format!(
+                            "Repeater execution failed: {}",
+                            result.error.as_deref().unwrap_or("unknown error")
+                        )),
+                    }
+                    // Persistence and History see the completed transaction as
+                    // REPEATER provenance; it never enters the Proxy workspace.
+                    self.upsert_traffic(*entry);
+                }
+            }
         }
     }
 
@@ -881,16 +958,24 @@ impl App {
                 }
             }
             AppCommand::UpdateScope(scope) => {
+                let mut delivered = false;
                 if let Some(sender) = &self.proxy_sender {
-                    match sender.try_send(AppCommand::UpdateScope(scope)) {
-                        Ok(()) => self.notify_success(
-                            "Scope updated: new requests use the edited allowlist immediately.",
-                        ),
-                        Err(_) => self.notify_error("Proxy command queue is unavailable."),
-                    }
+                    delivered |= sender
+                        .try_send(AppCommand::UpdateScope(scope.clone()))
+                        .is_ok();
+                }
+                // Repeater keeps its own live scope snapshot so an edit is
+                // enforced even when the proxy listener is stopped.
+                if let Some(sender) = &self.repeater_sender {
+                    delivered |= sender.try_send(RepeaterCommand::UpdateScope(scope)).is_ok();
+                }
+                if delivered {
+                    self.notify_success(
+                        "Scope updated: new proxy and Repeater requests use the edited allowlist immediately.",
+                    );
                 } else {
-                    self.notify_info(
-                        "Scope updated for this session. It applies when the proxy starts.",
+                    self.notify_warning(
+                        "Scope updated for this session, but no running engine accepted it.",
                     );
                 }
             }
@@ -1072,10 +1157,17 @@ impl App {
                 self.navigate(NavSection::Repeater);
                 self.repeater.new_blank();
                 self.repeater.editing = true;
-                self.notify_info("New Repeater tab. Transmission is unavailable in this build.");
+                self.notify_info(
+                    "New Repeater tab. Enter a URL, then send to a scoped destination.",
+                );
             }
             CommandId::CloseRepeaterTab => self.request_close_repeater_tab(),
+            CommandId::DuplicateRepeaterTab => self.duplicate_repeater_tab(),
             CommandId::SendRepeaterRequest => self.send_repeater_request(),
+            CommandId::CancelRepeaterRequest => self.cancel_repeater_request(),
+            CommandId::ResetRepeaterEdits => self.reset_repeater_edits(),
+            CommandId::ClearRepeaterResponse => self.clear_repeater_response(),
+            CommandId::ToggleRepeaterRedirects => self.toggle_repeater_redirects(),
             CommandId::SearchHistory => self.start_search(),
             CommandId::ClearHistoryFilters => self.clear_filters(),
             CommandId::ToggleMouse => self.toggle_mouse(),
@@ -1136,7 +1228,12 @@ impl App {
                 self.repeater.editing = true;
             }
             ActionId::CloseRepeaterTab => self.request_close_repeater_tab(),
+            ActionId::DuplicateRepeaterTab => self.duplicate_repeater_tab(),
             ActionId::SendRepeater => self.send_repeater_request(),
+            ActionId::CancelRepeater => self.cancel_repeater_request(),
+            ActionId::ResetRepeater => self.reset_repeater_edits(),
+            ActionId::ClearRepeaterResponse => self.clear_repeater_response(),
+            ActionId::ToggleRepeaterRedirects => self.toggle_repeater_redirects(),
             ActionId::ClearFilters => self.clear_filters(),
             ActionId::Search => self.start_search(),
             ActionId::CycleMethod => {
@@ -1268,18 +1365,150 @@ impl App {
     }
 
     pub(crate) fn send_repeater_request(&mut self) {
+        if self.repeater_sender.is_none() {
+            self.notify_warning(
+                "Repeater engine is not attached. Run the packaged RAWFRAME binary to transmit.",
+            );
+            return;
+        }
         let Some(tab) = self.repeater.active_tab() else {
             self.notify_warning("There is no Repeater tab to send.");
             return;
         };
-        let parse_error = tab.parse_error.clone();
-        if let Some(error) = parse_error {
-            self.notify_error(format!("Cannot transmit an invalid request: {error}"));
+        if tab.is_busy() {
+            self.notify_warning(
+                "This tab already has an execution in flight. Cancel it before sending again.",
+            );
             return;
         }
-        self.notify_warning(
-            "Transmission unavailable: Repeater delivery is not implemented in this build. Nothing was sent.",
-        );
+        if let Some(error) = &tab.parse_error {
+            self.notify_error(format!("Cannot transmit an invalid request: {error}"));
+            self.repeater.editing = true;
+            return;
+        }
+        let request = tab.execution_request();
+        if let Err(error) = validate_request(&request, self.config.proxy.max_body_bytes) {
+            self.notify_error(format!("Request validation failed: {error}"));
+            self.repeater.editing = true;
+            return;
+        }
+        let tab_id = tab.document.id;
+        let follow_redirects = tab.follow_redirects;
+        let origin = match tab.origin {
+            RepeaterOrigin::Captured(id) | RepeaterOrigin::Simulated(id) => Some(id),
+            RepeaterOrigin::Blank => None,
+        };
+        let origin_request = tab.original_request.clone().map(Box::new);
+        let execution = self.repeater.next_execution_id();
+        let Some(tab) = self.repeater.active_tab_mut() else {
+            return;
+        };
+        tab.active_execution = Some(execution);
+        tab.execution = RepeaterExecutionPhase::Validating;
+        let Some(sender) = &self.repeater_sender else {
+            if let Some(tab) = self.repeater.active_tab_mut() {
+                tab.active_execution = None;
+                tab.execution = RepeaterExecutionPhase::Failed;
+            }
+            self.notify_error("Repeater engine is unavailable; nothing was sent.");
+            return;
+        };
+        match sender.try_send(RepeaterCommand::Execute {
+            tab: tab_id,
+            execution,
+            request,
+            follow_redirects,
+            origin,
+            origin_request,
+        }) {
+            Ok(()) => self.notify_info(format!(
+                "Repeater execution started{}",
+                if follow_redirects {
+                    " (safe redirects on)"
+                } else {
+                    ""
+                }
+            )),
+            Err(_) => {
+                if let Some(tab) = self.repeater.active_tab_by_id(tab_id) {
+                    tab.active_execution = None;
+                    tab.execution = RepeaterExecutionPhase::Failed;
+                }
+                self.notify_error("Repeater command queue is unavailable.");
+            }
+        }
+    }
+
+    pub(crate) fn cancel_repeater_request(&mut self) {
+        let Some(tab) = self.repeater.active_tab() else {
+            return;
+        };
+        let Some(execution) = tab.active_execution else {
+            self.notify_info("No Repeater execution is in flight.");
+            return;
+        };
+        if let Some(sender) = &self.repeater_sender {
+            if sender
+                .try_send(RepeaterCommand::Cancel { execution })
+                .is_ok()
+            {
+                self.notify_info("Cancelling Repeater execution…");
+            } else {
+                self.notify_error("Repeater command queue is unavailable.");
+            }
+        }
+    }
+
+    pub(crate) fn duplicate_repeater_tab(&mut self) {
+        if self.repeater.duplicate_active().is_some() {
+            self.notify_info("Repeater tab duplicated with an independent response state.");
+        }
+    }
+
+    pub(crate) fn reset_repeater_edits(&mut self) {
+        let Some(tab) = self.repeater.active_tab_mut() else {
+            return;
+        };
+        if tab.original_request.is_none() {
+            self.notify_info("This authored tab has no captured original to reset to.");
+            return;
+        }
+        if tab.active_execution.is_some() {
+            self.notify_warning("Cancel the in-flight execution before resetting edits.");
+            return;
+        }
+        tab.reset_edits();
+        self.notify_info("Repeater edits reset to the original captured request.");
+    }
+
+    pub(crate) fn clear_repeater_response(&mut self) {
+        let Some(tab) = self.repeater.active_tab_mut() else {
+            return;
+        };
+        if tab.response.is_none() {
+            self.notify_info("There is no Repeater response to clear.");
+            return;
+        }
+        tab.clear_response();
+        self.repeater.response_scroll = 0;
+        self.notify_info("Repeater response cleared; request draft is unchanged.");
+    }
+
+    pub(crate) fn toggle_repeater_redirects(&mut self) {
+        let Some(tab) = self.repeater.active_tab_mut() else {
+            return;
+        };
+        tab.follow_redirects = !tab.follow_redirects;
+        let enabled = tab.follow_redirects;
+        if enabled {
+            self.notify_warning(
+                "Redirects ON: up to 5 hops, each revalidated against scope; credentials are stripped cross-origin.",
+            );
+        } else {
+            self.notify_info(
+                "Redirects OFF: a 3xx response is shown and never followed automatically.",
+            );
+        }
     }
 
     pub(crate) fn request_close_repeater_tab(&mut self) {
@@ -1287,6 +1516,15 @@ impl App {
             return;
         };
         let dirty = tab.dirty;
+        let active = tab.active_execution;
+        if let Some(execution) = active {
+            if let Some(sender) = &self.repeater_sender {
+                let _ = sender.try_send(RepeaterCommand::Cancel { execution });
+            }
+            self.repeater.close_active();
+            self.notify_info("Cancelled the in-flight execution and closed the Repeater tab.");
+            return;
+        }
         if dirty {
             self.confirm = Some(ConfirmState {
                 title: "Close edited tab?".into(),
@@ -1305,8 +1543,15 @@ impl App {
             .traffic
             .iter()
             .any(|entry| entry.is_paused() && !entry.source.is_simulated());
-        if self.repeater.has_unsaved_changes() || live_paused {
-            let reason = if self.repeater.has_unsaved_changes() {
+        let repeater_busy = self
+            .repeater
+            .tabs
+            .iter()
+            .any(|tab| tab.active_execution.is_some());
+        if self.repeater.has_unsaved_changes() || live_paused || repeater_busy {
+            let reason = if repeater_busy {
+                "A Repeater execution is in flight and will be cancelled."
+            } else if self.repeater.has_unsaved_changes() {
                 "Repeater documents with unsaved edits will be lost."
             } else {
                 "Requests are paused and would be abandoned."
@@ -2328,6 +2573,7 @@ fn on_off(value: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rawframe_core::models::config::Scope;
     use rawframe_core::models::message::{HttpRequest, Scheme};
     use rawframe_core::models::traffic::TrafficSource;
     use rawframe_core::{AppEvent, NoticeLevel};
@@ -2700,6 +2946,199 @@ mod tests {
             app.scope_editor().is_some(),
             "editor stays open to add another rule"
         );
+    }
+
+    fn repeater_result(status: u16) -> rawframe_core::RepeaterResult {
+        rawframe_core::RepeaterResult {
+            request: HttpRequest::new(
+                "POST",
+                Scheme::Https,
+                "api.rawframe.test",
+                443,
+                "/v1/orders",
+            ),
+            response: Some(rawframe_core::HttpResponse::with_body(
+                status,
+                "application/json",
+                "{\"ok\":true}",
+            )),
+            timings: rawframe_core::RepeaterTimings {
+                total_ms: 17,
+                ..rawframe_core::RepeaterTimings::default()
+            },
+            redirects: Vec::new(),
+            truncated: false,
+            response_bytes: 11,
+            error: None,
+            warnings: Vec::new(),
+            sent_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn repeater_send_dispatches_a_real_execution_and_cancel_uses_its_id() {
+        let mut app = App::demo();
+        app.navigate(NavSection::Repeater);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        app.attach_repeater_commands(tx);
+        let tab_id = app.repeater.active_tab().unwrap().document.id;
+
+        app.send_repeater_request();
+        let command = rx.try_recv().expect("execution command");
+        let RepeaterCommand::Execute {
+            tab,
+            execution,
+            request,
+            follow_redirects,
+            ..
+        } = command
+        else {
+            panic!("expected Execute");
+        };
+        assert_eq!(tab, tab_id);
+        assert!(!follow_redirects);
+        assert_eq!(
+            request.method,
+            app.repeater.active_tab().unwrap().document.request.method
+        );
+        assert_eq!(
+            app.repeater.active_tab().unwrap().active_execution,
+            Some(execution)
+        );
+        assert_eq!(
+            app.repeater.active_tab().unwrap().execution,
+            RepeaterExecutionPhase::Validating
+        );
+
+        app.cancel_repeater_request();
+        assert!(matches!(
+            rx.try_recv().expect("cancel command"),
+            RepeaterCommand::Cancel { execution: id } if id == execution
+        ));
+    }
+
+    #[test]
+    fn repeater_completion_updates_only_the_owning_tab_and_history() {
+        let mut app = App::demo();
+        app.navigate(NavSection::Repeater);
+        let tab_id = app.repeater.active_tab().unwrap().document.id;
+        app.repeater.active_tab_mut().unwrap().active_execution = Some(3);
+        let other_before = app.repeater.tabs[1].response.clone();
+
+        let result = repeater_result(201);
+        let mut completed_entry = TrafficEntry::new(
+            TrafficId(rawframe_core::repeater::REPEATER_ID_BASE + 1),
+            result.request.clone(),
+        );
+        completed_entry.source = TrafficSource::Repeater;
+        completed_entry.repeater_origin = Some(TrafficId(14));
+        completed_entry.response = result.response.clone();
+        completed_entry.state = TrafficState::Completed;
+
+        app.handle_event(AppEvent::Repeater(RepeaterEvent::Completed {
+            tab: tab_id,
+            execution: 3,
+            phase: RepeaterExecutionPhase::Completed,
+            result: Box::new(result),
+            entry: Box::new(completed_entry.clone()),
+        }));
+
+        let tab = app.repeater.active_tab().unwrap();
+        assert_eq!(tab.execution, RepeaterExecutionPhase::Completed);
+        assert_eq!(tab.response.as_ref().unwrap().status(), Some(201));
+        assert!(tab.active_execution.is_none());
+        assert_eq!(app.repeater.tabs[1].response, other_before);
+        assert!(
+            app.traffic
+                .iter()
+                .any(|entry| entry.id == completed_entry.id && entry.is_repeater())
+        );
+        assert!(
+            app.proxy_entries().iter().all(|entry| !entry.is_repeater()),
+            "Repeater results must never appear as live proxy traffic"
+        );
+    }
+
+    #[test]
+    fn stale_repeater_completion_cannot_overwrite_a_newer_tab_state() {
+        let mut app = App::demo();
+        app.navigate(NavSection::Repeater);
+        let tab_id = app.repeater.active_tab().unwrap().document.id;
+        app.repeater.active_tab_mut().unwrap().active_execution = Some(9);
+        app.handle_event(AppEvent::Repeater(RepeaterEvent::Completed {
+            tab: tab_id,
+            execution: 8,
+            phase: RepeaterExecutionPhase::Completed,
+            result: Box::new(repeater_result(200)),
+            entry: Box::new(entry(2_000_009)),
+        }));
+        assert!(app.repeater.active_tab().unwrap().response.is_none());
+        assert_eq!(app.repeater.active_tab().unwrap().active_execution, Some(9));
+    }
+
+    #[test]
+    fn a_storage_failure_does_not_block_repeater_results() {
+        let mut app = App::demo();
+        app.navigate(NavSection::Repeater);
+        app.report_storage_failure(Some("/tmp/rawframe.db".into()), "disk full".into());
+        let tab_id = app.repeater.active_tab().unwrap().document.id;
+        app.repeater.active_tab_mut().unwrap().active_execution = Some(5);
+        app.handle_event(AppEvent::Repeater(RepeaterEvent::Completed {
+            tab: tab_id,
+            execution: 5,
+            phase: RepeaterExecutionPhase::Completed,
+            result: Box::new(repeater_result(200)),
+            entry: Box::new(entry(2_000_010)),
+        }));
+
+        assert_eq!(
+            app.repeater
+                .active_tab()
+                .unwrap()
+                .response
+                .as_ref()
+                .unwrap()
+                .response
+                .as_ref()
+                .unwrap()
+                .status,
+            200
+        );
+        assert!(
+            app.storage_status()
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("disk full")
+        );
+        assert!(
+            !app.storage_status().enabled,
+            "the failure is surfaced without claiming persistence"
+        );
+    }
+
+    #[test]
+    fn scope_updates_reach_both_the_proxy_and_repeater() {
+        let mut app = App::demo();
+        let (proxy_tx, mut proxy_rx) = tokio::sync::mpsc::channel(4);
+        let (repeater_tx, mut repeater_rx) = tokio::sync::mpsc::channel(4);
+        app.attach_proxy_commands(proxy_tx);
+        app.attach_repeater_commands(repeater_tx);
+        let scope = ScopeRule::parse("https://api.rawframe.test").unwrap();
+        app.dispatch_app_command(AppCommand::UpdateScope(Scope::allow(scope.clone())));
+
+        assert!(matches!(
+            proxy_rx.try_recv().unwrap(),
+            AppCommand::UpdateScope(scope) if scope.allowlist == vec![scope_rule()]
+        ));
+        assert!(matches!(
+            repeater_rx.try_recv().unwrap(),
+            RepeaterCommand::UpdateScope(scope) if scope.allowlist == vec![scope_rule()]
+        ));
+    }
+
+    fn scope_rule() -> ScopeRule {
+        ScopeRule::parse("https://api.rawframe.test").unwrap()
     }
 
     #[test]

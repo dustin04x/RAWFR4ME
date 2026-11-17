@@ -5,6 +5,7 @@ members = [
     "crates/rawframe-http",
     "crates/rawframe-proxy",
     "crates/rawframe-store",
+    "crates/rawframe-repeater",
     "crates/rawframe-tui",
     "crates/rawframe-cli",
 ]
@@ -23,6 +24,7 @@ rawframe-core = { path = "crates/rawframe-core" }
 rawframe-http = { path = "crates/rawframe-http" }
 rawframe-proxy = { path = "crates/rawframe-proxy" }
 rawframe-store = { path = "crates/rawframe-store" }
+rawframe-repeater = { path = "crates/rawframe-repeater" }
 rawframe-tui = { path = "crates/rawframe-tui" }
 
 anyhow = "1.0"

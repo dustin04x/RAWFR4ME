@@ -380,6 +380,7 @@ fn completed(
         interception: crate::models::traffic::InterceptionMetadata::default(),
         body_omitted: false,
         redacted_headers: 0,
+        repeater_origin: None,
     }
 }
 
@@ -412,6 +413,7 @@ fn failed(
         interception: crate::models::traffic::InterceptionMetadata::default(),
         body_omitted: false,
         redacted_headers: 0,
+        repeater_origin: None,
     }
 }
 

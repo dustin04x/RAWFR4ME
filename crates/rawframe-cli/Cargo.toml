@@ -15,6 +15,7 @@ anyhow.workspace = true
 clap.workspace = true
 rawframe-core.workspace = true
 rawframe-proxy.workspace = true
+rawframe-repeater.workspace = true
 rawframe-store.workspace = true
 rawframe-tui.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }

@@ -19,7 +19,12 @@ pub enum CommandId {
     EditRequest,
     NewRepeaterTab,
     CloseRepeaterTab,
+    DuplicateRepeaterTab,
     SendRepeaterRequest,
+    CancelRepeaterRequest,
+    ResetRepeaterEdits,
+    ClearRepeaterResponse,
+    ToggleRepeaterRedirects,
     SearchHistory,
     ClearHistoryFilters,
     ToggleMouse,
@@ -159,11 +164,46 @@ pub const COMMANDS: &[CommandSpec] = &[
         keywords: "remove tab",
     },
     CommandSpec {
+        id: CommandId::DuplicateRepeaterTab,
+        title: "Duplicate Repeater tab",
+        group: "Repeater",
+        shortcut: Some("D"),
+        keywords: "copy clone independent request",
+    },
+    CommandSpec {
         id: CommandId::SendRepeaterRequest,
         title: "Send Repeater request",
         group: "Repeater",
         shortcut: Some("^Enter"),
-        keywords: "transmit dispatch http",
+        keywords: "transmit dispatch execute http https",
+    },
+    CommandSpec {
+        id: CommandId::CancelRepeaterRequest,
+        title: "Cancel Repeater execution",
+        group: "Repeater",
+        shortcut: Some("C"),
+        keywords: "abort stop in flight",
+    },
+    CommandSpec {
+        id: CommandId::ResetRepeaterEdits,
+        title: "Reset Repeater edits to original",
+        group: "Repeater",
+        shortcut: Some("R"),
+        keywords: "revert captured draft",
+    },
+    CommandSpec {
+        id: CommandId::ClearRepeaterResponse,
+        title: "Clear Repeater response",
+        group: "Repeater",
+        shortcut: Some("X"),
+        keywords: "remove inspector result",
+    },
+    CommandSpec {
+        id: CommandId::ToggleRepeaterRedirects,
+        title: "Toggle Repeater redirect following",
+        group: "Repeater",
+        shortcut: Some("F"),
+        keywords: "302 scope strip credentials redirects",
     },
     CommandSpec {
         id: CommandId::SearchHistory,
@@ -323,6 +363,7 @@ mod tests {
             CommandId::GoRepeater
                 | CommandId::NewRepeaterTab
                 | CommandId::CloseRepeaterTab
+                | CommandId::DuplicateRepeaterTab
                 | CommandId::SendRepeaterRequest
                 | CommandId::ReplayRequest
         ));

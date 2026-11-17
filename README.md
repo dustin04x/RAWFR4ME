@@ -4,7 +4,7 @@
 
 RAWFRAME is an open-source Rust workspace for authorized HTTP/1.1 testing from the terminal. It provides a local forward proxy, opaque HTTPS tunnelling, opt-in TLS interception, durable SQLite history with sessions and redacted export, and a live request workbench inside a keyboard-driven TUI. It is built for testers who want a compact terminal workflow with explicit scope and visible request lifecycle state.
 
-The current release is **0.2.0**. Milestones 1–5 are complete: core application, HTTP proxy, HTTP interception, HTTPS TLS interception, and durable history/sessions/export. Opaque `CONNECT` tunnelling is the default. Functional Repeater transmission, Intruder, Decoder, HTTP/2, and WebSocket support are not implemented.
+The current release is **0.2.0**. Milestones 1–6 are complete: core application, HTTP proxy, HTTP interception, HTTPS TLS interception, durable history/sessions/export, and a functional Repeater with real HTTP/HTTPS execution, response inspection, comparison, and persisted provenance. Opaque `CONNECT` tunnelling is the default. Intruder, Decoder, HTTP/2, and WebSocket support are not implemented.
 
 RAWFRAME is intended **only** for systems you own or are explicitly authorized to test.
 
@@ -22,9 +22,13 @@ Captured from real PTY sessions of the current TUI at 140×40. These are termina
 | --- | --- |
 | ![Decrypted HTTPS traffic in the Proxy workspace](docs/screenshots/tls/140x40_07_decrypted_https.png) | ![HTTPS TLS interception settings and CA fingerprint](docs/screenshots/tls/140x40_06_ca_path_and_fingerprint.png) |
 
-| Scope-blocked request with explanation |
-| --- |
-| ![Request blocked by scope policy](docs/screenshots/140x40_13_scope_blocked_inspector.png) |
+| Scope-blocked request with explanation | Repeater workspace with independent tabs |
+| --- | --- |
+| ![Request blocked by scope policy](docs/screenshots/140x40_13_scope_blocked_inspector.png) | ![Repeater editor and response panel](docs/screenshots/repeater/140x40_01_workspace.png) |
+
+The Repeater workspace is also captured from a real PTY at
+[100×30](docs/screenshots/repeater/100x30_01_workspace.png) and
+[80×24](docs/screenshots/repeater/80x24_01_workspace.png).
 
 ## Features
 
@@ -67,6 +71,19 @@ Captured from real PTY sessions of the current TUI at 140×40. These are termina
 - Drop paused requests without fabricating an upstream response.
 - Bounded pending queue, interception timeout, cancellation on disable/stop, and lifecycle tracking.
 
+**Repeater**
+
+- Real HTTP/1.1 execution to scoped destinations over direct client connections; no simulated responses or placeholder success states.
+- `http` and `https` schemes, arbitrary valid methods, custom ports, query strings, ordered duplicate headers, and binary request bodies.
+- Multiple independent tabs with per-tab editor, draft state, execution history, follow-redirect toggle, and response comparison.
+- Separate editor and response panels (vertical split below 84 columns), Raw, Headers, Body, Pretty JSON, Hex, and Compare views.
+- Explicit lifecycle phases: Draft, Validating, Connecting, Sending, Receiving, Completed, Failed, Cancelled, TimedOut, and Blocked by scope.
+- Independent upstream connection per execution and per redirect hop; no CONNECT tunnel, local MITM CA, or interception queue is used.
+- Mandatory upstream TLS certificate-chain and hostname verification; scope and private-address policy are enforced before every connection and redirect hop.
+- Safe redirects are opt-in: at most five hops, every destination is scope-checked, and credentials are stripped on cross-origin hops.
+- Response limits, timeouts, cancellation, and a bounded concurrency limit are enforced in the execution path.
+- Completed transactions are attributed to Repeater provenance with the original capture reference, redacted through the same policy as proxy history, and distinguished from proxy traffic. Storage failures are reported without crashing execution.
+
 **Terminal interface**
 
 - Proxy, HTTP History, Repeater, and Settings workspaces.
@@ -74,24 +91,23 @@ Captured from real PTY sessions of the current TUI at 140×40. These are termina
 - Keyboard navigation, mouse support, command palette, and resizable panes.
 - Live engine state, TLS state, queue state, and source provenance.
 - Sensitive-header redaction and terminal-safe rendering of captured text.
-- Repeater is currently an offline request editor with parse validation and multiple tabs; Send reports that transmission is unavailable.
 
 ### Planned, not implemented
 
-- Functional Repeater transmission and response capture/comparison.
 - Decoder, Intruder, and advanced traffic analysis.
 - HTTP/2, HTTP/3, and WebSocket interception.
 - HTTP proxy authentication and per-client rate limits.
 
 ## Architecture
 
-RAWFRAME is a six-crate Cargo workspace. Dependency flow is one-way; the TUI never opens sockets or SQLite, and the proxy never depends on the TUI.
+RAWFRAME is a seven-crate Cargo workspace. Dependency flow is one-way; the TUI never opens sockets or SQLite, and the proxy never depends on the TUI.
 
 | Crate | Responsibility |
 | --- | --- |
 | `rawframe-core` | Domain models, configuration, scope rules, lifecycle, filters, bounded event/command contracts, terminal-safety primitives, and labelled fixtures. No network or terminal I/O. |
 | `rawframe-http` | Authored HTTP/1.x document parser used by Repeater and tests. This is not the live proxy wire implementation. |
 | `rawframe-proxy` | Tokio/Hyper listener, HTTP forwarding, opaque `CONNECT` relay, TLS interception, destination policy, body guards, limits, and graceful shutdown. |
+| `rawframe-repeater` | Repeater execution engine: request validation handoff, independent HTTP/1.1 connections, verified HTTPS, redirects, bounded response capture, timeouts, cancellation, and the command service. Reuses proxy destination/TLS policy but not its listener, CA, or interception queue. |
 | `rawframe-store` | SQLite schema/migrations, a single writer thread, redaction-on-write, session queries, restore, and redacted export. No proxy or TUI dependency. |
 | `rawframe-tui` | Ratatui/Crossterm application, workspaces, inspector, editor, layouts, input handling, and terminal lifecycle. |
 | `rawframe-cli` | Composition root: CLI validation, logging, Tokio runtime, proxy worker, storage worker/capture pump, and TUI loop. |
@@ -102,12 +118,16 @@ flowchart LR
     cli[rawframe-cli] --> tui[rawframe-tui]
     cli --> proxy
     cli --> store[rawframe-store]
+    cli --> repeater[rawframe-repeater]
+    repeater --> proxy
     tui --> http[rawframe-http]
     tui --> core[rawframe-core]
     proxy --> core
     store --> core
+    repeater --> core
     http --> core
     proxy -. events .-> store
+    repeater -. events .-> store
 ```
 
 ### Request lifecycle
@@ -132,6 +152,8 @@ TLS interception is security-sensitive. RAWFRAME keeps it explicit and bounded.
 - **Protected private key.** CA material is stored locally under `$XDG_DATA_HOME/rawframe/ca` or `~/.local/share/rawframe/ca`. On Unix, the key is `0600` and the directory is `0700`. The private key is never exported, logged, or published in events or history.
 - **No verification bypass.** Upstream certificate-chain and hostname verification cannot be disabled. `--tls-upstream-ca` replaces the trust roots for a lab; it does not weaken verification.
 - **Scope before connection.** Scope is checked before DNS resolution or any upstream socket is opened. A denial is recorded as blocked and never forwarded.
+- **Repeater is not a bypass.** Repeater opens its own scoped connections, uses the same resolve-once address policy, always verifies upstream TLS, and never enters the interception queue or trusts the local CA. Scope is re-checked before every redirect hop.
+- **Safe redirects.** Following redirects is off by default. When enabled, RAWFRAME caps the chain at five hops, validates each destination against scope, and removes `Authorization`, `Proxy-Authorization`, `Cookie`, `X-Api-Key`, `X-Auth-Token`, and `X-Csrf-Token` on cross-origin hops.
 - **Resolve-once address policy.** Every resolved address is validated before connection. Loopback and private upstreams require `--allow-private-upstreams`; link-local, metadata, multicast, documentation, and reserved ranges remain blocked.
 - **Loopback by default.** Remote binding requires both a non-loopback `--bind` and `--allow-remote-bind`. There is no proxy authentication; protect any remote listener with host firewalls or a trusted network.
 - **Bounded failure.** Bodies, connections, queues, and timeouts are bounded. Disabling interception or stopping the proxy cancels pending work instead of leaving it unresolved.
@@ -149,8 +171,9 @@ TLS interception is security-sensitive. RAWFRAME keeps it explicit and bounded.
 - Opaque tunnels expose only destination, duration, byte counts, and outcome; payload and inner headers are not captured.
 - Captured history and sessions persist in SQLite. Settings, storage policy, and scope rules are runtime state: set them with CLI flags or in the UI for the current run. There is no configuration file.
 - Bodies and sensitive header values are absent from stored history unless explicitly enabled, and cannot be recovered later.
-- Repeater does not transmit requests yet.
-- Scope is edited in Settings or via `--scope`; wildcard and port rules apply to new requests immediately.
+- Repeater transmits HTTP/1.1 only. It has no HTTP/2, WebSocket, client-certificate, or proxy-auth support.
+- Repeater requests are direct; they do not traverse the local proxy listener or reuse a captured connection. A different client certificate, source address, or proxy path can produce a different result.
+- Scope is edited in Settings or via `--scope`; wildcard and port rules apply to new proxy and Repeater requests immediately.
 - There is no proxy authentication, per-client rate limit, or HTTP `503` response for connection-limit overflow.
 
 See [docs/security.md](docs/security.md) for the threat model and the complete controls and gaps.
@@ -251,6 +274,23 @@ Then:
 
 Only scoped `CONNECT` targets are eligible for interception. Removing trust does not affect opaque tunnelling. `--tls-ca-regenerate` permanently invalidates the old CA; every client that trusted it must be updated.
 
+### Repeater quick start
+
+Repeater is independent of the proxy listener and does not require pressing `P`.
+
+1. Start with an explicit scope and, for a local lab origin, private-upstream permission:
+
+   ```bash
+   target/debug/rawframe --scope http://127.0.0.1:8000 --allow-private-upstreams
+   ```
+
+2. Press `Ctrl+3` for Repeater, then `Enter`/`E` to edit the seeded request line and headers. The request line uses an absolute URL, for example `POST http://127.0.0.1:8000/api HTTP/1.1`.
+3. Press `Ctrl+Enter` or `S` to send; `C` cancels an execution. Responses render on the right (or below in an 80-column terminal).
+4. Use `1`–`6` for Raw, Headers, Body, Pretty JSON, Hex, and Compare. `F` toggles safe redirect following; `X` clears the current response.
+5. Close a tab with `Ctrl+W`; `Ctrl+N` creates a new blank tab. Each tab keeps its own document, in-flight execution, response, and execution history.
+
+Completed Repeater executions appear in HTTP History with `REPEATER` provenance and the original capture reference when the document came from History or the proxy. They are persisted under the same redaction/body policy as proxy traffic. No proxy capture is fabricated.
+
 ### CLI reference
 
 ```text
@@ -283,7 +323,7 @@ rawframe [OPTIONS]
 | `--tls-ca-fingerprint` | Print the CA SHA-256 fingerprint and exit. |
 | `--tls-ca-regenerate` | Replace the CA and exit. Invalidates prior trust. |
 
-`--scope` accepts `host`, `host:port`, `http://host[:port]`, `https://host[:port]`, and leading wildcards such as `*.example.test`. HTTPS scope rules are required for intercepted `CONNECT` targets.
+`--scope` accepts `host`, `host:port`, `http://host[:port]`, `https://host[:port]`, and leading wildcards such as `*.example.test`. HTTPS scope rules are required for intercepted `CONNECT` targets and for Repeater HTTPS requests.
 
 ## Keyboard shortcuts
 
@@ -340,8 +380,12 @@ Single-letter shortcuts are suppressed while typing in an editor, search field, 
 | Context | Shortcut | Action |
 | --- | --- | --- |
 | Repeater | `Enter` / `E` | Start editing the active document. |
-| Repeater | `S` or `Ctrl+Enter` | Attempt to send. Transmission is not implemented and nothing is sent. |
+| Repeater | `S` or `Ctrl+Enter` | Validate and execute the active document. |
+| Repeater | `C` | Cancel the in-flight execution for the active tab. |
 | Repeater | `←` / `→` | Switch tabs. |
+| Repeater | `F` | Toggle safe redirect following for the active tab. |
+| Repeater | `1`–`6` | Raw, Headers, Body, Pretty JSON, Hex, Compare. |
+| Repeater | `X` | Clear the current response (history is retained). |
 | Settings | `↑` / `↓`, `J` / `K` | Select a setting. |
 | Settings | `Enter` / `Space` | Toggle or edit the selected setting; **Target scope** opens the live rule editor. |
 | Settings | `Esc` | Cancel an inline edit. |
@@ -382,7 +426,7 @@ Milestone numbers follow [docs/roadmap.md](docs/roadmap.md).
 | M3 — HTTP interception | Complete |
 | M4 — HTTPS TLS interception | Complete |
 | M5 — Persistence, sessions, and protocol coverage | Complete |
-| M6 — Functional Repeater | Planned |
+| M6 — Functional Repeater | Complete |
 | Later — Intruder, Decoder, traffic analysis, protocol expansion, release hardening | Planned |
 
 Planned work is not available in this build. See [docs/roadmap.md](docs/roadmap.md) for scope, acceptance criteria, and known limitations.
@@ -399,17 +443,17 @@ cargo test --workspace
 
 Or run `./scripts/check.sh`.
 
-The latest verified M5 run reported:
+The latest verified M6 run reported:
 
-- **280 passing tests, 0 failed** across the workspace (M4 baseline: 239), including the real SQLite store, crash recovery, redaction-on-write, export, corruption handling, live scope updates, and worker round-trips.
+- **322 passing tests, 0 failed** across the workspace (M5 baseline: 280), including real local HTTP/HTTPS Repeater executions, binary bodies, duplicate headers, redirect loops and credential stripping, scope refusal, timeouts, cancellation, response limits, Repeater persistence/redaction, and an end-to-end M5 schema-v1 upgrade fixture.
 - The existing PTY screenshot and TLS enable/disable regressions still pass.
-- Storage tests use isolated temporary databases; proxy tests use local servers only.
+- Repeater tests use local HTTP/HTTPS servers and self-signed test certificates; storage tests use isolated temporary databases; proxy tests use local servers only.
 
 The PTY test requires Python 3 with `cryptography`; without it, that test skips while the remaining proxy-level HTTP/HTTPS tests still run. Test suites use local servers and self-contained test CAs; no test contacts an external website. These are milestone results, not a guarantee for every future commit.
 
 ## Project status and contribution
 
-RAWFRAME is under active pre-1.0 development. The M1–M5 foundations are implemented and tested; planned modules are visible in the navigation but clearly marked as placeholders. Interfaces and terminal behavior may change.
+RAWFRAME is under active pre-1.0 development. The M1–M6 foundations are implemented and tested; planned modules are visible in the navigation but clearly marked as placeholders. Interfaces and terminal behavior may change.
 
 Contributions should preserve the security defaults: loopback binding, default-deny scope, explicit private-upstream opt-in, mandatory upstream TLS verification, redaction, and terminal sanitization. Add tests for behavioral changes and run the quality gates before submitting. See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/development.md](docs/development.md).
 

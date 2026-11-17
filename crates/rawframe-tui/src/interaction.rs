@@ -66,7 +66,9 @@ impl NavSection {
     }
 
     pub const fn uses_context(self) -> bool {
-        matches!(self, Self::Proxy | Self::History | Self::Repeater)
+        // Repeater renders its own response inspector, so the shared context
+        // pane would duplicate it and waste width.
+        matches!(self, Self::Proxy | Self::History)
     }
 
     /// Modules that are visible in navigation but not implemented yet.
@@ -166,7 +168,12 @@ pub enum ActionId {
     ToggleRedaction,
     NewRepeaterTab,
     CloseRepeaterTab,
+    DuplicateRepeaterTab,
     SendRepeater,
+    CancelRepeater,
+    ResetRepeater,
+    ClearRepeaterResponse,
+    ToggleRepeaterRedirects,
     ClearFilters,
     Search,
     CycleMethod,
@@ -316,6 +323,7 @@ pub enum HitTarget {
     Action(ActionId),
     InspectorSide(MessageSide),
     InspectorView(InspectorView),
+    RepeaterView(crate::state::RepeaterView),
     InspectorClose,
     RepeaterTab(usize),
     RepeaterEditor,
@@ -410,6 +418,7 @@ mod tests {
         assert_eq!(NavSection::Settings.next(), NavSection::Intruder);
         assert_eq!(NavSection::Decoder.next(), NavSection::Proxy);
         assert!(NavSection::History.uses_context());
+        assert!(!NavSection::Repeater.uses_context());
         assert!(!NavSection::Settings.uses_context());
         assert!(NavSection::Intruder.is_planned());
         assert!(NavSection::Proxy.is_primary());

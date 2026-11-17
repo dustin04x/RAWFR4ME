@@ -1,9 +1,9 @@
 # RAWFRAME Architecture
 
-**Status:** Milestone 5 — durable history (0.2.0). HTTP/1.1 forwarding, opaque
-HTTPS CONNECT tunnels, live pause/edit/forward/drop, opt-in HTTP/1.1 TLS
-interception, SQLite sessions/persistence, redacted export, and live scope
-editing are implemented. Repeater transmission is not.
+**Status:** Milestone 6 — Repeater (0.2.0). HTTP/1.1 forwarding, opaque HTTPS
+CONNECT tunnels, live pause/edit/forward/drop, opt-in HTTP/1.1 TLS interception,
+SQLite sessions/persistence, redacted export, live scope editing, and real
+Repeater execution/inspection/comparison are implemented.
 
 ## 1. Design constraints
 
@@ -37,14 +37,18 @@ rawframe/
 │   │   ├── filter.rs           HTTP history filtering
 │   │   ├── security.rs         terminal-safe display conversion
 │   │   └── fixtures.rs         17 labelled simulated transactions
-│   ├── rawframe-http/          authored HTTP/1.x document parser
 │   ├── rawframe-proxy/         Tokio/Hyper forwarding + CONNECT engine
 │   │   ├── server.rs           listener, lifecycle commands, shutdown
 │   │   ├── service.rs          HTTP forwarding and CONNECT orchestration
-│   │   ├── destination.rs      authority parsing, scope, DNS/IP policy
+│   │   ├── destination.rs      authority parsing, scope, DNS/IP policy (shared)
 │   │   ├── body.rs             bounded streaming body with capture
 │   │   ├── tunnel.rs           opaque relay, half-close, idle timeout
-│   │   └── error.rs            typed startup/worker errors
+│   │   └── tls/                CA, leaf issuance, verified upstream TLS
+│   ├── rawframe-repeater/      independent Repeater execution engine
+│   │   ├── engine.rs           connections, TLS, redirects, bounded capture
+│   │   ├── service.rs          bounded command service, cancellation, IDs
+│   │   └── tests/execution.rs  local HTTP/HTTPS integration matrix
+│   ├── rawframe-http/          authored HTTP/1.x document parser
 │   ├── rawframe-store/         SQLite persistence (no TUI/proxy dependency)
 │   │   ├── schema.rs           versioned migrations
 │   │   ├── record.rs           policy-redacted entry <-> row encoding
@@ -71,29 +75,19 @@ rawframe/
 └── scripts/
 ```
 
-Repeater document logic currently lives in `rawframe-core` + `rawframe-http` +
-`rawframe-tui`; it can be extracted when transmission exists.
+`rawframe-repeater` owns execution only. The editable document and view state
+remain in `rawframe-http` + `rawframe-tui`; shared contracts and validation live
+in `rawframe-core` so the TUI never imports the engine.
 
 ## 3. Dependency direction
 
 ```
-                 ┌────────────────┐        ┌─────────────────┐
-                 │  rawframe-cli  │───────▶│ rawframe-proxy  │
-                 └───┬────┬───┬───┘        └────────┬────────┘
-                     │    │   │                     │
-        ┌────────────▼─┐  │   │            ┌────────▼────────┐
-        │rawframe-store│  │   │            │  rawframe-http  │
-        └──────┬───────┘  │   │            └────────┬────────┘
-               │          │   │                     │
-               │   ┌──────▼───▼────┐                │
-               │   │  rawframe-tui │────────────────┘
-               │   └──────┬────────┘
-               │          │
-               └──────────▼─────────┐
-                          ▼          ▼
-                   ┌────────────────────┐
-                   │   rawframe-core    │
-                   └────────────────────┘
+rawframe-cli ──▶ rawframe-tui ──▶ rawframe-core
+     │              └───────────▶ rawframe-http ──▶ rawframe-core
+     ├──▶ rawframe-proxy ─────────────────────────▶ rawframe-core
+     ├──▶ rawframe-repeater ──────────────────────▶ rawframe-core
+     │         └────────────▶ rawframe-proxy (public destination/TLS helpers)
+     └──▶ rawframe-store ─────────────────────────▶ rawframe-core
 ```
 
 Rules:
@@ -102,10 +96,14 @@ Rules:
   socket, and database APIs.
 - `rawframe-http` depends only on `rawframe-core`.
 - `rawframe-proxy` depends on `rawframe-core`; it **must not** depend on
-  `rawframe-tui`.
+  `rawframe-tui` or `rawframe-repeater`.
+- `rawframe-repeater` depends on `rawframe-core` and reuses public
+  `rawframe-proxy` destination/TLS-policy functions. It **must not** depend on
+  the proxy listener, CA manager, interception queue, or TUI.
 - `rawframe-tui` depends on `rawframe-core` and `rawframe-http`; it **must not**
-  depend on `rawframe-proxy`. It sees the engine only through shared events and
-  the `CommandSender` type defined in core.
+  depend on `rawframe-proxy`. It sees the proxy and Repeater only through shared
+events and bounded command senders defined in core (a dev-dependency on
+  `rawframe-repeater` exists only for integration tests).
 - `rawframe-store` depends on `rawframe-core` and SQLite; it must not depend on
   the proxy or the TUI. The TUI never links SQLite.
 - `rawframe-cli` is the only composition root and may depend on all crates. It
@@ -115,21 +113,25 @@ Rules:
 
 ```
  client ──▶ rawframe-proxy ──AppEvent──▶ bounded EventBus ──poll()──▶ App (TUI)
-                                                │
-                                                └──subscribe()──▶ capture pump
-                                                                     │ try_record
-                                                                     ▼
-                                                          storage thread (SQLite)
+                                                     ▲
+ Repeater tab ──RepeaterCommand──▶ rawframe-repeater┘ (Phase/Completed events)
+                                                     │
+                                                     └──subscribe()──▶ capture pump
+                                                                          │ try_record
+                                                                          ▼
+                                                               storage thread (SQLite)
                                                 App (TUI) ──StorageCommand──▶ store
                                                 store ──StorageEvent──▶ EventBus
 ```
 
 `rawframe-cli` owns a multi-thread Tokio runtime. It spawns
-`rawframe_proxy::run_service(command_rx, event_sender)`, starts the storage
-worker and capture pump, then runs the synchronous TUI. The UI runtime is
-independent: input arrives on a Crossterm reader thread, events are polled, and
-frames redraw on input or at a 250 ms idle cadence. No proxy or storage task is
-awaited on the UI thread.
+`rawframe_proxy::run_service(command_rx, event_sender)` and
+`rawframe_repeater::run_service(command_rx, config, event_sender, scope)`, starts
+the storage worker and capture pump, then runs the synchronous TUI. The two
+engines have independent command channels and sockets, but share the scope model
+and event bus. The UI runtime is independent: input arrives on a Crossterm reader
+thread, events are polled, and frames redraw on input or at a 250 ms idle cadence.
+No proxy, Repeater, or storage task is awaited on the UI thread.
 
 `rawframe_core::events::EventBus` is a **bounded** fan-out of Tokio MPSC queues
 (`EVENT_QUEUE_CAPACITY = 4096`). Synchronous UI/test producers use
@@ -147,8 +149,13 @@ Commands:
   new CONNECT sessions in this running proxy.
 - `ForwardRequest`, `ForwardModified`, and `DropRequest` resolve pending
   interception entries. Dropped requests never reach upstream.
-- `UpdateScope(Scope)` replaces the live allowlist. New HTTP requests and
-  CONNECT sessions use it immediately; already-forwarded work is unchanged.
+- `UpdateScope(Scope)` replaces the live allowlist in both engines. New HTTP
+  requests, CONNECT sessions, and Repeater executions use it immediately;
+  already-forwarded work is unchanged.
+- `RepeaterCommand::Execute`, `Cancel`, `UpdateScope`, and `Shutdown` are a
+  separate bounded channel. `Execute` carries tab/execution IDs fixed by the UI
+  and the exact request; the service assigns a Repeater traffic ID only when the
+  execution completes.
 
 Events:
 
@@ -157,6 +164,9 @@ Events:
 - `ProxyBound(SocketAddr)` reports the actual bound address.
 - `TrafficCaptured` / `TrafficUpdated` carry HTTP captures, decrypted HTTPS
   requests, and CONNECT tunnel metadata.
+- `AppEvent::Repeater(Phase|Completed)` drives the owning tab and, on completion,
+  carries a ready-to-persist `TrafficEntry` labelled `Repeater` with an optional
+  `repeater_origin` capture reference.
 - `InterceptionPaused` / `InterceptionQueueChanged` drive the pending queue.
 - `TlsStateChanged` publishes TLS enabled/disabled state, the public CA path and
   fingerprint, or a non-secret enable error.
@@ -302,8 +312,9 @@ command channel and are drained with `try_recv` between batches. Results are
 published as `AppEvent::Storage`.
 
 `rawframe-cli` subscribes to the event bus independently of the TUI and forwards
-`TrafficCaptured`/`TrafficUpdated` entries whose source is `Intercepted` to the
-worker. Simulations and Repeater drafts are never stored.
+`TrafficCaptured`/`TrafficUpdated` entries whose source is `Intercepted`, plus
+completed `AppEvent::Repeater` entries whose source is `Repeater`, to the worker.
+Simulated fixtures and unfinished Repeater drafts are never stored.
 
 ### Schema and migrations
 
@@ -322,6 +333,11 @@ response body BLOBs, response status/reason, start/completion timestamps,
 duration, error, note, interception metadata, tunnel metadata, original/final
 subrequest JSON, a redaction count, and an `incomplete` flag. Indexes cover
 session/start order, host, method, status, and state.
+
+Schema version 2 adds `traffic.repeater_origin`, a nullable reference to the
+capture a Repeater execution was seeded from. The version 1 → 2 migration uses
+`ALTER TABLE`, so existing M5 databases and their rows are preserved. A fresh
+database applies both versions in order.
 
 Migrations run in an `IMMEDIATE` transaction, are recorded in both
 `schema_migrations` and `user_version`, and are idempotent. A database newer than
@@ -363,6 +379,44 @@ on the row id (`1_000_000 + row_id`), never reusing live IDs. Restored entries
 are read-only history: they are excluded from the Proxy workspace, cannot be
 forwarded, and are labelled `RESTORED` in the table and inspector. Filters work
 across live, simulated, and restored entries.
+
+## 5.7 Repeater execution
+
+Repeater is a separate engine, not a proxy loopback client. The TUI parses the
+editable HTTP document (or preserves binary bodies), then sends a
+`RepeaterCommand::Execute` with fixed tab/execution IDs, the request, the tab's
+follow-redirect flag, provenance, and an optional original capture. The service
+validates nothing on the UI's authority: the engine validates the request again.
+
+Execution path:
+
+1. Validate method, target, host/port, headers, and body framing. `CONNECT`,
+ambiguous `Content-Length`/`Transfer-Encoding`, malformed header names/values,
+and bodies over the configured limit are rejected before DNS.
+2. Re-read the shared scope snapshot and check the destination.
+3. Resolve the hostname once, validate every address with the same
+`rawframe-proxy::destination` policy used by forwarding, and connect only to
+those addresses.
+4. For HTTPS, build a Rustls client with certificate-chain and hostname
+verification mandatory. No CA or verification bypass exists. A lab trust bundle
+may replace roots, exactly as for proxied upstreams.
+5. Send one HTTP/1.1 request on a fresh connection and collect a bounded response
+with connect, response-header, body-idle, and total timeouts. Cancellation is a
+`CancellationToken` per execution.
+6. If redirects are enabled, parse `Location`, reject non-origin-form targets,
+scope-check the next destination, strip credentials cross-origin, apply
+301/302 POST→GET and 303→GET rules (307/308 preserve method/body), cap at five
+hops, then open a new connection.
+7. Convert the outcome to a `RepeaterResult` (response or partial response,
+phase, timings, bytes, warnings, error) and a `TrafficEntry` labelled `Repeater`.
+The entry is emitted as `RepeaterEvent::Completed`; the UI applies it only when
+the tab and execution IDs still match. The storage pump persists it under the
+same policy as proxy history.
+
+The service enforces a bounded concurrency limit with owned semaphore permits;
+the command channel, cancellation map, and task set are bounded. Response bodies
+are capped and explicitly marked truncated. A storage failure cannot fail or
+block an execution: storage is independent and only reports status.
 
 ## 6. Scope and destination address policy
 
@@ -436,7 +490,11 @@ Input never references literal screen positions. Tests render through
 `App` owns navigation, focus, selections, filters, inspector state, Repeater
 tabs, Settings editing, overlays, notifications, proxy lifecycle state, storage
 status, the stored-session list, the live scope editor, and the bounded command
-senders. Domain data comes from `rawframe-core`; the TUI never opens SQLite.
+senders. Each Repeater tab owns its document, editor buffer, dirty/original
+state, in-flight execution ID, latest result, execution history, view mode, and
+redirect toggle. Completions are matched by tab and execution ID, so late events
+cannot overwrite a newer execution or another tab. Domain data comes from
+`rawframe-core`; the TUI never opens SQLite.
 
 Live traffic is inserted into `App::traffic` by `TrafficCaptured` /
 `TrafficUpdated`. Existing pending fixtures are retained but hidden from the
@@ -573,6 +631,14 @@ captures are clearly distinguished.
   isolated temporary CA directories and cover show/fingerprint/export,
   regeneration, public-only export, permissions, and refusing to replace
   invalid material.
+- **Repeater tests** (`crates/rawframe-repeater/tests/execution.rs`) use real
+  local HTTP/1.1 and HTTPS servers. They cover GET/query/custom port, duplicate
+  ordered headers, binary POST bodies, repeated executions, response truncation,
+  duplicate `Content-Length`/`Transfer-Encoding` rejection, invalid methods and
+  targets, scope/private-address refusal, edited-destination revalidation,
+  concurrency limits, timeout vs cancellation, redirects (including cross-origin
+  credential stripping and blocked hops), valid HTTPS, hostname mismatch,
+  untrusted certificates, and service lifecycle events.
 - **Storage tests** (`crates/rawframe-store/tests/persistence.rs`) use isolated
   temporary databases and the real worker: migrations, metadata-only redaction,
   opt-in bodies/sensitive values, duplicate headers, binary bodies, lifecycle
@@ -609,6 +675,8 @@ and local TLS servers.
 | Restored entries are a distinct provenance | Never mistaken for live traffic or forwarded; requires ID spacing and UI labels |
 | Runtime-only settings (limits, accent, policy, scope) | No configuration-file commitment yet; only history and sessions are persisted |
 | Simulated fixtures retained | Reproducible demos and tests; requires explicit provenance labels everywhere |
+| Repeater engine separate from the proxy listener | Independent execution semantics and no interception/CA coupling; reuses destination/TLS policy at the cost of one extra crate and direct-connection differences |
+| Repeater completions flow through the shared event bus and storage pump | One persistence/redaction path and one history UI; requires provenance labels and late-event matching by tab/execution ID |
 
 ## 13. Extension path
 
@@ -625,7 +693,10 @@ lifecycle UX.
 history, redaction on write, redacted JSONL export, crash recovery, and live
 scope editing.
 
-**Milestone 6.** Add real Repeater transmission through the proxy stack,
-response comparison, then Intruder and Decoder.
+**Milestone 6 (implemented).** A separate Repeater engine with independent
+HTTP/HTTPS connections, mandatory upstream verification, scope/address policy,
+safe redirects, bounded capture, cancellation/timeouts, multi-tab state,
+inspection/comparison, and persisted Repeater provenance. Next: Intruder and
+Decoder.
 
 See [roadmap.md](roadmap.md) for acceptance criteria.

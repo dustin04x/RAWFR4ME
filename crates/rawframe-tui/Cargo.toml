@@ -11,7 +11,9 @@ chrono.workspace = true
 ratatui.workspace = true
 rawframe-core.workspace = true
 rawframe-http.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 rawframe-proxy.workspace = true
+rawframe-repeater.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }

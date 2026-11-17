@@ -187,8 +187,8 @@ impl Drop for StorageService {
 /// Forwards live captures from the application event bus to the storage worker.
 ///
 /// This is the production bridge: the proxy never talks to the store directly.
-/// Only genuinely intercepted traffic is stored; simulated fixtures and Repeater
-/// drafts are not history.
+/// Genuinely intercepted traffic and completed Repeater executions are stored;
+/// simulated fixtures and unexecuted Repeater drafts are not history.
 pub fn spawn_capture_pump(
     mut events: EventReceiver,
     handle: StorageHandle,
@@ -202,6 +202,13 @@ pub fn spawn_capture_pump(
                         let entry = *entry;
                         if entry.source == TrafficSource::Intercepted {
                             handle.try_record(entry);
+                        }
+                    }
+                    AppEvent::Repeater(rawframe_core::RepeaterEvent::Completed {
+                        entry, ..
+                    }) => {
+                        if entry.source == TrafficSource::Repeater {
+                            handle.try_record(*entry);
                         }
                     }
                     AppEvent::Shutdown => break,

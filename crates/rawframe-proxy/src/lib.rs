@@ -6,7 +6,7 @@
 //! opaque tunnel; no TLS is terminated or inspected in this milestone.
 
 mod body;
-mod destination;
+pub mod destination;
 pub mod error;
 mod interception;
 mod server;
@@ -18,6 +18,7 @@ pub use error::ProxyError;
 pub use interception::InterceptDecision;
 pub use server::{ProxyHandle, run_service, start_proxy};
 pub mod tls_api {
+    pub use crate::tls::intercept::build_upstream_tls_config_with_trust_file;
     pub use crate::tls::{CaInfo, CaManager, CaPaths, CaStatus};
 }
 

@@ -11,6 +11,9 @@ use rawframe_core::models::session::{Project, Session, SessionId};
 use rawframe_core::models::traffic::{
     TrafficEntry, TrafficId, TrafficSource, TrafficState, TunnelMetadata, TunnelOutcome,
 };
+use rawframe_core::repeater::{
+    REPEATER_ID_BASE, RepeaterEvent, RepeaterExecutionPhase, RepeaterResult, RepeaterTimings,
+};
 use rawframe_core::storage::{StorageCommand, StorageEvent, StoragePolicy};
 use rawframe_store::store::{DEFAULT_MAX_BYTES, parse_timestamp};
 use rawframe_store::{StorageOptions, StorageService, Store, StoreError, spawn_capture_pump};
@@ -124,6 +127,10 @@ fn opting_in_persists_bodies_and_sensitive_values() {
         entry.request.headers.get("authorization"),
         Some("Bearer super-secret")
     );
+    assert_eq!(
+        entry.response.as_ref().unwrap().headers.get("x-api-key"),
+        Some("response-secret")
+    );
 }
 
 #[test]
@@ -225,6 +232,101 @@ fn tunnel_metadata_and_modified_requests_round_trip() {
         loaded.final_request.as_ref().unwrap().body,
         b"edited-body".to_vec()
     );
+}
+
+#[test]
+fn repeater_transactions_keep_provenance_and_are_redacted() {
+    let dir = TempDir::new().unwrap();
+    let session = Session::new("repeater");
+    let mut store = open(&dir, &session, policy());
+    let mut entry = sample_entry(REPEATER_ID_BASE + 1);
+    entry.source = TrafficSource::Repeater;
+    entry.repeater_origin = Some(TrafficId(14));
+    entry.original_request = Some(sample_entry(1).request);
+    store.write_entry(&entry).unwrap();
+
+    let (entries, _) = store.load_session(&session.id, 10).unwrap();
+    let restored = &entries[0];
+    assert_eq!(restored.source, TrafficSource::Restored);
+    assert_eq!(restored.repeater_origin, Some(TrafficId(14)));
+    assert_eq!(
+        restored.request.headers.get("authorization"),
+        Some("<redacted>")
+    );
+    assert_eq!(
+        restored.response.as_ref().unwrap().headers.get("x-api-key"),
+        Some("<redacted>")
+    );
+    assert!(restored.body_omitted);
+    assert!(restored.response.as_ref().unwrap().body.is_empty());
+
+    let export = dir.path().join("repeater.jsonl");
+    store.export_session(&session.id, &export).unwrap();
+    let line: serde_json::Value =
+        serde_json::from_str(fs::read_to_string(&export).unwrap().lines().next().unwrap()).unwrap();
+    assert_eq!(line["stored_source"], "repeater");
+    assert_eq!(line["repeater_origin"], 14);
+    assert_eq!(line["request_body"]["omitted"], true);
+}
+
+#[test]
+fn capture_pump_persists_completed_repeater_executions() {
+    let dir = TempDir::new().unwrap();
+    let session = Session::new("repeater-pump");
+    let mut bus = EventBus::new();
+    let mut observer = bus.subscribe();
+    let service = StorageService::spawn(
+        StorageOptions::new(dir.path().join("sessions.db"), session.clone(), policy()),
+        bus.sender(),
+    )
+    .unwrap();
+    let pump = spawn_capture_pump(bus.subscribe(), service.handle()).unwrap();
+
+    let mut entry = sample_entry(REPEATER_ID_BASE + 2);
+    entry.source = TrafficSource::Repeater;
+    entry.repeater_origin = Some(TrafficId(22));
+    let result = RepeaterResult {
+        request: entry.request.clone(),
+        response: entry.response.clone(),
+        timings: RepeaterTimings {
+            total_ms: 9,
+            ..RepeaterTimings::default()
+        },
+        redirects: Vec::new(),
+        truncated: false,
+        response_bytes: 11,
+        error: None,
+        warnings: Vec::new(),
+        sent_at: Utc::now(),
+    };
+    bus.sender()
+        .send(AppEvent::Repeater(RepeaterEvent::Completed {
+            tab: rawframe_core::models::session::RepeaterId(1),
+            execution: 1,
+            phase: RepeaterExecutionPhase::Completed,
+            result: Box::new(result),
+            entry: Box::new(entry),
+        }))
+        .unwrap();
+    wait_status(&mut observer, |status| status.persisted >= 1);
+    bus.sender().send(AppEvent::Shutdown).unwrap();
+    pump.join().unwrap();
+
+    service
+        .handle()
+        .command_sender()
+        .try_send(StorageCommand::LoadSession {
+            session_id: session.id.clone(),
+            limit: 10,
+        })
+        .expect("load accepted");
+    let loaded = wait_for(&mut observer, |event| match event {
+        StorageEvent::SessionLoaded { entries, .. } if !entries.is_empty() => Some(entries),
+        _ => None,
+    });
+    assert_eq!(loaded[0].repeater_origin, Some(TrafficId(22)));
+
+    service.shutdown();
 }
 
 #[test]
@@ -441,6 +543,10 @@ fn export_is_redacted_json_lines() {
         .find(|header| header["name"] == "Authorization")
         .unwrap();
     assert_eq!(authorization["value"], "<redacted>");
+    assert!(
+        !text.contains("super-secret") && !text.contains("response-secret"),
+        "JSONL export must not leak sensitive values"
+    );
 
     #[cfg(unix)]
     {

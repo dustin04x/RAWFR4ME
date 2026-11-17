@@ -211,6 +211,8 @@ pub enum AppEvent {
     TlsStateChanged(TlsStatus),
     /// Persistence status, query results, exports, and storage failures.
     Storage(StorageEvent),
+    /// Repeater phase changes and completed real executions.
+    Repeater(crate::repeater::RepeaterEvent),
     Notice(Notice),
     Shutdown,
 }

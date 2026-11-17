@@ -16,6 +16,7 @@ use crate::interaction::{
     Focus, HitTarget, InspectorView, MessageSide, NavSection, ScrollRegion, SettingId,
 };
 use crate::layout::DragTarget;
+use crate::state::RepeaterView;
 
 const DOUBLE_CLICK_WINDOW_MS: u128 = 450;
 
@@ -486,6 +487,9 @@ impl App {
     }
 
     fn handle_repeater_key(&mut self, key: KeyEvent) {
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            return;
+        }
         match key.code {
             KeyCode::Enter | KeyCode::Char('e') | KeyCode::Char('E') => {
                 self.repeater.editing = true;
@@ -493,6 +497,23 @@ impl App {
             KeyCode::Left => self.repeater.select_previous(),
             KeyCode::Right => self.repeater.select_next(),
             KeyCode::Char('s') | KeyCode::Char('S') => self.send_repeater_request(),
+            KeyCode::Char('c') | KeyCode::Char('C') => self.cancel_repeater_request(),
+            KeyCode::Char('n') | KeyCode::Char('N') => {
+                self.repeater.new_blank();
+                self.repeater.editing = true;
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') => self.duplicate_repeater_tab(),
+            KeyCode::Char('w') | KeyCode::Char('W') => self.request_close_repeater_tab(),
+            KeyCode::Char('r') | KeyCode::Char('R') => self.reset_repeater_edits(),
+            KeyCode::Char('x') | KeyCode::Char('X') => self.clear_repeater_response(),
+            KeyCode::Char('f') | KeyCode::Char('F') => self.toggle_repeater_redirects(),
+            KeyCode::Char('v') | KeyCode::Char('V') => self.repeater.view_next(),
+            KeyCode::Char('1') => self.repeater.view(RepeaterView::Raw),
+            KeyCode::Char('2') => self.repeater.view(RepeaterView::Headers),
+            KeyCode::Char('3') => self.repeater.view(RepeaterView::Body),
+            KeyCode::Char('4') => self.repeater.view(RepeaterView::Json),
+            KeyCode::Char('5') => self.repeater.view(RepeaterView::Hex),
+            KeyCode::Char('6') => self.repeater.view(RepeaterView::Compare),
             _ => {}
         }
     }
@@ -574,10 +595,29 @@ impl App {
                     self.inspector.scroll = 0;
                 }
             }
+            KeyCode::Char('1') if self.nav == NavSection::Repeater => {
+                self.repeater.view(RepeaterView::Raw)
+            }
+            KeyCode::Char('2') if self.nav == NavSection::Repeater => {
+                self.repeater.view(RepeaterView::Headers)
+            }
+            KeyCode::Char('3') if self.nav == NavSection::Repeater => {
+                self.repeater.view(RepeaterView::Body)
+            }
+            KeyCode::Char('4') if self.nav == NavSection::Repeater => {
+                self.repeater.view(RepeaterView::Json)
+            }
+            KeyCode::Char('5') if self.nav == NavSection::Repeater => {
+                self.repeater.view(RepeaterView::Hex)
+            }
+            KeyCode::Char('6') if self.nav == NavSection::Repeater => {
+                self.repeater.view(RepeaterView::Compare)
+            }
             KeyCode::Char('1') => self.set_inspector_view(InspectorView::Raw),
             KeyCode::Char('2') => self.set_inspector_view(InspectorView::Headers),
             KeyCode::Char('3') => self.set_inspector_view(InspectorView::Body),
             _ => match plain_char(&key) {
+                Some('x') if self.nav == NavSection::Repeater => self.clear_repeater_response(),
                 Some('x') => self.toggle_redaction(),
                 Some('f') if self.nav != NavSection::Repeater => self.forward_selected_request(),
                 Some('d') if self.nav != NavSection::Repeater => self.drop_selected_request(),
@@ -955,6 +995,14 @@ impl App {
                     self.inspector.scroll = 0;
                     self.focus = Focus::Context;
                 }
+            }
+            HitTarget::RepeaterView(view) => {
+                self.repeater.view(view);
+                self.focus = if self.current_layout().context.is_some() {
+                    Focus::Context
+                } else {
+                    Focus::Content
+                };
             }
             HitTarget::InspectorClose => {
                 self.layout.context_open = false;

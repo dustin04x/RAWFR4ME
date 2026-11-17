@@ -79,8 +79,10 @@ pub enum TrafficSource {
     /// Captured live from a proxied connection during this run.
     Intercepted,
     Simulated,
-    /// Authored in the Repeater rather than captured from a connection.
+    /// Authored in the Repeater but never executed.
     Authored,
+    /// Executed by the Repeater against a real upstream. Never proxy traffic.
+    Repeater,
     /// Loaded from the session database. Restored entries are never live and are
     /// never forwarded, even though they were originally intercepted.
     Restored,
@@ -92,6 +94,7 @@ impl TrafficSource {
             Self::Intercepted => "LIVE",
             Self::Simulated => "SIM",
             Self::Authored => "AUTH",
+            Self::Repeater => "REPEATER",
             Self::Restored => "RESTORED",
         }
     }
@@ -254,6 +257,11 @@ pub struct TrafficEntry {
     /// Number of sensitive header values masked before this entry was written.
     #[serde(default)]
     pub redacted_headers: usize,
+    /// Captured History entry this Repeater transaction was based on, if any.
+    /// Persisted so a restored result keeps its original reference without ever
+    /// re-executing it.
+    #[serde(default)]
+    pub repeater_origin: Option<TrafficId>,
 }
 
 impl TrafficEntry {
@@ -274,6 +282,7 @@ impl TrafficEntry {
             interception: InterceptionMetadata::default(),
             body_omitted: false,
             redacted_headers: 0,
+            repeater_origin: None,
         }
     }
 
@@ -294,6 +303,7 @@ impl TrafficEntry {
             interception: InterceptionMetadata::default(),
             body_omitted: false,
             redacted_headers: 0,
+            repeater_origin: None,
         }
     }
 
@@ -439,6 +449,12 @@ impl TrafficEntry {
     /// Restored entries are read-only history loaded from the session database.
     pub fn is_restored(&self) -> bool {
         self.source.is_restored()
+    }
+
+    /// Executed by Repeater. These are persisted, but never live proxy traffic
+    /// and never re-executed when restored.
+    pub fn is_repeater(&self) -> bool {
+        self.source == TrafficSource::Repeater
     }
 
     pub fn timeout_interception(

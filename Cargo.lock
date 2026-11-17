@@ -1560,6 +1560,7 @@ dependencies = [
  "ratatui",
  "rawframe-core",
  "rawframe-proxy",
+ "rawframe-repeater",
  "rawframe-store",
  "rawframe-tui",
  "serde_json",
@@ -1613,6 +1614,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "rawframe-repeater"
+version = "0.2.0"
+dependencies = [
+ "bytes",
+ "chrono",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rawframe-core",
+ "rawframe-proxy",
+ "rcgen",
+ "rustls",
+ "rustls-pemfile",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "rawframe-store"
 version = "0.2.0"
 dependencies = [
@@ -1636,6 +1659,8 @@ dependencies = [
  "rawframe-core",
  "rawframe-http",
  "rawframe-proxy",
+ "rawframe-repeater",
+ "serde_json",
  "tokio",
 ]
 

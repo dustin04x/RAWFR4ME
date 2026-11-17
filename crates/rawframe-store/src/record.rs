@@ -53,6 +53,7 @@ pub struct TrafficRecord {
     pub final_request: Option<String>,
     pub interception: String,
     pub tunnel: Option<String>,
+    pub repeater_origin: Option<i64>,
     pub incomplete: bool,
 }
 
@@ -116,6 +117,7 @@ impl TrafficRecord {
                 .tunnel
                 .as_ref()
                 .and_then(|tunnel| serde_json::to_string(tunnel).ok()),
+            repeater_origin: entry.repeater_origin.map(|id| id.0 as i64),
             incomplete: !entry.state.is_terminal(),
         }
     }
@@ -145,6 +147,7 @@ fn source_str(source: TrafficSource) -> &'static str {
         TrafficSource::Intercepted => "intercepted",
         TrafficSource::Simulated => "simulated",
         TrafficSource::Authored => "authored",
+        TrafficSource::Repeater => "repeater",
         TrafficSource::Restored => "restored",
     }
 }
@@ -374,6 +377,9 @@ pub fn decode_row(row: &Row<'_>, interface_id: TrafficId) -> rusqlite::Result<Tr
         interception,
         body_omitted: omitted,
         redacted_headers: row.get::<_, i64>("redacted_headers")?.max(0) as usize,
+        repeater_origin: row
+            .get::<_, Option<i64>>("repeater_origin")?
+            .map(|value| TrafficId(value.max(0) as u64)),
     })
 }
 

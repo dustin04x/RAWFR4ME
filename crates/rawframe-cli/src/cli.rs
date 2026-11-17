@@ -23,7 +23,7 @@ pub enum CaAction {
     about = "RAWFRAME — terminal-native HTTP interception & security testing workbench",
     long_about = "RAWFRAME is a terminal-native interception and security testing workbench.\n\
                   This build forwards HTTP/1.1 and relays opaque HTTPS CONNECT tunnels by default. \
-                  HTTPS TLS interception is opt-in and requires explicit CA trust. Repeater transmission is not implemented.",
+                  HTTPS TLS interception is opt-in and requires explicit CA trust. Repeater executes real scoped HTTP/HTTPS requests with verified upstream TLS.",
     after_help = "Only test systems for which you have explicit authorization."
 )]
 pub struct Cli {

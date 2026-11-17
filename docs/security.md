@@ -1,7 +1,7 @@
 # Security Model
 
 RAWFRAME is security-sensitive infrastructure. This document records the threat
-model, the controls implemented through Milestone 5 (0.2.0), and the gaps that
+model, the controls implemented through Milestone 6 (0.2.0), and the gaps that
 must stay visible until later milestones close them.
 
 RAWFRAME must only be used against systems for which the operator has explicit
@@ -199,6 +199,37 @@ network limits apply after the proxy is restarted.
   tunnels, and reports `Stopped`. Closing the TUI drops the command sender, which
   also stops the service.
 
+### Repeater execution
+
+- Repeater never enters the proxy listener, interception queue, or local CA path.
+  It opens its own direct connection for each execution and redirect hop.
+- The request is revalidated in the engine. UI validation is advisory. `CONNECT`,
+  ambiguous framing, invalid headers, unsupported schemes, and oversized bodies
+  are refused before DNS.
+- Scope is default-deny and re-read immediately before every connection and
+  redirect hop, so edits in Settings apply without restarting Repeater. A blocked
+  redirect returns the real 3xx response plus a `Blocked` error; it is not
+  followed.
+- The same resolve-once address policy is used as the proxy: every resolved
+  address is validated and the connection uses those addresses. Loopback/private
+  targets require `--allow-private-upstreams`; metadata, link-local, reserved,
+  multicast, and other always-blocked ranges remain refused.
+- HTTPS always uses certificate-chain and hostname verification. There is no
+  insecure switch. `--tls-upstream-ca` can replace trust roots for a lab without
+  disabling verification.
+- Redirects are off by default and capped at five hops. Each destination is
+  scope-checked. `Authorization`, `Proxy-Authorization`, `Cookie`, `X-Api-Key`,
+  `X-Auth-Token`, and `X-Csrf-Token` are removed on cross-origin hops. 301/302
+  POST→GET and 303→GET rewrites drop the body; 307/308 preserve it.
+- Request/response body limits, connect/header/body-idle/total timeouts,
+  per-execution cancellation, and a bounded concurrency semaphore are enforced in
+  the engine. Late completions cannot overwrite a newer tab execution.
+- Repeater response/error text passes through the same terminal sanitization as
+  captured data. `Pretty JSON` and `Hex` read a display-only copy; they never
+  mutate the raw response model.
+- Completed Repeater entries are stored through the same redaction/body policy
+  and carry `REPEATER` provenance plus an optional original-capture reference.
+  Persistence failure is surfaced in the UI and never aborts an execution.
 
 ## Interception (current state)
 
@@ -220,6 +251,11 @@ When persistence is active, the database contains for each session:
 - bodies **only** when body persistence is enabled; otherwise SQL `NULL`;
 - sensitive header values only when sensitive-header persistence is enabled;
   otherwise the literal `<redacted>`.
+
+Completed Repeater transactions use the same row format and policy, with a
+`repeater` stored source and a nullable `repeater_origin` reference to the
+capture they were seeded from. Unfinished Repeater drafts and in-flight
+executions are not stored.
 
 Never stored: the CA private key, TLS session keys, tunnel payloads, raw TLS
 bytes, terminal input, or logs. Live/decrypted HTTP traffic is stored according
@@ -294,12 +330,17 @@ database.
 | No automated dependency audit | Supply-chain drift is possible | Add `cargo audit`/`cargo deny` in CI |
 | Local logs are not rotated | Log growth over long runs | Add bounded retention with logging settings |
 | Redaction toggle does not rewrite existing Repeater buffers | A tab seeded while redaction was off retains visible secrets until reopened | Deliberate: editing must not silently mutate documents; warning shown |
+| Repeater is HTTP/1.1 and direct-only | HTTP/2, WebSocket, client certificates, proxy-auth, and proxy-routed execution are unavailable | Keep the limitations visible; protocol/client-auth support is future work |
+| Repeater cannot reuse a captured connection | Results can differ from the original capture (different TLS session, client certificate, source address, or proxy path) | Treat Repeater as a fresh request, not an exact replay; document provenance |
 | No clipboard/copy action | Operators cannot copy from RAWFRAME | Consider an explicit, reviewed action later |
 
 TLS interception, CA generation, live pause/edit/drop, SQLite persistence,
-redaction-on-write, export, crash recovery, and live scope updates are covered by
-local integration tests, including a real-binary PTY regression. Storage tests'
-assertions check the actual database rows, not an in-memory mock.
+redaction-on-write, export, crash recovery, live scope updates, and Repeater
+execution are covered by local integration tests, including a real-binary PTY
+regression. Repeater tests use real local HTTP/HTTPS origins and verify scope,
+address policy, certificate validation, redirect credential stripping, limits,
+timeouts, and cancellation. Storage tests' assertions check the actual database
+rows, not an in-memory mock.
 
 ## 4. Certificate authority design (implemented)
 

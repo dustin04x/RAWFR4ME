@@ -1,0 +1,44 @@
+[package]
+name = "rawframe-repeater"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Independent HTTP/HTTPS request execution engine for RAWFRAME Repeater"
+
+[dependencies]
+bytes.workspace = true
+chrono.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+rawframe-core.workspace = true
+rawframe-proxy.workspace = true
+rustls.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = [
+    "io-util",
+    "macros",
+    "net",
+    "rt",
+    "rt-multi-thread",
+    "sync",
+    "time",
+] }
+tokio-rustls.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true
+rustls-pemfile.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = [
+    "io-util",
+    "macros",
+    "net",
+    "rt",
+    "rt-multi-thread",
+    "sync",
+    "time",
+] }

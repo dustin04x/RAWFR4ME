@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::Write;
+use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
@@ -148,6 +149,8 @@ fn main() -> Result<()> {
 
     let persistence_enabled = cli.persistence_enabled();
     let database_path = config.storage.database_path.clone();
+    let repeater_config = rawframe_repeater::RepeaterConfig::from_proxy(&config.proxy);
+    let repeater_scope = Arc::new(RwLock::new(config.proxy.scope.clone()));
     let mut app = rawframe_tui::App::new(config);
     let events = app.event_sender();
 
@@ -186,13 +189,27 @@ fn main() -> Result<()> {
         .build()
         .context("creating proxy runtime")?;
     let (command_tx, command_rx) = tokio::sync::mpsc::channel(32);
-    let proxy_service = runtime.spawn(rawframe_proxy::run_service(command_rx, events));
+    let proxy_service = runtime.spawn(rawframe_proxy::run_service(command_rx, events.clone()));
     app.attach_proxy_commands(command_tx);
+
+    // Repeater has an independent connection path and its own command channel,
+    // but shares the scope policy and verified TLS configuration.
+    let (repeater_tx, repeater_rx) = tokio::sync::mpsc::channel(16);
+    let repeater_service = runtime.spawn(rawframe_repeater::run_service(
+        repeater_rx,
+        repeater_config,
+        events,
+        repeater_scope,
+    ));
+    app.attach_repeater_commands(repeater_tx);
 
     let ui_result = rawframe_tui::run(app).context("terminal session failed");
     runtime.block_on(async {
         if let Err(error) = proxy_service.await {
             tracing::error!(%error, "proxy worker task failed");
+        }
+        if let Err(error) = repeater_service.await {
+            tracing::error!(%error, "Repeater service task failed");
         }
     });
     runtime.shutdown_timeout(std::time::Duration::from_secs(2));

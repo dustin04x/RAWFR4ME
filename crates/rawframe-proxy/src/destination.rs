@@ -54,6 +54,33 @@ impl Rejection {
 }
 
 impl Destination {
+    /// Builds a destination from a validated request model. This is used by
+    /// Repeater, which has no front-proxy URI to parse but must enforce the same
+    /// host/port/target rules as proxied traffic.
+    pub fn from_parts(
+        scheme: Scheme,
+        host: &str,
+        port: u16,
+        target: &str,
+    ) -> Result<Self, Rejection> {
+        let host = normalize_host(host)
+            .ok_or_else(|| Rejection::bad_request("invalid destination host"))?;
+        if port == 0 {
+            return Err(Rejection::bad_request("destination port must not be zero"));
+        }
+        let target = if target.is_empty() { "/" } else { target };
+        if !target.starts_with('/') && target != "*" {
+            return Err(Rejection::bad_request("request target must be origin-form"));
+        }
+        Ok(Self {
+            scheme,
+            authority: authority_for(&host, scheme, port),
+            host,
+            port,
+            target: target.to_string(),
+        })
+    }
+
     /// Parses an absolute-form HTTP proxy request received on the front proxy.
     /// HTTPS absolute-form requests are rejected here because TLS is not
     /// terminated on the front connection (clients must use CONNECT).
