@@ -69,22 +69,44 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, output: &
         return;
     };
 
+    let mut buttons = vec![
+        ButtonSpec::new(
+            "Send",
+            ActionId::SendRepeater,
+            !tab.is_busy() && app.repeater_engine_available(),
+        )
+        .primary()
+        .key("^↵"),
+        ButtonSpec::new("Cancel", ActionId::CancelRepeater, tab.is_busy()).key("C"),
+        ButtonSpec::new("New", ActionId::NewRepeaterTab, true).key("^N"),
+        ButtonSpec::new("Dup", ActionId::DuplicateRepeaterTab, true),
+        ButtonSpec::new("Close", ActionId::CloseRepeaterTab, true).key("^W"),
+    ];
+    if area.width >= 100 {
+        buttons.push(
+            ButtonSpec::new(
+                "Req→Dec",
+                ActionId::SendRepeaterRequestToDecoder,
+                !tab.execution_request().body.is_empty(),
+            )
+            .key("B"),
+        );
+        buttons.push(
+            ButtonSpec::new(
+                "Resp→Dec",
+                ActionId::SendRepeaterResponseToDecoder,
+                tab.response
+                    .as_ref()
+                    .and_then(|result| result.response.as_ref())
+                    .is_some(),
+            )
+            .key("M"),
+        );
+    }
     let used = button_row(
         frame,
         Rect::new(area.x, y, area.width, 1),
-        &[
-            ButtonSpec::new(
-                "Send",
-                ActionId::SendRepeater,
-                !tab.is_busy() && app.repeater_engine_available(),
-            )
-            .primary()
-            .key("^↵"),
-            ButtonSpec::new("Cancel", ActionId::CancelRepeater, tab.is_busy()).key("C"),
-            ButtonSpec::new("New", ActionId::NewRepeaterTab, true).key("^N"),
-            ButtonSpec::new("Dup", ActionId::DuplicateRepeaterTab, true),
-            ButtonSpec::new("Close", ActionId::CloseRepeaterTab, true).key("^W"),
-        ],
+        &buttons,
         theme,
         app.hover.as_ref(),
         output,

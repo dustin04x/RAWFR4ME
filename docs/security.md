@@ -1,7 +1,7 @@
 # Security Model
 
 RAWFRAME is security-sensitive infrastructure. This document records the threat
-model, the controls implemented through Milestone 6 (0.2.0), and the gaps that
+model, the controls implemented through Milestone 7 (0.2.0), and the gaps that
 must stay visible until later milestones close them.
 
 RAWFRAME must only be used against systems for which the operator has explicit
@@ -231,6 +231,34 @@ network limits apply after the proxy is restarted.
   and carry `REPEATER` provenance plus an optional original-capture reference.
   Persistence failure is surfaced in the UI and never aborts an execution.
 
+### Decoder transformations
+
+- Decoder runs entirely in-process on bounded byte buffers. It has no network
+  access, opens no sockets, executes no shell or scripts, and never evaluates
+  decoded content. Input and output are capped at 8 MiB and pipelines at 16
+  steps; limits are checked in the engine, not only in the UI.
+- Gzip decompression is wrapped in a bounded reader, so a decompression bomb is
+  stopped at the output limit instead of being expanded into memory. Malformed,
+  truncated, and oversized streams return actionable errors without panicking.
+- Text-only transformations reject invalid UTF-8 rather than silently replacing
+  bytes. Binary input is preserved as bytes; non-text output is rendered as a
+  hex dump with a format label. Editing a binary input deliberately switches to
+  its lossy visible text, and the UI states this.
+- JWT inspection decodes the header and payload for display. It does not verify
+  the signature, trust the algorithm, or imply that a token is valid; the UI and
+  output say so explicitly. `exp`/`nbf`/`iat` are shown as informational times.
+- MD5 is provided only as a legacy checksum and is labelled cryptographically
+  broken and unsuitable for security verification. SHA-256/384/512 are computed
+  with `sha2`; RAWFRAME does not implement cryptographic primitives itself.
+- Decoder content and history are session-only. Nothing is written to SQLite,
+  logs, events, exports, or any external service. Copy uses terminal OSC 52;
+  the terminal's clipboard policy can ignore it, and RAWFRAME does not fall back
+  to shell clipboard tools.
+- Repeater integration is explicit. Sending a request/response body or inserting
+  Decoder output requires an operator command. Insertion rewrites
+  `Content-Length`/`Transfer-Encoding`, preserves the original request model and
+  stored captures, and is visible as a dirty Repeater draft before execution.
+
 ## Interception (current state)
 
 - RAWFRAME includes an HTTP interception path that can pause matching HTTP requests before upstream contact and resolve them via forward unchanged, forward modified, or drop. Intercepted entries carry interception metadata and (when available) original/final request data for inspection/history.
@@ -332,12 +360,13 @@ database.
 | Redaction toggle does not rewrite existing Repeater buffers | A tab seeded while redaction was off retains visible secrets until reopened | Deliberate: editing must not silently mutate documents; warning shown |
 | Repeater is HTTP/1.1 and direct-only | HTTP/2, WebSocket, client certificates, proxy-auth, and proxy-routed execution are unavailable | Keep the limitations visible; protocol/client-auth support is future work |
 | Repeater cannot reuse a captured connection | Results can differ from the original capture (different TLS session, client certificate, source address, or proxy path) | Treat Repeater as a fresh request, not an exact replay; document provenance |
-| No clipboard/copy action | Operators cannot copy from RAWFRAME | Consider an explicit, reviewed action later |
+| Clipboard copy uses OSC 52 only | Terminals that disable clipboard writes may ignore `Copy`; no shell helper is invoked | Treat copy as best effort; UI reports that the request was sent |
 
 TLS interception, CA generation, live pause/edit/drop, SQLite persistence,
-redaction-on-write, export, crash recovery, live scope updates, and Repeater
-execution are covered by local integration tests, including a real-binary PTY
-regression. Repeater tests use real local HTTP/HTTPS origins and verify scope,
+redaction-on-write, export, crash recovery, live scope updates, Repeater,
+and bounded in-process Decoder transformations are covered by local tests and a
+real-binary PTY regression. Repeater tests use real local HTTP/HTTPS origins and
+verify scope,
 address policy, certificate validation, redirect credential stripping, limits,
 timeouts, and cancellation. Storage tests' assertions check the actual database
 rows, not an in-memory mock.

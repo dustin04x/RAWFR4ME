@@ -31,9 +31,9 @@ use crate::components::lifecycle;
 use crate::interaction::{ActionId, Focus, HitTarget, MessageSide, NavSection, SettingId};
 use crate::layout::{AppLayout, DragTarget, LayoutState, compute};
 use crate::state::{
-    ConfirmAction, ConfirmState, ContextMenuState, InspectorState, MenuAction, MenuItem,
-    PaletteState, RepeaterOrigin, RepeaterState, RepeaterTab, ScopeEditorState, SearchState,
-    SettingEdit, SettingsState, Toast,
+    ConfirmAction, ConfirmState, ContextMenuState, DecoderState, InspectorState, MenuAction,
+    MenuItem, PaletteState, RepeaterOrigin, RepeaterState, RepeaterTab, ScopeEditorState,
+    SearchState, SettingEdit, SettingsState, Toast,
 };
 use crate::text::TextBuffer;
 use crate::theme::Theme;
@@ -92,6 +92,7 @@ pub struct App {
     pub(crate) search: SearchState,
     pub(crate) inspector: InspectorState,
     pub(crate) repeater: RepeaterState,
+    pub(crate) decoder: DecoderState,
     pub(crate) settings: SettingsState,
     pub(crate) palette: Option<PaletteState>,
     pub(crate) context_menu: Option<ContextMenuState>,
@@ -149,6 +150,7 @@ impl App {
             search: SearchState::default(),
             inspector: InspectorState::default(),
             repeater,
+            decoder: DecoderState::new(),
             settings: SettingsState::default(),
             palette: None,
             context_menu: None,
@@ -700,6 +702,17 @@ impl App {
     }
 
     pub fn tick(&mut self) {
+        if self.decoder.poll() {
+            if let Some(error) = &self.decoder.error {
+                self.notify_error(format!("Decoder {}: {}", error.label(), error.message));
+            } else {
+                self.notify_success(format!(
+                    "Decoder completed: {} bytes → {} bytes",
+                    self.decoder.input_bytes.len(),
+                    self.decoder.displayed_bytes.len()
+                ));
+            }
+        }
         let now = Instant::now();
         self.notices.retain(|toast| toast.expires_at > now);
         if self
@@ -745,6 +758,8 @@ impl App {
         self.search.active = false;
         self.settings.edit = None;
         self.repeater.editing = false;
+        self.decoder.editing = false;
+        self.decoder.history_open = false;
         self.inspector.reset();
     }
 
@@ -1132,6 +1147,26 @@ impl App {
             CommandId::GoIntruder => self.navigate(NavSection::Intruder),
             CommandId::GoDecoder => self.navigate(NavSection::Decoder),
             CommandId::GoSettings => self.navigate(NavSection::Settings),
+            CommandId::DecoderExecute => {
+                self.navigate(NavSection::Decoder);
+                self.execute_decoder();
+            }
+            CommandId::DecoderAddStep => {
+                self.navigate(NavSection::Decoder);
+                self.add_decoder_step();
+            }
+            CommandId::DecoderCopy => {
+                self.navigate(NavSection::Decoder);
+                self.copy_decoder_output();
+            }
+            CommandId::DecoderHistory => {
+                self.navigate(NavSection::Decoder);
+                self.toggle_decoder_history();
+            }
+            CommandId::DecoderSendToRepeater => {
+                self.navigate(NavSection::Decoder);
+                self.send_decoder_output_to_repeater();
+            }
             CommandId::ToggleProxy => self.toggle_proxy(),
             CommandId::ToggleInterception => self.toggle_interception(),
             CommandId::ToggleRedaction => self.toggle_redaction(),
@@ -1247,6 +1282,24 @@ impl App {
             ActionId::CycleHost => {
                 self.navigate(NavSection::History);
                 self.cycle_host_filter();
+            }
+            ActionId::DecoderExecute => self.execute_decoder(),
+            ActionId::DecoderAddStep => self.add_decoder_step(),
+            ActionId::DecoderRemoveStep => self.remove_decoder_step(),
+            ActionId::DecoderMoveStepUp => self.move_decoder_step(-1),
+            ActionId::DecoderMoveStepDown => self.move_decoder_step(1),
+            ActionId::DecoderSwap => self.swap_decoder_input_output(),
+            ActionId::DecoderClear => self.clear_decoder(),
+            ActionId::DecoderCopy => self.copy_decoder_output(),
+            ActionId::DecoderSendToRepeater => self.send_decoder_output_to_repeater(),
+            ActionId::DecoderTransformPrev => self.decoder.select_transform(-1),
+            ActionId::DecoderTransformNext => self.decoder.select_transform(1),
+            ActionId::DecoderToggleDirection => self.toggle_decoder_direction(),
+            ActionId::DecoderHistory => self.toggle_decoder_history(),
+            ActionId::DecoderPreview => self.preview_decoder_step(),
+            ActionId::SendRepeaterRequestToDecoder => self.send_repeater_request_body_to_decoder(),
+            ActionId::SendRepeaterResponseToDecoder => {
+                self.send_repeater_response_body_to_decoder()
             }
         }
     }
@@ -1463,6 +1516,146 @@ impl App {
         if self.repeater.duplicate_active().is_some() {
             self.notify_info("Repeater tab duplicated with an independent response state.");
         }
+    }
+
+    pub fn decoder_state(&self) -> &DecoderState {
+        &self.decoder
+    }
+
+    pub(crate) fn execute_decoder(&mut self) {
+        match self.decoder.execute() {
+            Ok(()) => self.notify_info(format!(
+                "Decoder running {} step(s)…",
+                self.decoder.pipeline.len()
+            )),
+            Err(error) => self.notify_error(error),
+        }
+    }
+
+    pub(crate) fn add_decoder_step(&mut self) {
+        match self.decoder.add_step() {
+            Ok(()) => self.notify_info(format!(
+                "Added {} to the pipeline.",
+                self.decoder.selected_transform().label()
+            )),
+            Err(error) => self.notify_warning(error),
+        }
+    }
+
+    pub(crate) fn remove_decoder_step(&mut self) {
+        if self.decoder.pipeline.is_empty() {
+            self.notify_warning("The Decoder pipeline is empty.");
+            return;
+        }
+        self.decoder.remove_step();
+    }
+
+    pub(crate) fn move_decoder_step(&mut self, delta: i32) {
+        self.decoder.move_step(delta);
+    }
+
+    pub(crate) fn toggle_decoder_direction(&mut self) {
+        self.decoder.toggle_direction();
+        self.notify_info(format!(
+            "Transform: {}",
+            self.decoder.selected_transform().label()
+        ));
+    }
+
+    pub(crate) fn clear_decoder(&mut self) {
+        self.decoder.clear_input_output();
+        self.notify_info("Decoder input and output cleared; pipeline retained.");
+    }
+
+    pub(crate) fn swap_decoder_input_output(&mut self) {
+        if self.decoder.output.is_none() {
+            self.notify_warning("Run a transformation before swapping input and output.");
+            return;
+        }
+        self.decoder.swap_input_output();
+        self.notify_info("Swapped Decoder input and output.");
+    }
+
+    pub(crate) fn copy_decoder_output(&mut self) {
+        if !self.decoder.copy_displayed() {
+            self.notify_warning("There is no Decoder output to copy.");
+            return;
+        }
+        self.notify_success("Decoder output copied via the terminal clipboard (OSC 52).");
+    }
+
+    pub(crate) fn preview_decoder_step(&mut self) {
+        if self.decoder.steps.is_empty() {
+            self.notify_warning("Run the pipeline before inspecting intermediate results.");
+            return;
+        }
+        self.decoder.preview_selected_step();
+    }
+
+    pub(crate) fn show_decoder_final_output(&mut self) {
+        self.decoder.show_final_output();
+    }
+
+    pub(crate) fn toggle_decoder_history(&mut self) {
+        self.decoder.history_open = !self.decoder.history_open;
+        self.decoder.history_scroll = 0;
+    }
+
+    pub(crate) fn send_repeater_request_body_to_decoder(&mut self) {
+        let Some(tab) = self.repeater.active_tab() else {
+            self.notify_warning("Open a Repeater tab first.");
+            return;
+        };
+        let body = tab.execution_request().body;
+        let label = format!("REPEATER REQUEST · {}", tab.title());
+        self.decoder.load_input(body, label);
+        self.navigate(NavSection::Decoder);
+        self.focus = Focus::Content;
+        self.notify_info("Loaded Repeater request body into Decoder.");
+    }
+
+    pub(crate) fn send_repeater_response_body_to_decoder(&mut self) {
+        let Some(tab) = self.repeater.active_tab() else {
+            self.notify_warning("Open a Repeater tab first.");
+            return;
+        };
+        let Some(body) = tab
+            .response
+            .as_ref()
+            .and_then(|result| result.response.as_ref())
+            .map(|response| response.body.clone())
+        else {
+            self.notify_warning("The active Repeater tab has no response body.");
+            return;
+        };
+        let label = format!("REPEATER RESPONSE · {}", tab.title());
+        self.decoder.load_input(body, label);
+        self.navigate(NavSection::Decoder);
+        self.focus = Focus::Content;
+        self.notify_info("Loaded Repeater response body into Decoder.");
+    }
+
+    pub(crate) fn send_decoder_output_to_repeater(&mut self) {
+        if self.decoder.output.is_none() && self.decoder.view_step.is_none() {
+            self.notify_warning("Run a transformation before sending output to Repeater.");
+            return;
+        }
+        let Some(tab) = self.repeater.active_tab_mut() else {
+            self.notify_warning("Open a Repeater tab first.");
+            return;
+        };
+        let bytes = self.decoder.displayed_bytes.clone();
+        tab.replace_body(bytes);
+        let len = tab.source_body.len();
+        self.navigate(NavSection::Repeater);
+        self.focus = Focus::Content;
+        self.notify_success(format!(
+            "Inserted {len} transformed bytes into the Repeater request body; the original capture is unchanged."
+        ));
+    }
+
+    pub fn take_clipboard_request(&mut self) -> Option<String> {
+        self.decoder.take_clipboard_request()
     }
 
     pub(crate) fn reset_repeater_edits(&mut self) {
@@ -2306,6 +2499,21 @@ impl App {
         self.repeater.editing = true;
     }
 
+    pub(crate) fn set_decoder_editor_cursor_from_mouse(&mut self, x: u16, y: u16) {
+        let Some(origin) = self.render.editor_origin else {
+            return;
+        };
+        let gutter = self.render.editor_gutter;
+        let row = y.saturating_sub(origin.y) as usize + usize::from(self.decoder.input.scroll());
+        let col = x.saturating_sub(origin.x).saturating_sub(gutter) as usize
+            + usize::from(self.decoder.input.hscroll());
+        self.decoder.input.set_cursor(row, col);
+        self.decoder
+            .input
+            .ensure_visible(self.render.repeater_rows, self.render.repeater_cols);
+        self.decoder.editing = true;
+    }
+
     pub(crate) fn move_interception_selection(&mut self, delta: i32) {
         let ids: Vec<TrafficId> = self.pending_interceptions().iter().map(|e| e.id).collect();
         self.interception.selected = step_selection(&ids, self.interception.selected, delta);
@@ -2946,6 +3154,132 @@ mod tests {
             app.scope_editor().is_some(),
             "editor stays open to add another rule"
         );
+    }
+
+    fn wait_for_decoder(app: &mut App) {
+        for _ in 0..200 {
+            app.tick();
+            if !app.decoder.running {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("Decoder did not finish");
+    }
+
+    #[test]
+    fn decoder_runs_real_pipeline_and_supports_swap_clear_copy_and_history() {
+        use rawframe_core::decoder::Transform;
+
+        let mut app = App::demo();
+        app.navigate(NavSection::Decoder);
+        app.decoder.load_input(b"aGVsbG8=".to_vec(), "TEST");
+        app.decoder.pipeline.push(Transform::Base64Decode);
+        app.execute_decoder();
+        wait_for_decoder(&mut app);
+
+        assert!(app.decoder.error.is_none());
+        assert_eq!(app.decoder.displayed_bytes, b"hello");
+        assert_eq!(
+            app.decoder.displayed_format,
+            rawframe_core::OutputFormat::Text
+        );
+        assert_eq!(app.decoder.history.len(), 1);
+        assert!(app.decoder.history[0].result.contains("OK"));
+
+        app.copy_decoder_output();
+        assert_eq!(app.take_clipboard_request().as_deref(), Some("hello"));
+
+        app.swap_decoder_input_output();
+        assert_eq!(app.decoder.input_bytes, b"hello");
+        assert_eq!(app.decoder.output.as_ref().unwrap().bytes, b"aGVsbG8=");
+
+        app.clear_decoder();
+        assert!(app.decoder.input_bytes.is_empty());
+        assert!(app.decoder.output.is_none());
+        assert_eq!(app.decoder.pipeline, [Transform::Base64Decode]);
+    }
+
+    #[test]
+    fn decoder_pipeline_editing_reorders_fails_and_preserves_failure_step() {
+        use rawframe_core::decoder::Transform;
+
+        let mut app = App::demo();
+        app.navigate(NavSection::Decoder);
+        app.decoder.load_input(b"aGVsbG8=".to_vec(), "TEST");
+        app.decoder.pipeline = vec![Transform::JsonPretty, Transform::Base64Decode];
+        app.decoder.selected_step = 1;
+        app.move_decoder_step(-1);
+        assert_eq!(
+            app.decoder.pipeline,
+            [Transform::Base64Decode, Transform::JsonPretty]
+        );
+
+        app.execute_decoder();
+        wait_for_decoder(&mut app);
+        let error = app.decoder.error.as_ref().unwrap();
+        assert_eq!(error.step_index, 1);
+        assert_eq!(error.transform, Some(Transform::JsonPretty));
+        assert!(app.decoder.output.is_none());
+        assert_eq!(app.decoder.steps.len(), 1);
+        assert_eq!(app.decoder.steps[0].output, b"hello");
+        app.decoder.selected_step = 0;
+        app.preview_decoder_step();
+        assert_eq!(app.decoder.displayed_bytes, b"hello");
+        assert_eq!(app.decoder.view_step, Some(0));
+        app.show_decoder_final_output();
+        assert!(app.decoder.view_step.is_none());
+
+        app.decoder.remove_step();
+        assert_eq!(app.decoder.pipeline.len(), 1);
+    }
+
+    #[test]
+    fn decoder_and_repeater_body_transfers_are_explicit_and_preserve_captures() {
+        use rawframe_core::decoder::Transform;
+
+        let mut app = App::demo();
+        let tab = app.repeater.active_tab().unwrap();
+        let original_body = tab.execution_request().body;
+        let original_request = tab.original_request.clone();
+        let capture_bodies: Vec<Vec<u8>> = app
+            .traffic
+            .iter()
+            .map(|entry| entry.request.body.clone())
+            .collect();
+
+        app.send_repeater_request_body_to_decoder();
+        assert_eq!(app.nav, NavSection::Decoder);
+        assert_eq!(app.decoder.input_bytes, original_body);
+
+        app.decoder.pipeline.push(Transform::JsonPretty);
+        app.execute_decoder();
+        wait_for_decoder(&mut app);
+        assert!(app.decoder.error.is_none());
+        assert_eq!(
+            app.decoder.displayed_format,
+            rawframe_core::OutputFormat::Json
+        );
+        app.send_decoder_output_to_repeater();
+        assert_eq!(app.nav, NavSection::Repeater);
+        let tab = app.repeater.active_tab().unwrap();
+        assert_eq!(tab.original_request, original_request);
+        assert_ne!(tab.execution_request().body, original_body);
+        assert!(tab.editor.text().contains("Content-Length:"));
+        assert!(
+            app.traffic
+                .iter()
+                .map(|entry| entry.request.body.clone())
+                .eq(capture_bodies),
+            "loading Decoder and returning output must not mutate stored captures"
+        );
+
+        let mut result = repeater_result(200);
+        result.response.as_mut().unwrap().body = b"{\"response\":true}".to_vec();
+        app.repeater.active_tab_mut().unwrap().response = Some(result);
+        app.send_repeater_response_body_to_decoder();
+        assert_eq!(app.nav, NavSection::Decoder);
+        assert_eq!(app.decoder.input_bytes, b"{\"response\":true}");
     }
 
     fn repeater_result(status: u16) -> rawframe_core::RepeaterResult {

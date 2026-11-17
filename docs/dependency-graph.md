@@ -9,7 +9,8 @@ rawframe-cli
 │   │   └── rawframe-core
 │   ├── rawframe-core
 │   ├── ratatui
-│   └── chrono
+│   ├── chrono
+│   └── base64 (OSC 52 clipboard encoding)
 ├── rawframe-proxy
 │   ├── rawframe-core
 │   ├── hyper
@@ -41,6 +42,11 @@ rawframe-cli
 │   ├── serde_json
 │   └── chrono
 ├── rawframe-core
+│   ├── base64
+│   ├── flate2
+│   ├── sha2
+│   ├── md-5
+│   └── serde_json
 ├── clap
 ├── anyhow
 ├── tokio
@@ -98,7 +104,11 @@ Versions are declared once in the workspace manifest and inherited by crates.
 | `tracing` | 0.1 | cli, proxy | structured local diagnostics |
 | `tracing-subscriber` | 0.3 | cli | file logging subscriber |
 | `rusqlite` | 0.41 (`bundled`) | store | SQLite driver with a bundled, reproducible SQLite build |
-| `serde_json` | 1.0 | store | ordered header arrays, sub-request metadata, export lines |
+| `serde_json` | 1.0 | core, store | JSON pretty/minify/validate and JWT claim display; ordered header arrays, sub-request metadata, export lines |
+| `base64` | 0.22 | core, tui | Base64/Base64 URL-safe transformations; OSC 52 clipboard payload encoding |
+| `flate2` | 1.1 | core | bounded gzip compression and decompression |
+| `sha2` | 0.10 | core | SHA-256, SHA-384, and SHA-512 digests |
+| `md-5` | 0.10 | core | legacy MD5 checksum only; never presented as secure |
 | `tempfile` | 3.27 (dev) | store | isolated temporary databases in tests |
 
 Notes:
@@ -113,9 +123,13 @@ Notes:
   server, CA manager, or interception queue.
 - `tokio-util` is used only for task tracking; no runtime is embedded in a
   library crate.
-- No HTTP/2, HTTP/3, UUID, clipboard, or network-logging dependency is present.
-  TLS/certificate dependencies are limited to the proxy crate; SQLite is limited
-  to the storage crate.
+- No HTTP/2, HTTP/3, UUID, OS clipboard helper, or network-logging dependency
+  is present. Clipboard copy is encoded by the TUI and emitted as terminal
+  OSC 52. TLS/certificate dependencies are limited to the proxy and Repeater
+  crates; SQLite is limited to the storage crate.
+- `rawframe-core`'s data-format dependencies (`base64`, `flate2`, `sha2`,
+  `md-5`, `serde_json`) are pure in-process libraries. They do not perform
+  network, filesystem, or shell I/O.
 - Truecolor rendering needs no extra dependency; Ratatui RGB colors are used
   directly.
 
@@ -136,7 +150,6 @@ These are listed for design transparency only. They are not in `Cargo.lock`.
 
 | Milestone | Likely dependency | Purpose |
 |---|---|---|
-| later | terminal clipboard helper | explicit copy actions, if implemented without shell execution |
 | later | protocol libraries | HTTP/2/WebSocket support, only when implemented and tested |
 
 Every planned addition must preserve the rule that networking and storage are

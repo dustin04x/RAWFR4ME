@@ -39,6 +39,7 @@ silence a lint without fixing or documenting the underlying design issue.
 | `crates/rawframe-core/src/security.rs` | Terminal-safe display conversion |
 | `crates/rawframe-core/src/events.rs` | Bounded event bus, commands, event contracts |
 | `crates/rawframe-core/src/filter.rs` | History search/filter semantics |
+| `crates/rawframe-core/src/decoder.rs` | Byte-oriented transformations, pipeline execution, limits, and errors |
 | `crates/rawframe-core/src/fixtures.rs` | Labelled simulated traffic |
 | `crates/rawframe-http/src/parsing.rs` | Authored HTTP/1.x document parser |
 | `crates/rawframe-proxy/src/server.rs` | Listener, lifecycle service, connection limits, shutdown |
@@ -60,13 +61,16 @@ silence a lint without fixing or documenting the underlying design issue.
 | `crates/rawframe-tui/src/app.rs` | Application controller and actions |
 | `crates/rawframe-tui/src/input.rs` | Keyboard and mouse precedence |
 | `crates/rawframe-tui/src/ui.rs` | Shell composition and overlays |
-| `crates/rawframe-tui/src/screens` | Workspace screens |
+| `crates/rawframe-tui/src/screens` | Workspace screens, including the Decoder workspace |
+| `crates/rawframe-tui/src/screens/decoder.rs` | Decoder layout, selector, pipeline, history, and size tests |
 | `crates/rawframe-tui/src/components` | Panels, inspector, editor, overlays |
 | `crates/rawframe-tui/src/layout.rs` | Shell geometry |
 | `crates/rawframe-tui/src/interaction.rs` | Hit targets, scroll zones, render output |
 | `crates/rawframe-tui/src/text.rs` | Editable buffer |
 | `crates/rawframe-tui/src/terminal.rs` | Raw mode, alternate screen, event loop |
 | `crates/rawframe-tui/src/testing.rs` | Headless frame + hit-map helper |
+| `scripts/capture_repeater_pty.py` | Real-binary PTY capture for Repeater screenshots |
+| `scripts/capture_decoder_pty.py` | Real-binary PTY capture for Decoder screenshots |
 | `crates/rawframe-cli/src/cli.rs` | Arguments, scope parsing, safety validation |
 | `crates/rawframe-cli/src/main.rs` | Composition root: runtime, proxy service, TUI |
 | `crates/rawframe-cli/src/logging.rs` | Local file logging |
@@ -86,6 +90,21 @@ silence a lint without fixing or documenting the underlying design issue.
 5. Preserve the dependency boundary: the TUI must not import `rawframe-proxy`
    or `rusqlite`. New engine/storage-facing types shared across boundaries
    belong in `rawframe-core`; only `rawframe-cli` wires all services together.
+
+### Working on the Decoder
+
+- Transformations belong in `rawframe-core::decoder` and must operate on
+  `Vec<u8>`. Text-only operations reject invalid UTF-8 explicitly; do not add a
+  lossy fallback that silently changes bytes.
+- Add a real round-trip or known-vector test for every transformation, including
+  malformed input. Do not mock transformation results.
+- Keep the documented limits (8 MiB input/output, 16 pipeline steps) enforced in
+  the engine. Decompression must stay output-bounded.
+- JWT support is inspection only. Never describe a decoded token as verified or
+  valid, and never log or persist decoder buffers.
+- The TUI must execute pipelines away from the render path and match results by
+  run ID. Repeater transfer must remain an explicit command and must not mutate
+  the original request or stored traffic.
 
 ### Working on the proxy
 

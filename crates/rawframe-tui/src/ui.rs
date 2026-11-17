@@ -102,9 +102,8 @@ fn render_workspace(
         NavSection::History => screens::history::render(frame, area, app, theme, output),
         NavSection::Repeater => screens::repeater::render(frame, area, app, theme, output),
         NavSection::Settings => screens::settings::render(frame, area, app, theme, output),
-        NavSection::Intruder | NavSection::Decoder => {
-            screens::placeholder::render(frame, area, app, theme, output)
-        }
+        NavSection::Decoder => screens::decoder::render(frame, area, app, theme, output),
+        NavSection::Intruder => screens::placeholder::render(frame, area, app, theme, output),
     }
 }
 
@@ -312,7 +311,7 @@ fn render_sidebar(
     let mut y = inner.y;
     let groups: [(&str, &[NavSection]); 2] = [
         ("PRIMARY", &NavSection::PRIMARY),
-        ("PLANNED", &[NavSection::Intruder, NavSection::Decoder]),
+        ("PLANNED", &[NavSection::Intruder]),
     ];
     for (heading, sections) in groups {
         if y >= inner.bottom() {
@@ -632,9 +631,14 @@ fn context_hints(app: &App) -> &'static str {
             }
         }
         NavSection::Settings => "↑↓ select  ·  Enter edit/toggle  ·  Esc cancel edit",
-        NavSection::Intruder | NavSection::Decoder => {
-            "Planned module  ·  ^1 Proxy  ^2 History  ^3 Repeater  ^4 Settings"
+        NavSection::Decoder => {
+            if app.decoder.editing {
+                "Esc stop editing  ·  Ctrl+Enter run  ·  Tab focus"
+            } else {
+                "1 input · 2 pipeline · 3 output · A add · D direction · ^↵ run · H history"
+            }
         }
+        NavSection::Intruder => "Planned module  ·  ^1 Proxy  ^2 History  ^3 Repeater  ^4 Settings",
     }
 }
 

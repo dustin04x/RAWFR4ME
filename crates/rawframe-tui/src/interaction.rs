@@ -20,7 +20,13 @@ pub enum NavSection {
 
 impl NavSection {
     /// Primary workspaces.
-    pub const PRIMARY: [Self; 4] = [Self::Proxy, Self::History, Self::Repeater, Self::Settings];
+    pub const PRIMARY: [Self; 5] = [
+        Self::Proxy,
+        Self::History,
+        Self::Repeater,
+        Self::Settings,
+        Self::Decoder,
+    ];
 
     /// All sections including clearly planned modules.
     pub const ALL: [Self; 6] = [
@@ -73,13 +79,13 @@ impl NavSection {
 
     /// Modules that are visible in navigation but not implemented yet.
     pub const fn is_planned(self) -> bool {
-        matches!(self, Self::Intruder | Self::Decoder)
+        matches!(self, Self::Intruder)
     }
 
     pub const fn is_primary(self) -> bool {
         matches!(
             self,
-            Self::Proxy | Self::History | Self::Repeater | Self::Settings
+            Self::Proxy | Self::History | Self::Repeater | Self::Settings | Self::Decoder
         )
     }
 
@@ -179,6 +185,22 @@ pub enum ActionId {
     CycleMethod,
     CycleStatus,
     CycleHost,
+    DecoderExecute,
+    DecoderAddStep,
+    DecoderRemoveStep,
+    DecoderMoveStepUp,
+    DecoderMoveStepDown,
+    DecoderSwap,
+    DecoderClear,
+    DecoderCopy,
+    DecoderSendToRepeater,
+    DecoderTransformPrev,
+    DecoderTransformNext,
+    DecoderToggleDirection,
+    DecoderHistory,
+    DecoderPreview,
+    SendRepeaterRequestToDecoder,
+    SendRepeaterResponseToDecoder,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,6 +349,8 @@ pub enum HitTarget {
     InspectorClose,
     RepeaterTab(usize),
     RepeaterEditor,
+    DecoderEditor,
+    DecoderHistoryRow(usize),
     InterceptionEditor,
     Setting(SettingId),
     SessionRow(usize),
@@ -353,6 +377,10 @@ pub enum ScrollRegion {
     HistoryList,
     Inspector,
     RepeaterEditor,
+    DecoderEditor,
+    DecoderOutput,
+    DecoderPipeline,
+    DecoderHistory,
     InterceptionEditor,
     Settings,
     Palette,
@@ -422,7 +450,8 @@ mod tests {
         assert!(!NavSection::Settings.uses_context());
         assert!(NavSection::Intruder.is_planned());
         assert!(NavSection::Proxy.is_primary());
-        assert!(!NavSection::Decoder.is_primary());
+        assert!(NavSection::Decoder.is_primary());
+        assert!(!NavSection::Decoder.is_planned());
     }
 
     #[test]

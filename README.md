@@ -4,7 +4,7 @@
 
 RAWFRAME is an open-source Rust workspace for authorized HTTP/1.1 testing from the terminal. It provides a local forward proxy, opaque HTTPS tunnelling, opt-in TLS interception, durable SQLite history with sessions and redacted export, and a live request workbench inside a keyboard-driven TUI. It is built for testers who want a compact terminal workflow with explicit scope and visible request lifecycle state.
 
-The current release is **0.2.0**. Milestones 1–6 are complete: core application, HTTP proxy, HTTP interception, HTTPS TLS interception, durable history/sessions/export, and a functional Repeater with real HTTP/HTTPS execution, response inspection, comparison, and persisted provenance. Opaque `CONNECT` tunnelling is the default. Intruder, Decoder, HTTP/2, and WebSocket support are not implemented.
+The current release is **0.2.0**. Milestones 1–7 are complete: core application, HTTP proxy, HTTP interception, HTTPS TLS interception, durable history/sessions/export, a functional Repeater with real HTTP/HTTPS execution, and a binary-safe Decoder with chained transformations and Repeater body transfer. Opaque `CONNECT` tunnelling is the default. Intruder, HTTP/2, and WebSocket support are not implemented.
 
 RAWFRAME is intended **only** for systems you own or are explicitly authorized to test.
 
@@ -26,9 +26,14 @@ Captured from real PTY sessions of the current TUI at 140×40. These are termina
 | --- | --- |
 | ![Request blocked by scope policy](docs/screenshots/140x40_13_scope_blocked_inspector.png) | ![Repeater editor and response panel](docs/screenshots/repeater/140x40_01_workspace.png) |
 
+| Decoder pipeline with intermediate results | Decoder at a narrow terminal |
+| --- | --- |
+| ![Decoder workspace with a Base64 decode pipeline](docs/screenshots/decoder/140x40_01_workspace.png) | ![Decoder workspace at 80×24](docs/screenshots/decoder/80x24_01_workspace.png) |
+
 The Repeater workspace is also captured from a real PTY at
 [100×30](docs/screenshots/repeater/100x30_01_workspace.png) and
-[80×24](docs/screenshots/repeater/80x24_01_workspace.png).
+[80×24](docs/screenshots/repeater/80x24_01_workspace.png). The Decoder is
+captured at [100×30](docs/screenshots/decoder/100x30_01_workspace.png) as well.
 
 ## Features
 
@@ -84,9 +89,18 @@ The Repeater workspace is also captured from a real PTY at
 - Response limits, timeouts, cancellation, and a bounded concurrency limit are enforced in the execution path.
 - Completed transactions are attributed to Repeater provenance with the original capture reference, redacted through the same policy as proxy history, and distinguished from proxy traffic. Storage failures are reported without crashing execution.
 
+**Decoder**
+
+- Binary-safe transformations: Base64 (standard and URL-safe), hex, URL percent, HTML entities, Unicode escapes, JWT inspection, JSON pretty/minify/validate, gzip compress/decompress, SHA-256/384/512, and MD5 as a clearly labelled legacy checksum.
+- JWT inspection decodes the header and payload, shows algorithm and claims, renders `exp`/`nbf`/`iat` times, and states that the signature is **not** verified.
+- Chained pipeline: add, remove, and reorder steps; execute sequentially; inspect any intermediate result; stop at the first failure and report its exact step. Limits are 8 MiB input/output and 16 steps.
+- Binary input and output stay as bytes. Non-text output is displayed as a bounded hex dump, invalid UTF-8 is never silently replaced, and gzip decompression is output-bounded.
+- Session-only transformation history, copy through the terminal clipboard (OSC 52, best effort), swap, and clear.
+- Explicit Repeater transfer: send the active request or response body to the Decoder, and insert the transformed output into a Repeater request body. Stored captures and the original request remain unchanged.
+
 **Terminal interface**
 
-- Proxy, HTTP History, Repeater, and Settings workspaces.
+- Proxy, HTTP History, Repeater, Decoder, and Settings workspaces.
 - Request/response inspector with raw, headers, and body views.
 - Keyboard navigation, mouse support, command palette, and resizable panes.
 - Live engine state, TLS state, queue state, and source provenance.
@@ -94,7 +108,7 @@ The Repeater workspace is also captured from a real PTY at
 
 ### Planned, not implemented
 
-- Decoder, Intruder, and advanced traffic analysis.
+- Intruder and advanced traffic analysis.
 - HTTP/2, HTTP/3, and WebSocket interception.
 - HTTP proxy authentication and per-client rate limits.
 
@@ -162,6 +176,7 @@ TLS interception is security-sensitive. RAWFRAME keeps it explicit and bounded.
 - **Protected database.** On Unix the database and exports are `0600` in a `0700` directory; WAL + `synchronous=FULL` limit crash loss, and a 512 MiB ceiling stops runaway growth with an explicit error instead of filling the disk.
 - **Honest save state.** The footer shows `DB ON`, `DB OFF`, or `DB ERROR`; dropped captures are counted and surfaced. Corrupt or unavailable databases disable persistence without deleting the file.
 - **Presentation safety.** Sensitive headers are redacted by default, and captured text is sanitized before terminal rendering.
+- **Decoder is local and inert.** Transformations run in-process on bounded byte buffers, never invoke a shell or external service, and are not persisted. JWT decoding never verifies a signature, and MD5 is labelled cryptographically broken. Repeater-to-Decoder transfer is explicit; it does not mutate stored captures.
 
 ### Limitations
 
@@ -173,6 +188,7 @@ TLS interception is security-sensitive. RAWFRAME keeps it explicit and bounded.
 - Bodies and sensitive header values are absent from stored history unless explicitly enabled, and cannot be recovered later.
 - Repeater transmits HTTP/1.1 only. It has no HTTP/2, WebSocket, client-certificate, or proxy-auth support.
 - Repeater requests are direct; they do not traverse the local proxy listener or reuse a captured connection. A different client certificate, source address, or proxy path can produce a different result.
+- Decoder input and output are capped at 8 MiB and pipelines at 16 steps. Large or highly compressible gzip streams are bounded by the output limit rather than fully expanded. Decoder history is session-only and is never written to SQLite. Copy uses terminal OSC 52 and may be ignored by terminals that disable clipboard access.
 - Scope is edited in Settings or via `--scope`; wildcard and port rules apply to new proxy and Repeater requests immediately.
 - There is no proxy authentication, per-client rate limit, or HTTP `503` response for connection-limit overflow.
 
@@ -335,7 +351,8 @@ Single-letter shortcuts are suppressed while typing in an editor, search field, 
 | --- | --- |
 | `Ctrl+K` | Open the command palette. |
 | `Ctrl+1` … `Ctrl+4` | Go to Proxy, HTTP History, Repeater, and Settings. |
-| `Ctrl+5`, `Ctrl+6` | Open the planned Intruder and Decoder placeholders. |
+| `Ctrl+5` | Open the planned Intruder placeholder. |
+| `Ctrl+6` | Open the Decoder workspace. |
 | `Ctrl+F` | Search HTTP History. |
 | `Ctrl+N` | Create a Repeater tab. |
 | `Ctrl+W` | Close the current Repeater tab. |
@@ -386,6 +403,17 @@ Single-letter shortcuts are suppressed while typing in an editor, search field, 
 | Repeater | `F` | Toggle safe redirect following for the active tab. |
 | Repeater | `1`–`6` | Raw, Headers, Body, Pretty JSON, Hex, Compare. |
 | Repeater | `X` | Clear the current response (history is retained). |
+| Repeater | `B` / `M` | Send the current request body / response body to the Decoder. |
+| Decoder | `1` / `2` / `3` | Focus the input, pipeline, or output panel. |
+| Decoder | `Enter` / `E` | Edit the input; with the pipeline focused, preview the selected step. |
+| Decoder | `←` / `→` or `[` / `]` | Select the transformation. |
+| Decoder | `D` | Toggle the selected transformation's encode/decode direction. |
+| Decoder | `A` / `Delete` | Add the selected transformation / remove the selected step. |
+| Decoder | `Ctrl+↑` / `Ctrl+↓` | Move the selected step up or down. |
+| Decoder | `Ctrl+Enter` or `R` | Execute the pipeline. |
+| Decoder | `V` / `0` | Preview the selected intermediate step / return to final output. |
+| Decoder | `S` / `C` / `Y` | Swap input and output / clear input and output / copy output. |
+| Decoder | `H` | Open or close transformation history. |
 | Settings | `↑` / `↓`, `J` / `K` | Select a setting. |
 | Settings | `Enter` / `Space` | Toggle or edit the selected setting; **Target scope** opens the live rule editor. |
 | Settings | `Esc` | Cancel an inline edit. |
@@ -427,7 +455,8 @@ Milestone numbers follow [docs/roadmap.md](docs/roadmap.md).
 | M4 — HTTPS TLS interception | Complete |
 | M5 — Persistence, sessions, and protocol coverage | Complete |
 | M6 — Functional Repeater | Complete |
-| Later — Intruder, Decoder, traffic analysis, protocol expansion, release hardening | Planned |
+| M7 — Decoder and transformation workbench | Complete |
+| Later — Intruder, traffic analysis, protocol expansion, release hardening | Planned |
 
 Planned work is not available in this build. See [docs/roadmap.md](docs/roadmap.md) for scope, acceptance criteria, and known limitations.
 
@@ -443,9 +472,9 @@ cargo test --workspace
 
 Or run `./scripts/check.sh`.
 
-The latest verified M6 run reported:
+The latest verified M7 run reported:
 
-- **322 passing tests, 0 failed** across the workspace (M5 baseline: 280), including real local HTTP/HTTPS Repeater executions, binary bodies, duplicate headers, redirect loops and credential stripping, scope refusal, timeouts, cancellation, response limits, Repeater persistence/redaction, and an end-to-end M5 schema-v1 upgrade fixture.
+- **342 passing tests, 0 failed** across the workspace (M6 baseline: 322), including real local HTTP/HTTPS Repeater executions, binary bodies, duplicate headers, redirect loops and credential stripping, scope refusal, timeouts, cancellation, response limits, Repeater persistence/redaction, an end-to-end M5 schema-v1 upgrade fixture, and a complete Decoder transformation/pipeline matrix with known hash vectors, malformed input, size limits, and TUI transfer tests.
 - The existing PTY screenshot and TLS enable/disable regressions still pass.
 - Repeater tests use local HTTP/HTTPS servers and self-signed test certificates; storage tests use isolated temporary databases; proxy tests use local servers only.
 
@@ -453,7 +482,7 @@ The PTY test requires Python 3 with `cryptography`; without it, that test skips 
 
 ## Project status and contribution
 
-RAWFRAME is under active pre-1.0 development. The M1–M6 foundations are implemented and tested; planned modules are visible in the navigation but clearly marked as placeholders. Interfaces and terminal behavior may change.
+RAWFRAME is under active pre-1.0 development. The M1–M7 foundations are implemented and tested; the planned Intruder module is visible in the navigation but clearly marked as a placeholder. Interfaces and terminal behavior may change.
 
 Contributions should preserve the security defaults: loopback binding, default-deny scope, explicit private-upstream opt-in, mandatory upstream TLS verification, redaction, and terminal sanitization. Add tests for behavioral changes and run the quality gates before submitting. See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/development.md](docs/development.md).
 

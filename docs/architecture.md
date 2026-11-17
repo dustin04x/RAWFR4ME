@@ -36,6 +36,7 @@ rawframe/
 │   │   ├── events.rs           bounded EventBus, AppEvent, AppCommand
 │   │   ├── filter.rs           HTTP history filtering
 │   │   ├── security.rs         terminal-safe display conversion
+│   │   ├── decoder.rs          byte-oriented transforms + pipeline engine
 │   │   └── fixtures.rs         17 labelled simulated transactions
 │   ├── rawframe-proxy/         Tokio/Hyper forwarding + CONNECT engine
 │   │   ├── server.rs           listener, lifecycle commands, shutdown
@@ -61,7 +62,7 @@ rawframe/
 │   │   ├── ui.rs               shell composition
 │   │   ├── layout.rs           geometry and resize rules
 │   │   ├── interaction.rs      hit targets, scroll regions, render output
-│   │   ├── screens/            Proxy, History, Repeater, Settings, placeholders
+│   │   ├── screens/            Proxy, History, Repeater, Decoder, Settings
 │   │   ├── components/         panels, buttons, inspector, editor, overlays
 │   │   ├── state.rs            view-local state
 │   │   ├── text.rs             editable multi-line buffer
@@ -418,6 +419,38 @@ the command channel, cancellation map, and task set are bounded. Response bodies
 are capped and explicitly marked truncated. A storage failure cannot fail or
 block an execution: storage is independent and only reports status.
 
+## 5.8 Decoder transformations
+
+Decoder is a local, inert data workbench. The engine is
+`rawframe_core::decoder`; it depends only on byte buffers and established
+libraries (`base64`, `flate2`, `sha2`, `md-5`, `serde_json`). It never opens a
+socket, touches storage, invokes a shell, or evaluates decoded content.
+
+Transformations operate on `Vec<u8>`. Text-only operations (hex, URL percent,
+HTML entities, Unicode escapes, JSON, JWT) reject invalid UTF-8 instead of
+lossily converting it. `Transform::ALL` contains 22 explicit operations; each
+reports a direction (`Encode`, `Decode`, or `Inspect`) and an optional warning
+(for example, MD5 is legacy-only and JWT inspection does not verify signatures).
+
+`execute_pipeline` applies steps in order over a single byte buffer and records
+every intermediate `PipelineStep` with its format, byte length, and note. The
+first failure returns the completed steps plus `PipelineFailure { step_index,
+transform, message }`; later steps never run and no empty output is substituted
+on the first failure. Limits are 8 MiB input, 8 MiB output, and 16 steps,
+enforced before and during execution.
+
+Gzip decompression uses a `flate2` decoder wrapped in a bounded reader, so a
+compression bomb stops at the output limit rather than expanding into memory.
+Hashes are computed with the standard libraries; MD5 is exposed only as a legacy
+checksum. Non-text output is rendered as a bounded hex dump with a format label.
+
+The TUI owns only `DecoderState` (buffers, selection, pipeline, results,
+session history) and runs each pipeline on a named background thread, polling a
+channel from `App::tick`. Rendering never transforms data. Repeater transfer is
+explicit: the controller copies the active request or response body into
+`DecoderState::load_input`, and insertion calls `RepeaterTab::replace_body`,
+which rewrites framing headers and preserves the original capture separately.
+
 ## 6. Scope and destination address policy
 
 Scope uses the existing `rawframe_core` model:
@@ -488,11 +521,13 @@ Input never references literal screen positions. Tests render through
 ### 7.3 State ownership
 
 `App` owns navigation, focus, selections, filters, inspector state, Repeater
-tabs, Settings editing, overlays, notifications, proxy lifecycle state, storage
-status, the stored-session list, the live scope editor, and the bounded command
-senders. Each Repeater tab owns its document, editor buffer, dirty/original
-state, in-flight execution ID, latest result, execution history, view mode, and
-redirect toggle. Completions are matched by tab and execution ID, so late events
+tabs, the Decoder state, Settings editing, overlays, notifications, proxy
+lifecycle state, storage status, the stored-session list, the live scope editor,
+and the bounded command senders. `DecoderState` owns the input buffer and exact
+input bytes, output display, pipeline steps and results, view-step selection,
+session history, and the background worker channel. Each Repeater tab owns its
+document, editor buffer, dirty/original state, in-flight execution ID, latest
+result, execution history, view mode, and redirect toggle. Completions are matched by tab and execution ID, so late events
 cannot overwrite a newer execution or another tab. Domain data comes from
 `rawframe-core`; the TUI never opens SQLite.
 
@@ -527,7 +562,7 @@ There is no decorative “saved” indicator.
    `Ctrl+W`, `Ctrl+Enter`, `Ctrl+U`).
 9. `Esc` / `Tab`.
 10. Search text entry.
-11. Repeater document editing.
+11. Repeater or Decoder document editing.
 12. Global single-letter shortcuts (`?`, `Q`, `I`, `P`, `B` for stored sessions).
 13. Focus-specific navigation.
 
@@ -631,6 +666,11 @@ captures are clearly distinguished.
   isolated temporary CA directories and cover show/fingerprint/export,
   regeneration, public-only export, permissions, and refusing to replace
   invalid material.
+- **Decoder tests** live beside `rawframe-core/src/decoder.rs` and cover
+  round-trips, malformed input, JWT/JSON behaviour, known SHA/MD5 vectors, gzip
+  round-trips/truncation/output limits, binary pipelines, and step failures.
+  TUI tests exercise pipeline editing, preview, history, copy/swap/clear, and
+  explicit Repeater body transfer without mutating stored captures.
 - **Repeater tests** (`crates/rawframe-repeater/tests/execution.rs`) use real
   local HTTP/1.1 and HTTPS servers. They cover GET/query/custom port, duplicate
   ordered headers, binary POST bodies, repeated executions, response truncation,
@@ -677,6 +717,9 @@ and local TLS servers.
 | Simulated fixtures retained | Reproducible demos and tests; requires explicit provenance labels everywhere |
 | Repeater engine separate from the proxy listener | Independent execution semantics and no interception/CA coupling; reuses destination/TLS policy at the cost of one extra crate and direct-connection differences |
 | Repeater completions flow through the shared event bus and storage pump | One persistence/redaction path and one history UI; requires provenance labels and late-event matching by tab/execution ID |
+| Decoder engine in `rawframe-core`, no new crate | Reusable and testable without the TUI; core gains data-format dependencies (`flate2`, `sha2`, `md-5`, `base64`, `serde_json`) but remains I/O-free |
+| Decoder execution on a background thread per run | Keeps decompression and hashing off the render path; costs one thread per active run and requires run-ID matching |
+| Decoder state is session-only | No secrets or decoded payloads reach SQLite; history disappears on exit |
 
 ## 13. Extension path
 
@@ -696,7 +739,11 @@ scope editing.
 **Milestone 6 (implemented).** A separate Repeater engine with independent
 HTTP/HTTPS connections, mandatory upstream verification, scope/address policy,
 safe redirects, bounded capture, cancellation/timeouts, multi-tab state,
-inspection/comparison, and persisted Repeater provenance. Next: Intruder and
-Decoder.
+inspection/comparison, and persisted Repeater provenance.
+
+**Milestone 7 (implemented).** A byte-oriented Decoder engine and chained
+pipeline in `rawframe-core`, with a keyboard-first TUI workspace, bounded
+compression and size limits, binary/hex display, session history, and explicit
+Repeater body transfer. Next: Intruder.
 
 See [roadmap.md](roadmap.md) for acceptance criteria.

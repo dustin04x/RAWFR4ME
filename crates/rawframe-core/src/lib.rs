@@ -15,6 +15,7 @@
 //! header values are only masked at render time, and bodies are never persisted
 //! unless the operator opts in.
 
+pub mod decoder;
 pub mod events;
 pub mod filter;
 pub mod fixtures;
@@ -23,6 +24,11 @@ pub mod repeater;
 pub mod security;
 pub mod storage;
 
+pub use decoder::{
+    DECODER_DEFAULT_MAX_INPUT, DECODER_DEFAULT_MAX_OUTPUT, Direction, OutputFormat,
+    PipelineFailure, PipelineRun, PipelineStep, Transform, TransformError, TransformLimits,
+    TransformOutput, execute_pipeline, transform,
+};
 pub use events::{
     AppCommand, AppEvent, CommandSender, EventBus, EventReceiver, EventSendError, EventSender,
     Notice, NoticeLevel, ProxyState, TlsStatus,

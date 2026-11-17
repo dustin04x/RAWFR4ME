@@ -1,0 +1,40 @@
+ RAWFRAME  |  Decoder                                             PROXY STOPPED  |  INTERCEPTION OFF  |  SCOPE deny all (no allowlist rules)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││DECODER  decode · transform · chain                                                                         8 MiB BOUND
+ PRIMARY           ││ Run ^↵    Add Step A    Remove   Move ↑   Move ↓   Swap S    Clear C    Copy Y    To Repeater   History H
+  Proxy         ^1 ││ ‹ › TRANSFORM  JSON pretty print  Inspect  ADD
+  History       ^2 ││╭ INPUT · MANUAL INPUT · 40 B · TEXT ──────────────────────╮╭ OUTPUT · JSON · 39 B ───────────────────────────────────╮
+  Repeater      ^3 │││ 1 │ eyJza3UiOiJMQU1QLTAxIiwicXVhbnRpdHkiOjF9             ││{                                                        │
+  Settings      ^4 │││                                                          ││  "quantity": 1,                                         │
+▌ Decoder       ^6 │││                                                          ││  "sku": "LAMP-01"                                       │
+                   │││                                                          ││}                                                        │
+ PLANNED           │││                                                          ││                                                         │
+  Intruder planned │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   │││                                                          ││                                                         │
+                   ││╰──────────────────────────────────────────────────────────╯╰─────────────────────────────────────────────────────────╯
+                   ││╭ PIPELINE ───────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+ STATUS            │││  1. Base64 decode  40→30 B · JSON                                                                                   │
+ Engine stopped    │││▸ 2. JSON pretty print  30→39 B · JSON                                                                               │
+ Interception off  │││                                                                                                                     │
+ No pending        ││╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+                   ││ IN 40 B   OUT 39 B   COMPLETE      H history
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ✓ Decoder completed: 40 bytes → 39 bytes                                                             ^K commands  ? help  ^C quit

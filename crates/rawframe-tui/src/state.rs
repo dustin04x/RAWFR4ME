@@ -1,13 +1,20 @@
 //! UI-local state. This module owns view state only; it performs no I/O.
 
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::Instant;
 
+use chrono::Utc;
+use rawframe_core::decoder::{
+    DECODER_MAX_PIPELINE_STEPS, OutputFormat, PipelineFailure, PipelineRun, PipelineStep,
+    Transform, TransformLimits, TransformOutput, execute_pipeline,
+};
 use rawframe_core::models::message::{HttpRequest, Scheme};
 use rawframe_core::models::session::{RepeaterId, RepeaterRequest};
 use rawframe_core::models::traffic::{TrafficId, TrafficSource};
 use rawframe_core::repeater::{
     ExecutionComparison, RepeaterExecutionPhase, RepeaterResult, compare_executions,
 };
+use rawframe_core::security::sanitize_for_display;
 use rawframe_core::{Notice, fixtures};
 
 use crate::interaction::{InspectorView, MessageSide, SettingId};
@@ -240,6 +247,50 @@ impl RepeaterTab {
 
     pub fn is_busy(&self) -> bool {
         self.active_execution.is_some() && self.execution.is_active()
+    }
+
+    /// Replaces only the request body while preserving the original capture and
+    /// the editor header section. The exact bytes are retained for sending; the
+    /// editor receives a lossy display for binary output. Framing headers are
+    /// rewritten so the engine will not reject a stale length.
+    pub fn replace_body(&mut self, body: Vec<u8>) {
+        let body_text = sanitize_for_display(&String::from_utf8_lossy(&body));
+        let text = self.editor.text();
+        let mut lines: Vec<String> = text.split('\n').map(ToOwned::to_owned).collect();
+        let blank = lines
+            .iter()
+            .position(|line| line.trim().is_empty())
+            .unwrap_or_else(|| {
+                lines.push(String::new());
+                lines.len() - 1
+            });
+        if blank > 0 {
+            let mut headers: Vec<String> = lines[1..blank]
+                .iter()
+                .filter(|line| {
+                    let lower = line.to_ascii_lowercase();
+                    !lower.starts_with("content-length:")
+                        && !lower.starts_with("transfer-encoding:")
+                })
+                .cloned()
+                .collect();
+            if !body.is_empty() {
+                headers.push(format!("Content-Length: {}", body.len()));
+            }
+            let request_line = lines.remove(0);
+            lines = std::iter::once(request_line)
+                .chain(headers)
+                .chain([String::new(), String::new()])
+                .collect();
+        }
+        let mut new_text = lines.join("\n");
+        new_text.push_str(&body_text);
+        self.editor = TextBuffer::from_text(&new_text);
+        self.source_body = body;
+        self.source_body_text = body_text;
+        self.body_binary = std::str::from_utf8(&self.source_body).is_err();
+        self.dirty = true;
+        self.refresh_parse();
     }
 
     pub fn reset_edits(&mut self) {
@@ -540,6 +591,470 @@ impl RepeaterState {
 pub struct SettingEdit {
     pub id: SettingId,
     pub buffer: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecoderFocus {
+    Input,
+    Pipeline,
+    Output,
+}
+
+impl DecoderFocus {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Input => "INPUT",
+            Self::Pipeline => "PIPELINE",
+            Self::Output => "OUTPUT",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DecoderHistoryEntry {
+    pub sequence: u64,
+    pub steps: Vec<Transform>,
+    pub input_bytes: usize,
+    pub output_bytes: usize,
+    pub result: String,
+    pub at: String,
+}
+
+/// View-local Decoder state. Execution is delegated to the core pipeline on a
+/// worker thread; this state owns only buffers, selection, and presentation.
+#[derive(Debug)]
+pub struct DecoderState {
+    pub input: TextBuffer,
+    pub input_bytes: Vec<u8>,
+    pub input_source: String,
+    pub input_binary: bool,
+    pub source_label: String,
+    pub output: Option<TransformOutput>,
+    pub displayed_bytes: Vec<u8>,
+    pub displayed_format: OutputFormat,
+    pub displayed_label: String,
+    pub displayed_note: Option<String>,
+    pub output_display: String,
+    pub display_truncated: bool,
+    pub output_scroll: u16,
+    pub pipeline: Vec<Transform>,
+    pub selected_transform: usize,
+    pub selected_step: usize,
+    pub view_step: Option<usize>,
+    pub steps: Vec<PipelineStep>,
+    pub error: Option<PipelineFailure>,
+    pub focus: DecoderFocus,
+    pub editing: bool,
+    pub history: Vec<DecoderHistoryEntry>,
+    pub history_open: bool,
+    pub history_scroll: u16,
+    pub running: bool,
+    pub limits: TransformLimits,
+    pub clipboard_requested: Option<String>,
+    next_run: u64,
+    active_run: Option<u64>,
+    pending: Option<Receiver<(u64, PipelineRun)>>,
+}
+
+impl Default for DecoderState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DecoderState {
+    pub fn new() -> Self {
+        Self {
+            input: TextBuffer::from_text(""),
+            input_bytes: Vec::new(),
+            input_source: String::new(),
+            input_binary: false,
+            source_label: "MANUAL INPUT".into(),
+            output: None,
+            displayed_bytes: Vec::new(),
+            displayed_format: OutputFormat::Text,
+            displayed_label: "OUTPUT".into(),
+            displayed_note: None,
+            output_display: String::new(),
+            display_truncated: false,
+            output_scroll: 0,
+            pipeline: Vec::new(),
+            selected_transform: 0,
+            selected_step: 0,
+            view_step: None,
+            steps: Vec::new(),
+            error: None,
+            focus: DecoderFocus::Input,
+            editing: false,
+            history: Vec::new(),
+            history_open: false,
+            history_scroll: 0,
+            running: false,
+            limits: TransformLimits::default(),
+            clipboard_requested: None,
+            next_run: 1,
+            active_run: None,
+            pending: None,
+        }
+    }
+
+    pub fn selected_transform(&self) -> Transform {
+        Transform::ALL[self
+            .selected_transform
+            .min(Transform::ALL.len().saturating_sub(1))]
+    }
+
+    pub fn select_transform(&mut self, delta: i32) {
+        let len = Transform::ALL.len() as i32;
+        let next = (self.selected_transform as i32 + delta).rem_euclid(len);
+        self.selected_transform = next as usize;
+    }
+
+    pub fn toggle_direction(&mut self) {
+        if let Some(toggled) = self.selected_transform().toggled_direction()
+            && let Some(index) = Transform::ALL.iter().position(|item| *item == toggled)
+        {
+            self.selected_transform = index;
+        }
+    }
+
+    pub fn add_step(&mut self) -> Result<(), String> {
+        if self.pipeline.len() >= DECODER_MAX_PIPELINE_STEPS {
+            return Err(format!(
+                "Pipeline is limited to {DECODER_MAX_PIPELINE_STEPS} steps."
+            ));
+        }
+        self.invalidate_run();
+        self.pipeline.push(self.selected_transform());
+        self.selected_step = self.pipeline.len() - 1;
+        self.focus = DecoderFocus::Pipeline;
+        Ok(())
+    }
+
+    pub fn remove_step(&mut self) {
+        if self.pipeline.is_empty() {
+            return;
+        }
+        self.invalidate_run();
+        let index = self.selected_step.min(self.pipeline.len() - 1);
+        self.pipeline.remove(index);
+        self.selected_step = self
+            .selected_step
+            .min(self.pipeline.len().saturating_sub(1));
+        if self.view_step.is_some() {
+            self.show_final_output();
+        }
+    }
+
+    pub fn move_step(&mut self, delta: i32) {
+        if self.pipeline.len() < 2 {
+            return;
+        }
+        let target =
+            (self.selected_step as i32 + delta).clamp(0, self.pipeline.len() as i32 - 1) as usize;
+        if target == self.selected_step {
+            return;
+        }
+        self.invalidate_run();
+        self.pipeline.swap(self.selected_step, target);
+        self.selected_step = target;
+        if self.view_step.is_some() {
+            self.show_final_output();
+        }
+    }
+
+    pub fn select_step(&mut self, delta: i32) {
+        if self.pipeline.is_empty() {
+            self.selected_step = 0;
+            return;
+        }
+        let target = (self.selected_step as i32 + delta).clamp(0, self.pipeline.len() as i32 - 1);
+        self.selected_step = target as usize;
+    }
+
+    pub fn preview_selected_step(&mut self) {
+        let Some(step) = self.steps.get(self.selected_step) else {
+            return;
+        };
+        self.view_step = Some(self.selected_step);
+        self.set_display(
+            step.output.clone(),
+            step.format,
+            format!(
+                "STEP {} · {}",
+                self.selected_step + 1,
+                step.transform.label()
+            ),
+            step.note.clone(),
+        );
+    }
+
+    pub fn show_final_output(&mut self) {
+        self.view_step = None;
+        if let Some(output) = &self.output {
+            self.set_display(
+                output.bytes.clone(),
+                output.format,
+                "OUTPUT".into(),
+                output.note.clone(),
+            );
+        } else {
+            self.displayed_bytes.clear();
+            self.displayed_format = OutputFormat::Text;
+            self.displayed_label = "OUTPUT".into();
+            self.displayed_note = None;
+            self.output_display.clear();
+            self.display_truncated = false;
+        }
+    }
+
+    pub fn load_input(&mut self, bytes: Vec<u8>, source: impl Into<String>) {
+        self.invalidate_run();
+        let binary = std::str::from_utf8(&bytes).is_err();
+        let text = sanitize_for_display(&String::from_utf8_lossy(&bytes));
+        self.input = TextBuffer::from_text(&text);
+        self.input_source = text;
+        self.input_bytes = bytes;
+        self.input_binary = binary;
+        self.source_label = source.into();
+        self.output_scroll = 0;
+        self.show_final_output();
+    }
+
+    /// Called after every input edit. An unchanged body preserves exact binary
+    /// bytes; any edit switches to the visible UTF-8 text deliberately.
+    pub fn sync_input(&mut self) {
+        let text = self.input.text();
+        if text == self.input_source {
+            return;
+        }
+        self.invalidate_run();
+        self.input_bytes = text.clone().into_bytes();
+        self.input_source = text;
+        self.input_binary = false;
+    }
+
+    pub fn execute(&mut self) -> Result<(), String> {
+        if self.running {
+            return Err("A transformation is already running.".into());
+        }
+        self.sync_input();
+        let id = self.next_run;
+        self.next_run += 1;
+        let (sender, receiver) = mpsc::channel();
+        let input = self.input_bytes.clone();
+        let steps = self.pipeline.clone();
+        let limits = self.limits;
+        std::thread::Builder::new()
+            .name("rawframe-decoder".into())
+            .spawn(move || {
+                let run = execute_pipeline(&input, &steps, limits);
+                let _ = sender.send((id, run));
+            })
+            .map_err(|error| format!("Could not start Decoder worker: {error}"))?;
+        self.active_run = Some(id);
+        self.pending = Some(receiver);
+        self.running = true;
+        self.error = None;
+        self.view_step = None;
+        self.output_scroll = 0;
+        Ok(())
+    }
+
+    /// Polls the worker. Returns true when a new result was applied.
+    pub fn poll(&mut self) -> bool {
+        let Some(receiver) = &self.pending else {
+            return false;
+        };
+        match receiver.try_recv() {
+            Ok((id, run)) => {
+                self.pending = None;
+                if Some(id) != self.active_run {
+                    return false;
+                }
+                self.active_run = None;
+                self.running = false;
+                self.apply_run(run);
+                true
+            }
+            Err(TryRecvError::Empty) => false,
+            Err(TryRecvError::Disconnected) => {
+                self.pending = None;
+                self.active_run = None;
+                self.running = false;
+                self.error = Some(PipelineFailure {
+                    step_index: 0,
+                    transform: None,
+                    message: "Decoder worker stopped without a result.".into(),
+                });
+                true
+            }
+        }
+    }
+
+    fn apply_run(&mut self, run: PipelineRun) {
+        let sequence = self.next_run.saturating_sub(1);
+        let result = match (&run.error, &run.output) {
+            (None, Some(output)) => format!("OK · {}", output.format.label()),
+            (Some(error), _) => format!("FAILED · {}", error.label()),
+            _ => "NO OUTPUT".into(),
+        };
+        self.history.insert(
+            0,
+            DecoderHistoryEntry {
+                sequence,
+                steps: self.pipeline.clone(),
+                input_bytes: run.input_bytes,
+                output_bytes: run.total_output_bytes(),
+                result,
+                at: Utc::now().format("%H:%M:%S").to_string(),
+            },
+        );
+        self.history.truncate(64);
+        self.steps = run.steps;
+        self.error = run.error;
+        self.output = run.output;
+        self.view_step = None;
+        self.show_final_output();
+        self.output_scroll = 0;
+    }
+
+    pub fn clear_input_output(&mut self) {
+        self.invalidate_run();
+        self.input = TextBuffer::from_text("");
+        self.input_bytes.clear();
+        self.input_source.clear();
+        self.input_binary = false;
+        self.source_label = "MANUAL INPUT".into();
+        self.output = None;
+        self.steps.clear();
+        self.error = None;
+        self.show_final_output();
+        self.output_scroll = 0;
+    }
+
+    pub fn clear_pipeline(&mut self) {
+        self.invalidate_run();
+        self.pipeline.clear();
+        self.selected_step = 0;
+        self.steps.clear();
+        self.error = None;
+        self.show_final_output();
+    }
+
+    pub fn swap_input_output(&mut self) {
+        let Some(output) = self.output.clone() else {
+            return;
+        };
+        let old_input = self.input_bytes.clone();
+        self.load_input(output.bytes, "SWAPPED FROM OUTPUT");
+        self.output = Some(TransformOutput {
+            bytes: old_input.clone(),
+            format: rawframe_core::decoder::detect_format(&old_input),
+            note: Some("Previous input after swap.".into()),
+        });
+        self.show_final_output();
+    }
+
+    pub fn copy_displayed(&mut self) -> bool {
+        if self.displayed_bytes.is_empty() && self.output_display.is_empty() {
+            return false;
+        }
+        let text = if self.displayed_format.is_binary() {
+            self.output_display.clone()
+        } else {
+            String::from_utf8_lossy(&self.displayed_bytes).into_owned()
+        };
+        self.clipboard_requested = Some(text);
+        true
+    }
+
+    pub fn take_clipboard_request(&mut self) -> Option<String> {
+        self.clipboard_requested.take()
+    }
+
+    pub fn select_history(&mut self, delta: i32) {
+        let next = (i64::from(self.history_scroll) + i64::from(delta)).max(0) as u16;
+        self.history_scroll = next.min(self.history.len().saturating_sub(1) as u16);
+    }
+
+    fn invalidate_run(&mut self) {
+        if self.running {
+            self.running = false;
+            self.active_run = None;
+            self.pending = None;
+        }
+    }
+
+    fn set_display(
+        &mut self,
+        bytes: Vec<u8>,
+        format: OutputFormat,
+        label: String,
+        note: Option<String>,
+    ) {
+        let (display, truncated) = display_bytes(&bytes, format);
+        self.displayed_bytes = bytes;
+        self.displayed_format = format;
+        self.displayed_label = label;
+        self.displayed_note = note;
+        self.output_display = display;
+        self.display_truncated = truncated;
+        self.output_scroll = 0;
+    }
+}
+
+const DISPLAY_LIMIT: usize = 128 * 1024;
+
+fn display_bytes(bytes: &[u8], format: OutputFormat) -> (String, bool) {
+    if bytes.is_empty() {
+        return (String::new(), false);
+    }
+    if format.is_binary() {
+        let limit = bytes.len().min(DISPLAY_LIMIT);
+        let mut text = String::new();
+        for (offset, chunk) in bytes[..limit].chunks(16).enumerate() {
+            let mut hex = String::new();
+            let mut ascii = String::new();
+            for byte in chunk {
+                use std::fmt::Write as _;
+                let _ = write!(hex, "{byte:02x} ");
+                ascii.push(if byte.is_ascii_graphic() || *byte == b' ' {
+                    *byte as char
+                } else {
+                    '.'
+                });
+            }
+            use std::fmt::Write as _;
+            let _ = writeln!(text, "{:08x}  {hex:<48} |{ascii}|", offset * 16);
+        }
+        if limit < bytes.len() {
+            use std::fmt::Write as _;
+            let _ = writeln!(
+                text,
+                "[display truncated at {limit} bytes of {}]",
+                bytes.len()
+            );
+        }
+        return (text, limit < bytes.len());
+    }
+    let text = sanitize_for_display(&String::from_utf8_lossy(bytes));
+    if text.len() > DISPLAY_LIMIT {
+        let mut end = DISPLAY_LIMIT;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        (
+            format!(
+                "{}\n[display truncated at {DISPLAY_LIMIT} bytes of {}]",
+                &text[..end],
+                bytes.len()
+            ),
+            true,
+        )
+    } else {
+        (text, false)
+    }
 }
 
 #[derive(Debug, Clone, Default)]

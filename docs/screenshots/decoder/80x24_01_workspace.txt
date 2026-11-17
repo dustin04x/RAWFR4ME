@@ -1,0 +1,24 @@
+ RAWFRAME  |  Decoder                         PROXY STOPPED  |  INTERCEPTION OFF
+────────────────────────────────────────────────────────────────────────────────
+DECODER  decode · transform · chain                                  8 MiB BOUND
+ Run ^↵    Add A    Del   Swap S    Copy Y
+ ‹ › TRANSFORM  JSON pretty print  Inspect  ADD
+╭ INPUT · MANUAL INPUT · 40 B · TEXT ──────────────────────────────────────────╮
+│ 1 │ eyJza3UiOiJMQU1QLTAxIiwicXVhbnRpdHkiOjF9                                 │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭ OUTPUT · JSON · 39 B ────────────────────────────────────────────────────────╮
+│{                                                                             │
+│  "quantity": 1,                                                              │
+│  "sku": "LAMP-01"                                                            │
+│}                                                                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭ PIPELINE ────────────────────────────────────────────────────────────────────╮
+│▸ 2. JSON pretty print  30→39 B · JSON                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ IN 40 B   OUT 39 B   COMPLETE      H history
+────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ✓ Decoder completed: 40 bytes → 39 bytes ^K commands  ? help  ^C quit

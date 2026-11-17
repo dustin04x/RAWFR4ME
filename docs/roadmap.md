@@ -212,17 +212,47 @@ Explicitly not included: Intruder, Decoder, durable draft documents,
 HTTP/2/WebSocket, client certificates, proxy-auth, or replay through the proxy
 listener.
 
-## Later — Intruder and Decoder
+## Milestone 7 — Decoder and transformation workbench (implemented)
+
+### M7 status (this workspace)
+
+- The transformation engine lives in `rawframe-core::decoder` and operates on
+  bytes, not assumed-UTF-8 text. It has no TUI, network, storage, or shell
+  dependency.
+- 22 transformations: Base64 standard/URL-safe encode and decode, hex encode and
+  decode, URL percent encode and decode, HTML entity encode and decode, Unicode
+  escape encode and decode, JWT inspection, JSON pretty/minify/validate, gzip
+  compress/decompress, SHA-256/384/512, and MD5 (legacy only).
+- JWT inspection decodes the header and payload, surfaces the algorithm and
+  claims, formats `exp`/`nbf`/`iat`, and explicitly says the signature is not
+  verified. A successful decode is never presented as a valid token.
+- Pipelines execute sequentially with up to 16 steps over bounded 8 MiB input
+  and output. Each step's output is retained for inspection; a failure stops the
+  pipeline and reports the exact step without substituting empty data.
+- The Decoder workspace provides input/output panels, a transformation selector,
+  direction control, add/remove/reorder, execute, preview intermediate steps,
+  swap, clear, copy, and session history. It fits 140×40, 100×30, and 80×24.
+- Repeater can explicitly send the current request or response body to the
+  Decoder and explicitly insert transformed output into the request body. The
+  original request, stored captures, and response are not mutated.
+- Gzip output is bounded; malformed, truncated, and oversized streams fail
+  cleanly. Binary output is shown as a hex dump. Nothing is logged, persisted, or
+  transmitted externally.
+
+Exit criteria/tests are satisfied by core unit tests (encoding round trips,
+invalid input, JWT/JSON/compression/hash vectors, pipeline failure and limits),
+TUI controller tests for editing/execution/copy/swap/history/Repeater transfer,
+and render tests at all three supported sizes.
+
+Explicitly not included: Intruder, persistent Decoder history, scripting or
+shell execution, and automatic background transformations.
+
+## Later — Intruder
 
 Intruder:
 
 - Payload positions and templates, bounded concurrency/rate control, scope
   enforcement, result analysis without fabricated findings.
-
-Decoder:
-
-- Chained transforms, raw byte inspection, conversion history, no shell
-  execution of decoded content.
 
 ## Known limitations at 0.2.0
 
@@ -246,6 +276,10 @@ Decoder:
   a captured connection, client certificate, or proxy-auth path; results may
   differ from the original capture. Drafts are session-only; completed
   executions are persisted.
+- Decoder input/output is capped at 8 MiB and pipelines at 16 steps. Decoder
+  content and history are session-only and never persisted. JWT inspection does
+  not verify signatures, MD5 is legacy-only, and clipboard copy relies on
+  terminal OSC 52 support.
 - No listener authentication. Keep the proxy on loopback; remote binding
   requires `--allow-remote-bind` and host-level protection.
 - Connection-limit overflow closes the socket rather than returning `503`.
@@ -258,6 +292,6 @@ Decoder:
 
 ## Recommended next step
 
-**Milestone 7: Intruder and Decoder.** Repeater execution, history, sessions, and
-export now exist. Build payload-position/rate-controlled Intruder and chained
-Decoder transforms without fabricating findings or executing decoded content.
+**Milestone 8: Intruder.** Repeater execution, history, sessions, export, and the
+Decoder now exist. Build payload-position/rate-controlled Intruder requests with
+scope enforcement and analysis that does not fabricate findings.

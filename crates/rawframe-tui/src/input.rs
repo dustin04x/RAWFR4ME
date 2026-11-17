@@ -16,7 +16,7 @@ use crate::interaction::{
     Focus, HitTarget, InspectorView, MessageSide, NavSection, ScrollRegion, SettingId,
 };
 use crate::layout::DragTarget;
-use crate::state::RepeaterView;
+use crate::state::{DecoderFocus, RepeaterView};
 
 const DOUBLE_CLICK_WINDOW_MS: u128 = 450;
 
@@ -114,6 +114,16 @@ impl App {
             return;
         }
 
+        if self.nav == NavSection::Decoder && self.decoder.history_open {
+            self.handle_decoder_history_key(key);
+            return;
+        }
+
+        if self.nav == NavSection::Decoder && self.focus == Focus::Content && self.decoder.editing {
+            self.handle_decoder_editor_key(key);
+            return;
+        }
+
         if let Some(ch) = plain_char(&key) {
             match ch {
                 '?' => {
@@ -192,6 +202,22 @@ impl App {
             self.interception.parse_error = None;
             self.interception.validation_error = None;
             self.interception.editor.ensure_visible(rows, cols);
+            return;
+        }
+
+        if self.nav == NavSection::Decoder && self.focus == Focus::Content && self.decoder.editing {
+            let rows = self.render.repeater_rows;
+            let cols = self.render.repeater_cols;
+            self.decoder.input.insert_str(text);
+            self.decoder.sync_input();
+            self.decoder.input.ensure_visible(rows, cols);
+            if self.decoder.input_bytes.len() > self.decoder.limits.max_input_bytes {
+                self.notify_warning(format!(
+                    "Decoder input is {} bytes; the execution limit is {} bytes.",
+                    self.decoder.input_bytes.len(),
+                    self.decoder.limits.max_input_bytes
+                ));
+            }
             return;
         }
 
@@ -298,8 +324,10 @@ impl App {
                 true
             }
             KeyCode::Enter => {
-                if self.nav == NavSection::Repeater {
-                    self.send_repeater_request();
+                match self.nav {
+                    NavSection::Repeater => self.send_repeater_request(),
+                    NavSection::Decoder => self.execute_decoder(),
+                    _ => return false,
                 }
                 true
             }
@@ -317,6 +345,7 @@ impl App {
     fn leave_text_entry(&mut self) {
         self.search.active = false;
         self.repeater.editing = false;
+        self.decoder.editing = false;
     }
 
     fn cycle_focus(&mut self, reverse: bool) {
@@ -366,7 +395,8 @@ impl App {
             NavSection::History => self.handle_history_key(key),
             NavSection::Repeater => self.handle_repeater_key(key),
             NavSection::Settings => self.handle_settings_key(key),
-            NavSection::Intruder | NavSection::Decoder => {}
+            NavSection::Decoder => self.handle_decoder_key(key),
+            NavSection::Intruder => {}
         }
     }
 
@@ -507,6 +537,10 @@ impl App {
             KeyCode::Char('r') | KeyCode::Char('R') => self.reset_repeater_edits(),
             KeyCode::Char('x') | KeyCode::Char('X') => self.clear_repeater_response(),
             KeyCode::Char('f') | KeyCode::Char('F') => self.toggle_repeater_redirects(),
+            KeyCode::Char('b') | KeyCode::Char('B') => self.send_repeater_request_body_to_decoder(),
+            KeyCode::Char('m') | KeyCode::Char('M') => {
+                self.send_repeater_response_body_to_decoder()
+            }
             KeyCode::Char('v') | KeyCode::Char('V') => self.repeater.view_next(),
             KeyCode::Char('1') => self.repeater.view(RepeaterView::Raw),
             KeyCode::Char('2') => self.repeater.view(RepeaterView::Headers),
@@ -516,6 +550,131 @@ impl App {
             KeyCode::Char('6') => self.repeater.view(RepeaterView::Compare),
             _ => {}
         }
+    }
+
+    fn handle_decoder_history_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('H') => {
+                self.decoder.history_open = false
+            }
+            KeyCode::Up | KeyCode::Char('k') => self.decoder.select_history(-1),
+            KeyCode::Down | KeyCode::Char('j') => self.decoder.select_history(1),
+            KeyCode::PageUp => self.decoder.select_history(-8),
+            KeyCode::PageDown => self.decoder.select_history(8),
+            KeyCode::Home => self.decoder.history_scroll = 0,
+            KeyCode::End => {
+                self.decoder.history_scroll = self.decoder.history.len().saturating_sub(1) as u16;
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_decoder_key(&mut self, key: KeyEvent) {
+        let control = key.modifiers.contains(KeyModifiers::CONTROL);
+        if control {
+            match key.code {
+                KeyCode::Enter => self.execute_decoder(),
+                KeyCode::Up => self.move_decoder_step(-1),
+                KeyCode::Down => self.move_decoder_step(1),
+                _ => {}
+            }
+            return;
+        }
+        match key.code {
+            KeyCode::Char('1') => self.decoder.focus = DecoderFocus::Input,
+            KeyCode::Char('2') => self.decoder.focus = DecoderFocus::Pipeline,
+            KeyCode::Char('3') => self.decoder.focus = DecoderFocus::Output,
+            KeyCode::Enter | KeyCode::Char('e') | KeyCode::Char('E') => {
+                if self.decoder.focus == DecoderFocus::Input {
+                    self.decoder.editing = true;
+                } else if self.decoder.focus == DecoderFocus::Pipeline {
+                    self.preview_decoder_step();
+                }
+            }
+            KeyCode::Left | KeyCode::Char('[') => self.decoder.select_transform(-1),
+            KeyCode::Right | KeyCode::Char(']') => self.decoder.select_transform(1),
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.decoder.focus == DecoderFocus::Pipeline {
+                    self.decoder.select_step(-1);
+                } else {
+                    self.decoder.output_scroll = self.decoder.output_scroll.saturating_sub(1);
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.decoder.focus == DecoderFocus::Pipeline {
+                    self.decoder.select_step(1);
+                } else {
+                    self.decoder.output_scroll = self.decoder.output_scroll.saturating_add(1);
+                }
+            }
+            KeyCode::PageUp => {
+                self.decoder.output_scroll = self.decoder.output_scroll.saturating_sub(10)
+            }
+            KeyCode::PageDown => {
+                self.decoder.output_scroll = self.decoder.output_scroll.saturating_add(10)
+            }
+            KeyCode::Home => self.decoder.output_scroll = 0,
+            KeyCode::End => self.decoder.output_scroll = u16::MAX / 2,
+            KeyCode::Char('a') | KeyCode::Char('A') => self.add_decoder_step(),
+            KeyCode::Delete => self.remove_decoder_step(),
+            KeyCode::Char('d') | KeyCode::Char('D') => self.toggle_decoder_direction(),
+            KeyCode::Char('r') | KeyCode::Char('R') => self.execute_decoder(),
+            KeyCode::Char('s') | KeyCode::Char('S') => self.swap_decoder_input_output(),
+            KeyCode::Char('c') | KeyCode::Char('C') => self.clear_decoder(),
+            KeyCode::Char('y') | KeyCode::Char('Y') => self.copy_decoder_output(),
+            KeyCode::Char('h') | KeyCode::Char('H') => self.toggle_decoder_history(),
+            KeyCode::Char('v') | KeyCode::Char('V') => self.preview_decoder_step(),
+            KeyCode::Char('0') => self.show_decoder_final_output(),
+            _ => {}
+        }
+    }
+
+    fn handle_decoder_editor_key(&mut self, key: KeyEvent) {
+        let rows = self.render.repeater_rows;
+        let cols = self.render.repeater_cols;
+        match key.code {
+            KeyCode::Esc => {
+                self.decoder.editing = false;
+                return;
+            }
+            KeyCode::Tab => {
+                self.decoder.editing = false;
+                self.cycle_focus(false);
+                return;
+            }
+            KeyCode::BackTab => {
+                self.decoder.editing = false;
+                self.cycle_focus(true);
+                return;
+            }
+            KeyCode::Enter if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.execute_decoder();
+                return;
+            }
+            _ => {}
+        }
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            || key.modifiers.contains(KeyModifiers::ALT)
+        {
+            return;
+        }
+        match key.code {
+            KeyCode::Enter => self.decoder.input.newline(),
+            KeyCode::Backspace => self.decoder.input.backspace(),
+            KeyCode::Delete => self.decoder.input.delete(),
+            KeyCode::Left => self.decoder.input.move_left(),
+            KeyCode::Right => self.decoder.input.move_right(),
+            KeyCode::Up => self.decoder.input.move_up(),
+            KeyCode::Down => self.decoder.input.move_down(),
+            KeyCode::Home => self.decoder.input.move_home(),
+            KeyCode::End => self.decoder.input.move_end(),
+            KeyCode::PageUp => self.decoder.input.page_up(rows),
+            KeyCode::PageDown => self.decoder.input.page_down(rows),
+            KeyCode::Char(ch) => self.decoder.input.insert_char(ch),
+            _ => return,
+        }
+        self.decoder.sync_input();
+        self.decoder.input.ensure_visible(rows, cols);
     }
 
     fn handle_sessions_key(&mut self, key: KeyEvent) {
@@ -1016,6 +1175,15 @@ impl App {
                 self.focus = Focus::Content;
                 self.set_editor_cursor_from_mouse(mouse.column, mouse.row);
             }
+            HitTarget::DecoderEditor => {
+                self.focus = Focus::Content;
+                self.decoder.focus = DecoderFocus::Input;
+                self.decoder.editing = true;
+                self.set_decoder_editor_cursor_from_mouse(mouse.column, mouse.row);
+            }
+            HitTarget::DecoderHistoryRow(index) => {
+                self.decoder.history_scroll = index as u16;
+            }
             HitTarget::InterceptionEditor => {
                 self.focus = Focus::Content;
                 self.interception.editing = true;
@@ -1086,6 +1254,12 @@ impl App {
             HitTarget::RepeaterEditor => {
                 self.focus = Focus::Content;
                 self.set_editor_cursor_from_mouse(mouse.column, mouse.row);
+            }
+            HitTarget::DecoderEditor => {
+                self.focus = Focus::Content;
+                self.decoder.focus = DecoderFocus::Input;
+                self.decoder.editing = true;
+                self.set_decoder_editor_cursor_from_mouse(mouse.column, mouse.row);
             }
             HitTarget::InterceptionEditor => {
                 self.focus = Focus::Content;
@@ -1187,6 +1361,18 @@ impl App {
                     tab.editor.scroll_by(delta);
                 }
             }
+            ScrollRegion::DecoderEditor => self.decoder.input.scroll_by(delta),
+            ScrollRegion::DecoderOutput => {
+                self.decoder.output_scroll = if delta.is_negative() {
+                    self.decoder
+                        .output_scroll
+                        .saturating_sub(delta.unsigned_abs() as u16)
+                } else {
+                    self.decoder.output_scroll.saturating_add(delta as u16)
+                }
+            }
+            ScrollRegion::DecoderPipeline => self.decoder.select_step(delta),
+            ScrollRegion::DecoderHistory => self.decoder.select_history(delta),
             ScrollRegion::InterceptionEditor => {
                 self.interception.editor.scroll_by(delta);
             }

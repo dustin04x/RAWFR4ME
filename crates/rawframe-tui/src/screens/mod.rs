@@ -1,5 +1,6 @@
 //! Screen renderers for the workspace area.
 
+pub mod decoder;
 pub mod history;
 pub mod placeholder;
 pub mod proxy;

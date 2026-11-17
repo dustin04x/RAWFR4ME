@@ -1,0 +1,30 @@
+ RAWFRAME  |  Decoder     PROXY STOPPED  |  INTERCEPTION OFF  |  SCOPE deny all (no allowlist rules)
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││DECODER  decode · transform · chain                                 8 MiB BOUND
+ PRIMARY           ││ Run ^↵    Add A    Del   Swap S    Copy Y
+  Proxy         ^1 ││ ‹ › TRANSFORM  JSON pretty print  Inspect  ADD
+  History       ^2 ││╭ INPUT · MANUAL INPUT · 40 B · TEXT ─────────────────────────────────────────╮
+  Repeater      ^3 │││ 1 │ eyJza3UiOiJMQU1QLTAxIiwicXVhbnRpdHkiOjF9                                │
+  Settings      ^4 │││                                                                             │
+▌ Decoder       ^6 │││                                                                             │
+                   │││                                                                             │
+ PLANNED           │││                                                                             │
+  Intruder planned │││                                                                             │
+                   │││                                                                             │
+                   ││╰─────────────────────────────────────────────────────────────────────────────╯
+                   ││╭ OUTPUT · JSON · 39 B ───────────────────────────────────────────────────────╮
+                   │││{                                                                            │
+                   │││  "quantity": 1,                                                             │
+                   │││  "sku": "LAMP-01"                                                           │
+                   │││}                                                                            │
+                   │││                                                                             │
+                   │││                                                                             │
+                   │││                                                                             │
+                   ││╰─────────────────────────────────────────────────────────────────────────────╯
+ STATUS            ││╭ PIPELINE ───────────────────────────────────────────────────────────────────╮
+ Engine stopped    │││  1. Base64 decode  40→30 B · JSON                                           │
+ Interception off  │││▸ 2. JSON pretty print  30→39 B · JSON                                       │
+ No pending        ││╰─────────────────────────────────────────────────────────────────────────────╯
+                   ││ IN 40 B   OUT 39 B   COMPLETE      H history
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ✓ Decoder completed: 40 bytes → 39 bytes                     ^K commands  ? help  ^C quit

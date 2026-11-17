@@ -4,7 +4,7 @@
 //! from a dedicated reader thread, application events are drained from the event
 //! bus, and rendering happens on the UI thread.
 
-use std::io::{self, Stdout};
+use std::io::{self, Stdout, Write};
 use std::panic;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
@@ -171,6 +171,18 @@ pub fn run(mut app: App) -> io::Result<()> {
         }
 
         app.tick();
+        if let Some(text) = app.take_clipboard_request() {
+            // OSC 52 asks the terminal to copy without shelling out. The
+            // sequence is best-effort: terminals that disable clipboard access
+            // simply ignore it.
+            use base64::Engine as _;
+            let payload = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+            let mut stdout = io::stdout();
+            stdout.write_all(b"\x1b]52;c;")?;
+            stdout.write_all(payload.as_bytes())?;
+            stdout.write_all(b"\x07")?;
+            stdout.flush()?;
+        }
         if app.should_quit {
             break;
         }
