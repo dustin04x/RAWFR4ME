@@ -27,6 +27,8 @@ pub enum TrafficKind {
     /// Opaque bytes relayed after a successful CONNECT. The tunnel contents are
     /// never inspected or decrypted.
     ConnectTunnel,
+    /// A WebSocket handshake and its bidirectional frame traffic.
+    WebSocket,
 }
 
 impl TrafficKind {
@@ -34,6 +36,7 @@ impl TrafficKind {
         match self {
             Self::Http => "HTTP",
             Self::ConnectTunnel => "TUNNEL",
+            Self::WebSocket => "WS",
         }
     }
 }

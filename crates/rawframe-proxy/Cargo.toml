@@ -9,6 +9,7 @@ description = "HTTP/1.1 forwarding and opaque CONNECT proxy for RAWFRAME"
 [dependencies]
 bytes.workspace = true
 chrono.workspace = true
+futures-util.workspace = true
 http-body-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
@@ -22,6 +23,7 @@ tokio = { workspace = true, features = [
     "rt-multi-thread",
     "time",
 ] }
+tokio-tungstenite.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 rustls.workspace = true
@@ -48,3 +50,4 @@ tokio = { workspace = true, features = [
     "sync",
     "time",
 ] }
+tokio-tungstenite.workspace = true

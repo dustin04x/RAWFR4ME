@@ -141,12 +141,14 @@ fn kind_str(kind: TrafficKind) -> &'static str {
     match kind {
         TrafficKind::Http => "http",
         TrafficKind::ConnectTunnel => "connect_tunnel",
+        TrafficKind::WebSocket => "websocket",
     }
 }
 
 fn parse_kind(value: &str) -> TrafficKind {
     match value {
         "connect_tunnel" => TrafficKind::ConnectTunnel,
+        "websocket" => TrafficKind::WebSocket,
         _ => TrafficKind::Http,
     }
 }

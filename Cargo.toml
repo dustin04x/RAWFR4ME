@@ -30,6 +30,7 @@ rawframe-intruder = { path = "crates/rawframe-intruder" }
 rawframe-tui = { path = "crates/rawframe-tui" }
 
 anyhow = "1.0"
+futures-util = "0.3"
 bytes = "1.10"
 http-body-util = "0.1"
 hyper = { version = "1.7", features = ["http1", "http2", "server", "client"] }
@@ -42,6 +43,9 @@ serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"
 tokio = { version = "1.54", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["rt"] }
+
+# WebSocket (M10)
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 

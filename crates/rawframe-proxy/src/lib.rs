@@ -13,6 +13,7 @@ mod server;
 mod service;
 mod tls;
 mod tunnel;
+mod websocket;
 
 pub use error::ProxyError;
 pub use interception::InterceptDecision;

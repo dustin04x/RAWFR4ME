@@ -80,7 +80,7 @@ impl UpstreamClient {
 }
 
 impl ServiceContext {
-    fn scope_snapshot(&self) -> rawframe_core::models::config::Scope {
+    pub(crate) fn scope_snapshot(&self) -> rawframe_core::models::config::Scope {
         self.scope
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -137,6 +137,21 @@ async fn handle_http(request: Request<Incoming>, context: ServiceContext) -> Res
             StatusCode::PAYLOAD_TOO_LARGE,
             "request body exceeds the configured limit",
             false,
+        )
+        .await;
+    }
+
+    // WebSocket upgrades are handled on their own long-lived path; they are not
+    // paused as ordinary HTTP requests.
+    if crate::websocket::is_websocket_upgrade(&request) {
+        return crate::websocket::handle(
+            request,
+            context,
+            destination,
+            id,
+            captured_request,
+            started_at,
+            started,
         )
         .await;
     }
