@@ -36,6 +36,14 @@ rawframe-cli
 │   ├── chrono
 │   ├── thiserror
 │   └── tracing
+├── rawframe-intruder
+│   ├── rawframe-core
+│   ├── rawframe-repeater (execution engine only)
+│   ├── tokio
+│   ├── tokio-util
+│   ├── chrono
+│   ├── thiserror
+│   └── tracing
 ├── rawframe-store
 │   ├── rawframe-core
 │   ├── rusqlite (bundled SQLite)
@@ -60,8 +68,10 @@ a directed acyclic graph. `rawframe-core` has no internal dependencies.
 `rawframe-repeater` reuses only public destination/TLS helpers from the proxy
 crate; `rawframe-tui` does not depend on `rawframe-proxy` or
 `rawframe-repeater` at runtime (a dev-dependency supports integration tests).
-The CLI attaches bounded command senders to the UI, so the UI triggers engine
-commands without importing proxy or Repeater internals.
+`rawframe-intruder` depends on `rawframe-repeater` for execution and adds no
+HTTP, TLS, or destination logic of its own; it never depends on the TUI or
+storage. The CLI attaches bounded command senders to the UI, so the UI triggers
+engine commands without importing proxy or Repeater internals.
 
 ### Dependency rules
 
@@ -71,12 +81,13 @@ commands without importing proxy or Repeater internals.
 | `rawframe-http` | `rawframe-core`, `httparse` | TUI, proxy, storage, CLI |
 | `rawframe-proxy` | `rawframe-core`, Hyper/Tokio networking libraries | TUI, storage, CLI, Repeater |
 | `rawframe-repeater` | `rawframe-core`, public proxy destination/TLS helpers, Hyper/Tokio/Rustls | TUI, storage, CLI, proxy listener/CA/queue |
-| `rawframe-tui` | `rawframe-core`, `rawframe-http`, Ratatui, Chrono | proxy/repeater or storage internals, SQLite, sockets, Tokio runtime |
+| `rawframe-intruder` | `rawframe-core`, `rawframe-repeater` (execute only), Tokio | TUI, storage, proxy listener |
+| `rawframe-tui` | `rawframe-core`, `rawframe-http`, Ratatui, Chrono | proxy/repeater/intruder or storage internals, SQLite, sockets, Tokio runtime |
 | `rawframe-store` | `rawframe-core`, SQLite driver | TUI, proxy, Repeater, CLI |
 | `rawframe-cli` | all workspace crates | — |
 
-Only `rawframe-cli` constructs the Tokio runtime. `rawframe-proxy` and
-`rawframe-repeater` are runtime-agnostic: their `run_service` futures are spawned
+Only `rawframe-cli` constructs the Tokio runtime. `rawframe-proxy`,
+`rawframe-repeater`, and `rawframe-intruder` are runtime-agnostic: their `run_service` futures are spawned
 by the composition root. `rawframe-tui`'s loop remains synchronous; it polls a
 bounded channel and never performs network or storage work.
 

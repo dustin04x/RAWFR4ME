@@ -31,7 +31,8 @@ INSERT INTO traffic (
     redacted_headers, response_status, response_reason, response_version,
     response_headers, response_body, response_body_omitted, started_at,
     completed_at, duration_ms, error, note, original_request, final_request,
-    interception, tunnel, repeater_origin, incomplete, updated_at
+    interception, tunnel, repeater_origin, intruder_origin, intruder_payloads,
+    incomplete, updated_at
 ) VALUES (
     :session_id, :traffic_id, :kind, :source, :state, :method, :scheme, :host,
     :port, :target, :version, :request_headers, :request_body,
@@ -39,7 +40,7 @@ INSERT INTO traffic (
     :response_reason, :response_version, :response_headers, :response_body,
     :response_body_omitted, :started_at, :completed_at, :duration_ms, :error,
     :note, :original_request, :final_request, :interception, :tunnel,
-    :repeater_origin, :incomplete, :updated_at
+    :repeater_origin, :intruder_origin, :intruder_payloads, :incomplete, :updated_at
 )
 ON CONFLICT(session_id, traffic_id) DO UPDATE SET
     kind = excluded.kind,
@@ -71,6 +72,8 @@ ON CONFLICT(session_id, traffic_id) DO UPDATE SET
     interception = excluded.interception,
     tunnel = excluded.tunnel,
     repeater_origin = excluded.repeater_origin,
+    intruder_origin = excluded.intruder_origin,
+    intruder_payloads = excluded.intruder_payloads,
     incomplete = excluded.incomplete,
     updated_at = excluded.updated_at
 "#;
@@ -80,7 +83,7 @@ const TRAFFIC_COLUMNS: &str = "row_id, traffic_id, kind, source, state, method, 
      redacted_headers, response_status, response_reason, response_version, \
      response_headers, response_body, response_body_omitted, started_at, completed_at, \
      duration_ms, error, note, original_request, final_request, interception, tunnel, \
-     repeater_origin, incomplete";
+     repeater_origin, intruder_origin, intruder_payloads, incomplete";
 
 /// An open, migrated database bound to the current session.
 pub struct Store {
@@ -307,6 +310,8 @@ impl Store {
                         ":interception": record.interception,
                         ":tunnel": record.tunnel,
                         ":repeater_origin": record.repeater_origin,
+                        ":intruder_origin": record.intruder_origin,
+                        ":intruder_payloads": record.intruder_payloads,
                         ":incomplete": record.incomplete,
                         ":updated_at": updated_at,
                     })
@@ -450,7 +455,7 @@ impl Store {
                     summary.bodies_omitted += 1;
                 }
 
-                let line = json!({
+                let mut line = json!({
                     "format": "rawframe.history.v1",
                     "session": { "id": session_id.0, "name": name },
                     "traffic_id": row.get::<_, i64>("traffic_id").unwrap_or_default(),
@@ -491,6 +496,20 @@ impl Store {
                     "note": entry.note,
                     "incomplete": entry.state.is_pending(),
                 });
+                // Intruder provenance is only meaningful for Intruder traffic;
+                // emitting it for proxy or Repeater rows would add noise to
+                // consumers that read every field.
+                if let Some(origin) = entry.intruder_origin {
+                    line["intruder_origin"] = json!(origin.0);
+                }
+                if let Some(payloads) = entry
+                    .intruder_payloads
+                    .as_ref()
+                    .and_then(|payloads| crate::record::payloads_to_json(payloads))
+                    .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+                {
+                    line["intruder_payloads"] = payloads;
+                }
                 if let Err(error) = writeln!(writer, "{line}") {
                     drop(writer);
                     let _ = fs::remove_file(&temp_path);

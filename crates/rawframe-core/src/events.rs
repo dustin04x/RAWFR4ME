@@ -213,6 +213,8 @@ pub enum AppEvent {
     Storage(StorageEvent),
     /// Repeater phase changes and completed real executions.
     Repeater(crate::repeater::RepeaterEvent),
+    /// Intruder run progress, generated results, and wordlist outcomes.
+    Intruder(crate::intruder::IntruderEvent),
     Notice(Notice),
     Shutdown,
 }

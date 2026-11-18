@@ -1,0 +1,30 @@
+ RAWFRAME  |  Intruder               PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 1 allowlist rule
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││INTRUDER  positions · payloads · bounded execution                 ENGINE READY
+ PRIMARY           ││ SETUP   RESULTS                                    RUNNING · 4/8 · 8 REQUESTS
+  Proxy         ^1 ││ Pause P    Cancel X    To Repeater T    Baseline B    Sort S
+  History       ^2 ││ 4/4 results · no filter · sort requ / filter · F status · O outcome · U clear
+  Repeater      ^3 ││    4/8    ███████████████████████░░░░░░░░░░░░░░░░░░░░░░  50%  RUNNING
+▌ Intruder      ^5 ││╭  RESULTS  ──────────────────────────────────────────────────────────────────╮
+  Decoder       ^6 │││  #  STAT OUTCOME        SIZE    TIME  PAYLOADS                              │
+  Settings      ^4 │││#1   200  RESPONSE        8 B    0 ms  1                                     │
+                   │││#2   200  RESPONSE        8 B    1 ms  2                                     │
+                   │││#3   200  RESPONSE       11 B    1 ms  test                                  │
+                   │││#4   500  RESPONSE       12 B    1 ms  example                               │
+                   │││                                                                             │
+                   │││                                                                             │
+                   │││                                                                             │
+                   ││╰─────────────────────────────────────────────────────────────────────────────╯
+                   ││╭  INSPECT · V cycles view  ──────────────────────────────────────────────────╮
+                   │││ Raw  Headers  Body  Payloads  Compare                                       │
+                   │││GET /search?q=1 HTTP/1.1                                                     │
+                   │││accept-encoding: identity                                                    │
+                   │││user-agent: rawframe-evidence                                                │
+                   │││Host: 127.0.0.1:33569                                                        │
+ STATUS            │││                                                                             │
+ Engine active     │││HTTP/1.1 200 OK                                                              │
+ Interception off  ││╰─────────────────────────────────────────────────────────────────────────────╯
+ No pending        ││
+                   ││
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · Intruder run 1 started: 8 requests, concurrency 2, 2 req/… ^K commands  ? help  ^C quit

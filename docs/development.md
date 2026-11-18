@@ -40,6 +40,13 @@ silence a lint without fixing or documenting the underlying design issue.
 | `crates/rawframe-core/src/events.rs` | Bounded event bus, commands, event contracts |
 | `crates/rawframe-core/src/filter.rs` | History search/filter semantics |
 | `crates/rawframe-core/src/decoder.rs` | Byte-oriented transformations, pipeline execution, limits, and errors |
+| `crates/rawframe-core/src/intruder.rs` | Positions, payload sets, strategies, plans, results, filters |
+| `crates/rawframe-intruder/src/engine.rs` | Payload expansion, worker pool, rate gate, typed outcomes |
+| `crates/rawframe-intruder/src/service.rs` | Bounded Intruder command service and event emission |
+| `crates/rawframe-intruder/src/wordlist.rs` | Bounded, UTF-8-safe local wordlist import |
+| `crates/rawframe-intruder/tests/execution.rs` | Real local HTTP/HTTPS Intruder matrix |
+| `crates/rawframe-tui/src/intruder.rs` | Intruder view state, request candidates, prompts |
+| `crates/rawframe-tui/src/screens/intruder.rs` | Intruder layout, setup/results panels, size tests |
 | `crates/rawframe-core/src/fixtures.rs` | Labelled simulated traffic |
 | `crates/rawframe-http/src/parsing.rs` | Authored HTTP/1.x document parser |
 | `crates/rawframe-proxy/src/server.rs` | Listener, lifecycle service, connection limits, shutdown |
@@ -61,7 +68,8 @@ silence a lint without fixing or documenting the underlying design issue.
 | `crates/rawframe-tui/src/app.rs` | Application controller and actions |
 | `crates/rawframe-tui/src/input.rs` | Keyboard and mouse precedence |
 | `crates/rawframe-tui/src/ui.rs` | Shell composition and overlays |
-| `crates/rawframe-tui/src/screens` | Workspace screens, including the Decoder workspace |
+| `crates/rawframe-tui/src/screens` | Workspace screens, including the Intruder and Decoder workspaces |
+| `crates/rawframe-tui/src/screens/intruder.rs` | Intruder setup/results layout, inspector, prompts, size tests |
 | `crates/rawframe-tui/src/screens/decoder.rs` | Decoder layout, selector, pipeline, history, and size tests |
 | `crates/rawframe-tui/src/components` | Panels, inspector, editor, overlays |
 | `crates/rawframe-tui/src/layout.rs` | Shell geometry |
@@ -71,6 +79,7 @@ silence a lint without fixing or documenting the underlying design issue.
 | `crates/rawframe-tui/src/testing.rs` | Headless frame + hit-map helper |
 | `scripts/capture_repeater_pty.py` | Real-binary PTY capture for Repeater screenshots |
 | `scripts/capture_decoder_pty.py` | Real-binary PTY capture for Decoder screenshots |
+| `scripts/capture_intruder_pty.py` | Real-binary PTY capture for Intruder screenshots (real local attack) |
 | `crates/rawframe-cli/src/cli.rs` | Arguments, scope parsing, safety validation |
 | `crates/rawframe-cli/src/main.rs` | Composition root: runtime, proxy service, TUI |
 | `crates/rawframe-cli/src/logging.rs` | Local file logging |
@@ -123,6 +132,36 @@ silence a lint without fixing or documenting the underlying design issue.
   whenever the filter list changes.
 - Update `TunnelMetadata` and the TUI tunnel view if relay outcomes or byte
   accounting change.
+
+### Working on Intruder
+
+- Planning belongs in `rawframe-core::intruder` and must stay pure: no sockets,
+  no files, no terminal. Markers are found at the byte level; do not round-trip
+  a binary body through `String`.
+- Strategy counts are contracts. Sniper is `positions × payloads`, Battering Ram
+  is `payloads`, Pitchfork is the shortest list (equal lengths required), and
+  Cluster Bomb is the Cartesian product. Change `plan.count` and its tests
+  together, and keep the failure variants (`NoPositions`, `EmptyPayloadSet`,
+  `LengthMismatch`, `TooManyRequests`) before any request is generated.
+- Execution must call `RepeaterEngine::execute`. Do not add a second HTTP client,
+  trust store, or scope check to `rawframe-intruder`; clone and clamp the
+  Repeater configuration instead.
+- Keep every bound in the service: concurrency, rate, duration, capture size,
+  body size, payload size, payload counts, and total requests. Pause must not
+  start new work, and cancel/shutdown must mark unsent indices `NotSent` rather
+  than draining the queue.
+- Never invent a result or retry silently. A blocked request is `Blocked`, a
+  timeout is `TimedOut`, and only a real response carries a status.
+- Keep payload lists session-only. Persisted Intruder rows go through
+  `TrafficSource::Intruder` with `intruder_payloads`; wordlists are read locally
+  and never executed.
+- Do not add evasion features (proxy rotation, rate-limit bypass, CAPTCHA
+  handling). PRs adding them are out of scope for this project.
+- PTY evidence must come from a real run against a local origin: start the
+  binary, forward a request through the proxy, transfer it to Intruder, mark a
+  position, confirm, and let the attack finish. `scripts/capture_intruder_pty.py`
+  does exactly that at 140×40, 100×30, and 80×24; `--no-png` produces only text
+  frames on machines without a monospace font.
 
 ### Working on Repeater
 

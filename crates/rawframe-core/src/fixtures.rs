@@ -381,6 +381,8 @@ fn completed(
         body_omitted: false,
         redacted_headers: 0,
         repeater_origin: None,
+        intruder_payloads: None,
+        intruder_origin: None,
     }
 }
 
@@ -414,6 +416,8 @@ fn failed(
         body_omitted: false,
         redacted_headers: 0,
         repeater_origin: None,
+        intruder_payloads: None,
+        intruder_origin: None,
     }
 }
 

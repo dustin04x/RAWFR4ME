@@ -54,6 +54,10 @@ pub struct TrafficRecord {
     pub interception: String,
     pub tunnel: Option<String>,
     pub repeater_origin: Option<i64>,
+    pub intruder_origin: Option<i64>,
+    /// Base64-encoded payload combination, JSON array of strings. `None` for
+    /// every non-Intruder record.
+    pub intruder_payloads: Option<String>,
     pub incomplete: bool,
 }
 
@@ -118,6 +122,11 @@ impl TrafficRecord {
                 .as_ref()
                 .and_then(|tunnel| serde_json::to_string(tunnel).ok()),
             repeater_origin: entry.repeater_origin.map(|id| id.0 as i64),
+            intruder_origin: entry.intruder_origin.map(|id| id.0 as i64),
+            intruder_payloads: entry
+                .intruder_payloads
+                .as_ref()
+                .and_then(|payloads| payloads_to_json(payloads)),
             incomplete: !entry.state.is_terminal(),
         }
     }
@@ -148,8 +157,32 @@ fn source_str(source: TrafficSource) -> &'static str {
         TrafficSource::Simulated => "simulated",
         TrafficSource::Authored => "authored",
         TrafficSource::Repeater => "repeater",
+        TrafficSource::Intruder => "intruder",
         TrafficSource::Restored => "restored",
     }
+}
+
+/// Payload combinations are stored as a JSON array of base64 strings so binary
+/// payload bytes survive a round trip without a second encoding dependency in
+/// the database schema.
+pub fn payloads_to_json(payloads: &[Vec<u8>]) -> Option<String> {
+    use base64::Engine as _;
+    let engine = base64::engine::general_purpose::STANDARD;
+    let encoded: Vec<String> = payloads
+        .iter()
+        .map(|payload| engine.encode(payload))
+        .collect();
+    serde_json::to_string(&encoded).ok()
+}
+
+fn decode_payloads(text: Option<String>) -> Option<Vec<Vec<u8>>> {
+    use base64::Engine as _;
+    let engine = base64::engine::general_purpose::STANDARD;
+    let encoded: Vec<String> = serde_json::from_str(text.as_deref()?).ok()?;
+    encoded
+        .iter()
+        .map(|value| engine.decode(value).ok())
+        .collect::<Option<Vec<Vec<u8>>>>()
 }
 
 fn state_str(state: TrafficState) -> &'static str {
@@ -379,6 +412,12 @@ pub fn decode_row(row: &Row<'_>, interface_id: TrafficId) -> rusqlite::Result<Tr
         redacted_headers: row.get::<_, i64>("redacted_headers")?.max(0) as usize,
         repeater_origin: row
             .get::<_, Option<i64>>("repeater_origin")?
+            .map(|value| TrafficId(value.max(0) as u64)),
+        // The column exists once `migrate` has run, so a read error is a real
+        // database problem and must not silently drop provenance.
+        intruder_payloads: decode_payloads(row.get::<_, Option<String>>("intruder_payloads")?),
+        intruder_origin: row
+            .get::<_, Option<i64>>("intruder_origin")?
             .map(|value| TrafficId(value.max(0) as u64)),
     })
 }

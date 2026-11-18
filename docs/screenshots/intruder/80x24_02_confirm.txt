@@ -1,0 +1,24 @@
+ RAWFRAME  |  Intruder                      PROXY LISTENING  |  INTERCEPTION OFF
+────────────────────────────────────────────────────────────────────────────────
+INTRUDER  positions · payloads · bounded execution                  ENGINE READY
+ SETUP   RESULTS                                              IDLE · 8 REQUESTS
+ Start ^↵    Edit req ↵    Mark M    Strategy S    List A
+ REQUEST GET http://127.0.0.1:39859/search?q=§seed§
+ 1 GET /search?q=seed HTTP/1.1
+ 2 accept-e╭ CONFIRM ───────────────────────────────────────────────╮
+ 3 user-age│Start Intruder attack?                                  │
+ 4 Host: 12│                                                        │
+BODY · empt│http://127.0.0.1:39859/search?q=§seed§                  │
+ POSITIONS │8 requests · Sniper · 1 position · conc 2 · 2/s         │
+· PATH path│Redirects off · plaintext HTTP · scope 1 allowlist rule │
+● QUERY que│Only test systems you are authorized to test.           │
+· HEADER he│                                                        │
+· HEADER he│ Cancel  esc  Start  ↵                                  │
+ CONFIG SNI╰────────────────────────────────────────────────────────╯
+ set: built-in demo values · 8 payloads
+
+ PREVIEW
+ 1 /search?q=1
+   1
+────────────────────────────────────────────────────────────────────────────────
+ CONFIRM   · 1 of 5 components marked · 8 REQUESTS ^K commands  ? help  ^C quit

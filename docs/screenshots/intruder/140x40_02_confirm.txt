@@ -1,0 +1,40 @@
+ RAWFRAME  |  Intruder                                                       PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 1 allowlist rule
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││INTRUDER  positions · payloads · bounded execution                                                         ENGINE READY
+ PRIMARY           ││ SETUP   RESULTS                                                                                     IDLE · 8 REQUESTS
+  Proxy         ^1 ││ Start ^↵    Edit req ↵    Mark M    Strategy S    List A    Rename list   Import wordlist   Clear positions
+  History       ^2 ││╭  REQUEST · GET http://127.0.0.1:45059/search?q=§seed§  ──────╮╭  PAYLOADS · built-in demo values · 8 payloads  ─────╮
+  Repeater      ^3 │││ 1 GET /search?q=seed HTTP/1.1                                ││▸built-in de…                                        │
+▌ Intruder      ^5 │││ 2 accept-encoding: identity                                  ││  1 1                                                │
+  Decoder       ^6 │││ 3 user-agent: rawframe-evidence                              ││  2 2                                                │
+  Settings      ^4 │││ 4 Host: 127.0.0.1:45059                                      ││  3 test                                             │
+                   │││                                                              ││  4 example                                          │
+                   │││                                                              ││  5 true                                             │
+                   │││                                                              ││  6 false                                            │
+                   │││                                                              ││  7 0                                                │
+                   │││                                                              ││                                                     │
+                   │││                   ╭ CONFIRM ───────────────────────────────────────────────╮────────────────────────────────────────╯
+                   │││BODY · empty       │Start Intruder attack?                                  │────────────────────────────────────────╮
+                   │││Enter edits · 2 edi│                                                        │osition at a time; other positions kee… │
+                   │││                   │http://127.0.0.1:45059/search?q=§seed§                  │·  8 REQUESTS                           │
+                   ││╰───────────────────│8 requests · Sniper · 1 position · conc 2 · 2/s         │ RATE 2/s LIMIT 300s                    │
+                   ││╭  POSITIONS · 1 mar│Redirects off · plaintext HTTP · scope 1 allowlist rule │ TLS n/a (HTTP)                         │
+                   │││· PATH path        │Only test systems you are authorized to test.           │                                        │
+                   │││● QUERY query · q  │                                                        │                                        │
+                   │││· HEADER header · a│ Cancel  esc  Start  ↵                                  │                                        │
+                   │││· HEADER header · u╰────────────────────────────────────────────────────────╯                                        │
+                   │││· HEADER header · Host     127.0.0.1:45059                    │╰─────────────────────────────────────────────────────╯
+                   │││                                                              │╭  PREVIEW · first combinations  ─────────────────────╮
+                   │││                                                              ││ 1 /search?q=1                                       │
+                   │││                                                              ││   1                                                 │
+                   │││                                                              ││ 2 /search?q=2                                       │
+                   │││                                                              ││   2                                                 │
+                   │││                                                              ││ 3 /search?q=test                                    │
+                   │││                                                              ││   test                                              │
+ STATUS            │││                                                              ││ 4 /search?q=example                                 │
+ Engine active     │││                                                              ││   example                                           │
+ Interception off  │││                                                              ││ 5 /search?q=true                                    │
+ No pending        │││                                                              ││   true                                              │
+                   ││╰──────────────────────────────────────────────────────────────╯╰─────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ CONFIRM   · 1 of 5 components marked · 8 REQUESTS                                                             ^K commands  ? help  ^C quit

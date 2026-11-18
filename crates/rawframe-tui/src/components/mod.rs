@@ -240,6 +240,7 @@ pub fn source_badge(theme: &Theme, source: TrafficSource) -> Span<'static> {
         TrafficSource::Intercepted => Span::styled("LIVE", theme.muted()),
         TrafficSource::Authored => Span::styled("AUTH", theme.faint()),
         TrafficSource::Repeater => Span::styled("REPEATER", theme.success()),
+        TrafficSource::Intruder => Span::styled("INTRUDER", theme.accent_bold()),
         TrafficSource::Restored => Span::styled("RESTORED", theme.accent()),
     }
 }

@@ -37,6 +37,7 @@ rawframe/
 │   │   ├── filter.rs           HTTP history filtering
 │   │   ├── security.rs         terminal-safe display conversion
 │   │   ├── decoder.rs          byte-oriented transforms + pipeline engine
+│   │   ├── intruder.rs         positions, payload sets, strategies, plan, results
 │   │   └── fixtures.rs         17 labelled simulated transactions
 │   ├── rawframe-proxy/         Tokio/Hyper forwarding + CONNECT engine
 │   │   ├── server.rs           listener, lifecycle commands, shutdown
@@ -49,6 +50,11 @@ rawframe/
 │   │   ├── engine.rs           connections, TLS, redirects, bounded capture
 │   │   ├── service.rs          bounded command service, cancellation, IDs
 │   │   └── tests/execution.rs  local HTTP/HTTPS integration matrix
+│   ├── rawframe-intruder/      bounded payload attack service (reuses Repeater)
+│   │   ├── engine.rs           payload expansion + worker pool + rate gate
+│   │   ├── service.rs          command channel, pause/resume/cancel, IDs
+│   │   ├── wordlist.rs         bounded wordlist import (UTF-8 safe)
+│   │   └── tests/execution.rs  local HTTP/HTTPS attack matrix
 │   ├── rawframe-http/          authored HTTP/1.x document parser
 │   ├── rawframe-store/         SQLite persistence (no TUI/proxy dependency)
 │   │   ├── schema.rs           versioned migrations
@@ -62,7 +68,8 @@ rawframe/
 │   │   ├── ui.rs               shell composition
 │   │   ├── layout.rs           geometry and resize rules
 │   │   ├── interaction.rs      hit targets, scroll regions, render output
-│   │   ├── screens/            Proxy, History, Repeater, Decoder, Settings
+│   │   ├── screens/            Proxy, History, Repeater, Intruder, Decoder, Settings
+│   │   ├── intruder.rs         Intruder view state, candidates, prompts
 │   │   ├── components/         panels, buttons, inspector, editor, overlays
 │   │   ├── state.rs            view-local state
 │   │   ├── text.rs             editable multi-line buffer
@@ -88,6 +95,8 @@ rawframe-cli ──▶ rawframe-tui ──▶ rawframe-core
      ├──▶ rawframe-proxy ─────────────────────────▶ rawframe-core
      ├──▶ rawframe-repeater ──────────────────────▶ rawframe-core
      │         └────────────▶ rawframe-proxy (public destination/TLS helpers)
+     ├──▶ rawframe-intruder ──────────────────────▶ rawframe-core
+     │         └────────────▶ rawframe-repeater (execution engine only)
      └──▶ rawframe-store ─────────────────────────▶ rawframe-core
 ```
 
@@ -101,6 +110,9 @@ Rules:
 - `rawframe-repeater` depends on `rawframe-core` and reuses public
   `rawframe-proxy` destination/TLS-policy functions. It **must not** depend on
   the proxy listener, CA manager, interception queue, or TUI.
+- `rawframe-intruder` depends on `rawframe-core` and calls
+  `rawframe_repeater::RepeaterEngine::execute` for every generated request. It
+  **must not** open its own HTTP stack, depend on the TUI, or touch storage.
 - `rawframe-tui` depends on `rawframe-core` and `rawframe-http`; it **must not**
   depend on `rawframe-proxy`. It sees the proxy and Repeater only through shared
 events and bounded command senders defined in core (a dev-dependency on
@@ -116,6 +128,7 @@ events and bounded command senders defined in core (a dev-dependency on
  client ──▶ rawframe-proxy ──AppEvent──▶ bounded EventBus ──poll()──▶ App (TUI)
                                                      ▲
  Repeater tab ──RepeaterCommand──▶ rawframe-repeater┘ (Phase/Completed events)
+ Intruder plan ──IntruderCommand──▶ rawframe-intruder┘ (Progress/Completed events)
                                                      │
                                                      └──subscribe()──▶ capture pump
                                                                           │ try_record
@@ -126,11 +139,12 @@ events and bounded command senders defined in core (a dev-dependency on
 ```
 
 `rawframe-cli` owns a multi-thread Tokio runtime. It spawns
-`rawframe_proxy::run_service(command_rx, event_sender)` and
-`rawframe_repeater::run_service(command_rx, config, event_sender, scope)`, starts
-the storage worker and capture pump, then runs the synchronous TUI. The two
-engines have independent command channels and sockets, but share the scope model
-and event bus. The UI runtime is independent: input arrives on a Crossterm reader
+`rawframe_proxy::run_service(command_rx, event_sender)`,
+`rawframe_repeater::run_service(command_rx, config, event_sender, scope)`, and
+`rawframe_intruder::run_service(command_rx, config, event_sender, scope)`, starts
+the storage worker and capture pump, then runs the synchronous TUI. The engines
+have independent command channels and sockets, but share the scope model and
+event bus. The UI runtime is independent: input arrives on a Crossterm reader
 thread, events are polled, and frames redraw on input or at a 250 ms idle cadence.
 No proxy, Repeater, or storage task is awaited on the UI thread.
 
@@ -168,6 +182,12 @@ Events:
 - `AppEvent::Repeater(Phase|Completed)` drives the owning tab and, on completion,
   carries a ready-to-persist `TrafficEntry` labelled `Repeater` with an optional
   `repeater_origin` capture reference.
+- `AppEvent::Intruder(IntruderEvent)` drives the Intruder workspace:
+  `Started` fixes the run/total count, `Phase` carries pause/resume/cancel
+  transitions, `Completed` carries one terminal result plus a ready-to-persist
+  `TrafficEntry` labelled `Intruder` (payload values and optional origin
+  capture), `Finished` carries the typed summary and stop reason, `Failed`
+  reports a refused launch, and `Wordlist` returns an import outcome.
 - `InterceptionPaused` / `InterceptionQueueChanged` drive the pending queue.
 - `TlsStateChanged` publishes TLS enabled/disabled state, the public CA path and
   fingerprint, or a non-secret enable error.
@@ -451,6 +471,79 @@ explicit: the controller copies the active request or response body into
 `DecoderState::load_input`, and insertion calls `RepeaterTab::replace_body`,
 which rewrites framing headers and preserves the original capture separately.
 
+## 5.9 Intruder execution
+
+Intruder is a planning layer over the Repeater engine, not a second HTTP stack.
+The domain model lives in `rawframe_core::intruder`; the executor lives in
+`rawframe-intruder`; the TUI only builds a plan and renders results.
+
+### Positions and plans
+
+A request template is scanned at the **byte** level for the UTF-8 marker
+`§` (two bytes). `IntruderTemplate::analyze` splits the request into ordered
+components (path, query values, header values, body) and records each marked
+span, which is why binary bodies work without a text round-trip. Validation
+rejects unmatched markers, markers inside header names, and non-UTF-8 payloads
+for URL or header positions before a plan can be built. Positions carry their
+own enabled flag, a stable ID, and an index into a payload list; the plan stores
+per-position lists and index assignments, never the expanded request set.
+
+`IntruderStrategy` decides assignment order and count:
+
+| Strategy | Assignment | Generated requests |
+| --- | --- | --- |
+| Sniper | each payload against one position, other positions fixed | positions × payloads |
+| Battering Ram | the same payload at every position | payloads |
+| Pitchfork | list *i* for position *i*, in lockstep | shortest list |
+| Cluster Bomb | full Cartesian product across positions | product of list lengths |
+
+`plan.count` enumerates exactly those rules, rejects empty lists and unequal
+Pitchfork lengths, and refuses plans above `MAX_GENERATED_REQUESTS` (2048)
+before anything is sent. Expansion is deterministic and preview-driven.
+
+### Execution
+
+The service accepts `IntruderCommand::{Start, Pause, Resume, Cancel, Shutdown,
+LoadWordlist}` and a `IntruderLaunch` containing the template, plan, cloned
+`RepeaterConfig`, and limits. Each generated request is materialised, clamped
+(concurrency ≤ 8, capture ≤ 256 KiB, body ≤ 1 MiB, rate ≤ 20/s), and executed by
+`RepeaterEngine::execute`, so scope, resolve-once address checks, verified TLS,
+redirect handling, and timeouts are identical to Repeater by construction.
+
+- A worker pool of at most the configured concurrency pulls indices in order and
+  records one result per index, so progress and ordering stay stable regardless
+  of completion order.
+- `RateGate` spaces starts using a monotonic deadline and returns
+  `Started`, `Paused`, `Stopped`, or `Deadline`; a paused run keeps its queue and
+  resumes without re-sending completed indices.
+- Each outcome is typed: `Response`, `Blocked`, `TimedOut`, `Failed`,
+  `Cancelled`, or `NotSent`, with the exact payload values that produced it.
+  There are no silent retries and no fabricated results.
+- Cancellation and shutdown abort the pool and mark unsent indices `NotSent`
+  instead of draining gracefully.
+- Everything is bounded: positions (16), payload lists (16), payloads per list
+  (512), payload size (4096 bytes), generated requests (2048), concurrency (8),
+  rate (20/s), and duration (1800 s).
+
+### Results and persistence
+
+Results are shown with real status, size, duration, and payload values. Filters,
+sort, search, baseline comparison, and payload/response inspection operate on the
+captured data only; nothing infers a vulnerability from a status, size, or timing
+difference. `IntruderResult::to_traffic_entry` maps each completed request to the
+shared persistence model with `TrafficSource::Intruder`, the payload values
+(base64 JSON), and the origin capture when the template came from History.
+
+Storage uses schema v3: the `intruder_payloads` and `intruder_origin` columns are
+added by a versioned migration that preserves M5–M7 data, and only Intruder rows
+populate them. Payload **lists** are session state and are never written to disk.
+The export path includes those fields only for Intruder rows.
+
+Wordlist import (`LoadWordlist`) reads a local file on the service thread, caps
+it at 4 MiB total, 512 payloads, and bounded line sizes, counts and skips lines
+that are not valid UTF-8 instead of replacing them, reports truncation, and
+never executes file content.
+
 ## 6. Scope and destination address policy
 
 Scope uses the existing `rawframe_core` model:
@@ -521,9 +614,14 @@ Input never references literal screen positions. Tests render through
 ### 7.3 State ownership
 
 `App` owns navigation, focus, selections, filters, inspector state, Repeater
-tabs, the Decoder state, Settings editing, overlays, notifications, proxy
-lifecycle state, storage status, the stored-session list, the live scope editor,
-and the bounded command senders. `DecoderState` owns the input buffer and exact
+tabs, the Intruder state, the Decoder state, Settings editing, overlays,
+notifications, proxy lifecycle state, storage status, the stored-session list,
+the live scope editor, and the bounded command senders. `IntruderState` owns the
+template components, marked positions, payload lists and the active set index,
+strategy and limit settings, view mode, the plan and its validation status,
+results and their filters/sort/baseline, inspector view, prompts, and the run
+phase. It never expands or sends requests itself; it sends `IntruderCommand`s
+and applies events. `DecoderState` owns the input buffer and exact
 input bytes, output display, pipeline steps and results, view-step selection,
 session history, and the background worker channel. Each Repeater tab owns its
 document, editor buffer, dirty/original state, in-flight execution ID, latest
@@ -562,7 +660,7 @@ There is no decorative “saved” indicator.
    `Ctrl+W`, `Ctrl+Enter`, `Ctrl+U`).
 9. `Esc` / `Tab`.
 10. Search text entry.
-11. Repeater or Decoder document editing.
+11. Repeater, Intruder, or Decoder document editing.
 12. Global single-letter shortcuts (`?`, `Q`, `I`, `P`, `B` for stored sessions).
 13. Focus-specific navigation.
 
@@ -654,6 +752,11 @@ captures are clearly distinguished.
   and metadata, half-close, upstream failure, response timeout, idle body
   timeout, concurrent requests, connection limit, DNS address policy, and
   graceful shutdown.
+- **Intruder tests** cover byte-level marker analysis and validation, strategy
+  counts and ordering, plan ceilings, payload set/list operations, wordlist
+  limits, bounded execution against local HTTP and HTTPS origins, pause/resume/
+  cancel, scope refusal, redirect policy, persistence mapping, and TUI rendering
+  at 140×40, 100×30, and 80×24.
 - **TUI integration** (`crates/rawframe-cli/tests/proxy_tui.rs`) presses `P`,
   starts the real worker, sends local HTTP traffic, drains real events, asserts
   the live capture reaches `App`, renders the Proxy screen with
@@ -744,6 +847,13 @@ inspection/comparison, and persisted Repeater provenance.
 **Milestone 7 (implemented).** A byte-oriented Decoder engine and chained
 pipeline in `rawframe-core`, with a keyboard-first TUI workspace, bounded
 compression and size limits, binary/hex display, session history, and explicit
-Repeater body transfer. Next: Intruder.
+Repeater body transfer.
+
+**Milestone 8 (implemented).** An Intruder planner in `rawframe-core` (byte-level
+`§` positions, payload lists, four strategies, exact counts, typed results) and a
+`rawframe-intruder` service that executes every generated request through the
+Repeater engine under concurrency/rate/duration ceilings, with pause/resume/
+cancel, a results workspace, explicit transfers, and schema-v3 persistence of
+payload provenance. Next: traffic analysis and protocol expansion.
 
 See [roadmap.md](roadmap.md) for acceptance criteria.

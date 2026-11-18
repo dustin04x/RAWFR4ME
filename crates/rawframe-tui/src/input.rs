@@ -38,6 +38,10 @@ impl App {
             self.handle_confirm_key(key);
             return;
         }
+        if self.intruder.prompt.is_some() {
+            self.handle_intruder_prompt_key(key);
+            return;
+        }
         if self.palette.is_some() {
             self.handle_palette_key(key);
             return;
@@ -77,6 +81,9 @@ impl App {
                     self.interception.editing = false;
                 } else if self.repeater.editing {
                     self.repeater.editing = false;
+                } else if self.intruder.editing {
+                    self.intruder.editing = false;
+                    self.intruder.apply_edit();
                 } else if self.focus == Focus::Context {
                     self.focus = Focus::Content;
                 }
@@ -124,6 +131,17 @@ impl App {
             return;
         }
 
+        if self.nav == NavSection::Intruder && self.focus == Focus::Content && self.intruder.editing
+        {
+            self.handle_intruder_editor_key(key);
+            return;
+        }
+
+        if self.nav == NavSection::Intruder && self.focus == Focus::Content {
+            self.handle_intruder_key(key);
+            return;
+        }
+
         if let Some(ch) = plain_char(&key) {
             match ch {
                 '?' => {
@@ -139,10 +157,16 @@ impl App {
                     return;
                 }
                 'i' => {
-                    // On Proxy workbench, I toggles interception for live traffic.
-                    if self.nav == NavSection::Proxy && self.focus == Focus::Content {
-                        // fall through to proxy/content handling
-                    } else {
+                    // Proxy uses I for interception; Repeater, History, and
+                    // Decoder use it to send a request or payload to Intruder.
+                    let transfers = matches!(
+                        self.nav,
+                        NavSection::Proxy
+                            | NavSection::History
+                            | NavSection::Repeater
+                            | NavSection::Decoder
+                    ) && self.focus == Focus::Content;
+                    if !transfers {
                         self.toggle_inspector();
                         return;
                     }
@@ -511,6 +535,13 @@ impl App {
                         self.open_in_repeater(id, true);
                     }
                 }
+                Some('i') => {
+                    if let Some(id) = self.selected_id() {
+                        self.open_in_intruder(id);
+                    } else {
+                        self.notify_warning("Select a request first.");
+                    }
+                }
                 _ => {}
             },
         }
@@ -541,6 +572,7 @@ impl App {
             KeyCode::Char('m') | KeyCode::Char('M') => {
                 self.send_repeater_response_body_to_decoder()
             }
+            KeyCode::Char('i') | KeyCode::Char('I') => self.send_repeater_request_to_intruder(),
             KeyCode::Char('v') | KeyCode::Char('V') => self.repeater.view_next(),
             KeyCode::Char('1') => self.repeater.view(RepeaterView::Raw),
             KeyCode::Char('2') => self.repeater.view(RepeaterView::Headers),
@@ -581,6 +613,9 @@ impl App {
             return;
         }
         match key.code {
+            KeyCode::Char('i') | KeyCode::Char('I') => {
+                self.send_decoder_output_to_intruder_payloads()
+            }
             KeyCode::Char('1') => self.decoder.focus = DecoderFocus::Input,
             KeyCode::Char('2') => self.decoder.focus = DecoderFocus::Pipeline,
             KeyCode::Char('3') => self.decoder.focus = DecoderFocus::Output,
@@ -1200,6 +1235,28 @@ impl App {
                 self.focus = Focus::Content;
                 self.activate_setting();
             }
+            HitTarget::IntruderCandidate(index) => {
+                self.intruder.selection = index;
+                self.intruder.focus = crate::intruder::IntruderFocus::Request;
+                self.focus = Focus::Content;
+                if double {
+                    self.intruder_mark_selected();
+                }
+            }
+            HitTarget::IntruderPositionRow(index) => {
+                self.intruder.position_selection = index;
+                self.intruder.focus = crate::intruder::IntruderFocus::Positions;
+                self.focus = Focus::Content;
+            }
+            HitTarget::IntruderResultRow(index) => {
+                self.intruder.result_selection = index;
+                self.intruder.focus = crate::intruder::IntruderFocus::Results;
+                self.focus = Focus::Content;
+            }
+            HitTarget::IntruderEditor => {
+                self.focus = Focus::Content;
+                self.intruder.focus = crate::intruder::IntruderFocus::Request;
+            }
             HitTarget::SearchField => self.start_search(),
             HitTarget::SessionRow(index) => {
                 self.sessions_selected = index;
@@ -1379,6 +1436,14 @@ impl App {
             ScrollRegion::InterceptionQueue => {
                 self.move_interception_selection(delta);
             }
+            ScrollRegion::IntruderResults => {
+                let step = delta.signum();
+                self.intruder.select_result(step);
+            }
+            ScrollRegion::IntruderRequest | ScrollRegion::IntruderPreview => {
+                self.intruder.select_candidate(delta.signum());
+            }
+            ScrollRegion::IntruderInspector => {}
             ScrollRegion::Settings => self.move_selection(delta),
             ScrollRegion::Palette => {
                 if self.palette.is_some() {
@@ -1501,5 +1566,382 @@ impl App {
         let cols = self.render.repeater_cols;
         self.interception.editor.ensure_visible(rows, cols);
         self.interception.editing = true;
+    }
+}
+
+/// Intruder workspace input. Kept in one place so the key map in the footer and
+/// the handler can never drift apart.
+impl App {
+    pub(crate) fn handle_intruder_prompt_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.intruder.prompt = None;
+                self.focus = Focus::Content;
+            }
+            KeyCode::Enter => self.commit_intruder_prompt(),
+            KeyCode::Backspace => {
+                if let Some(prompt) = &mut self.intruder.prompt {
+                    prompt.buffer.pop();
+                }
+            }
+            KeyCode::Char('u') | KeyCode::Char('U')
+                if key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                if let Some(prompt) = &mut self.intruder.prompt {
+                    prompt.buffer.clear();
+                }
+            }
+            KeyCode::Char(ch)
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT)
+                    && !ch.is_control() =>
+            {
+                if let Some(prompt) = &mut self.intruder.prompt
+                    && prompt.buffer.chars().count() < 512
+                {
+                    prompt.buffer.push(ch);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn commit_intruder_prompt(&mut self) {
+        let Some(prompt) = self.intruder.prompt.clone() else {
+            return;
+        };
+        match prompt.kind {
+            crate::intruder::PromptKind::NewListName => {
+                match self.intruder.add_list(&prompt.buffer) {
+                    Ok(()) => {
+                        self.intruder.prompt = None;
+                        self.notify_info(
+                            "Payload list created. Select it and press Enter to type payloads.",
+                        );
+                    }
+                    Err(error) => self.notify_error(error),
+                }
+            }
+            crate::intruder::PromptKind::RenameList => {
+                match self.intruder.rename_active_set(&prompt.buffer) {
+                    Ok(()) => {
+                        self.intruder.prompt = None;
+                        self.notify_info("Payload list renamed.");
+                    }
+                    Err(error) => self.notify_error(error),
+                }
+            }
+            crate::intruder::PromptKind::WordlistPath => self.import_intruder_wordlist(),
+            crate::intruder::PromptKind::FilterQuery => {
+                self.intruder.filter.query = prompt.buffer;
+                self.intruder.result_selection = 0;
+                self.intruder.prompt = None;
+                self.focus = Focus::Content;
+            }
+        }
+    }
+
+    fn handle_intruder_editor_key(&mut self, key: KeyEvent) {
+        let rows = self.render.repeater_rows.max(1);
+        let cols = self.render.repeater_cols.max(1);
+
+        match key.code {
+            KeyCode::Esc => {
+                self.intruder.editing = false;
+                self.intruder.apply_edit();
+                return;
+            }
+            KeyCode::Tab => {
+                self.intruder.editing = false;
+                self.intruder.apply_edit();
+                self.cycle_focus(false);
+                return;
+            }
+            KeyCode::BackTab => {
+                self.intruder.editing = false;
+                self.intruder.apply_edit();
+                self.cycle_focus(true);
+                return;
+            }
+            _ => {}
+        }
+
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            || key.modifiers.contains(KeyModifiers::ALT)
+        {
+            return;
+        }
+
+        let mut changed = false;
+        let mut handled = true;
+        let buffer = match self.intruder.edit_target {
+            crate::intruder::EditTarget::Head => &mut self.intruder.head,
+            crate::intruder::EditTarget::Body => &mut self.intruder.body,
+            crate::intruder::EditTarget::Payloads => &mut self.intruder.payload_text,
+        };
+
+        match key.code {
+            KeyCode::Enter => {
+                buffer.newline();
+                changed = true;
+            }
+            KeyCode::Backspace => {
+                buffer.backspace();
+                changed = true;
+            }
+            KeyCode::Delete => {
+                buffer.delete();
+                changed = true;
+            }
+            KeyCode::Left => buffer.move_left(),
+            KeyCode::Right => buffer.move_right(),
+            KeyCode::Up => buffer.move_up(),
+            KeyCode::Down => buffer.move_down(),
+            KeyCode::Home => buffer.move_home(),
+            KeyCode::End => buffer.move_end(),
+            KeyCode::PageUp => buffer.page_up(rows),
+            KeyCode::PageDown => buffer.page_down(rows),
+            KeyCode::Char(ch) => {
+                buffer.insert_char(ch);
+                changed = true;
+            }
+            _ => handled = false,
+        }
+
+        if !handled {
+            return;
+        }
+        if changed {
+            self.intruder.apply_edit();
+        }
+        let buffer = match self.intruder.edit_target {
+            crate::intruder::EditTarget::Head => &mut self.intruder.head,
+            crate::intruder::EditTarget::Body => &mut self.intruder.body,
+            crate::intruder::EditTarget::Payloads => &mut self.intruder.payload_text,
+        };
+        buffer.ensure_visible(rows, cols);
+    }
+
+    fn handle_intruder_key(&mut self, key: KeyEvent) {
+        use crate::intruder::{EditTarget, IntruderFocus, IntruderView};
+
+        if plain_char(&key) == Some('?') {
+            self.help_open = true;
+            return;
+        }
+
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            if matches!(key.code, KeyCode::Enter) {
+                self.request_intruder_start();
+            }
+            return;
+        }
+
+        match key.code {
+            KeyCode::Esc => {
+                self.focus = Focus::Content;
+                return;
+            }
+            KeyCode::Tab => {
+                self.cycle_focus(false);
+                return;
+            }
+            KeyCode::BackTab => {
+                self.cycle_focus(true);
+                return;
+            }
+            _ => {}
+        }
+
+        let setup = self.intruder.view == IntruderView::Setup;
+        let active = self.intruder.is_active();
+
+        match key.code {
+            KeyCode::Up => self.intruder_move(-1),
+            KeyCode::Down => self.intruder_move(1),
+            KeyCode::PageUp => self.intruder_move(-8),
+            KeyCode::PageDown => self.intruder_move(8),
+            KeyCode::Home => self.intruder_move(i32::MIN / 2),
+            KeyCode::End => self.intruder_move(i32::MAX / 2),
+            KeyCode::Left => {
+                if setup {
+                    self.intruder.cycle_position_set(-1);
+                }
+            }
+            KeyCode::Right => {
+                if setup {
+                    self.intruder.cycle_position_set(1);
+                }
+            }
+            KeyCode::Enter => {
+                if setup {
+                    self.intruder_edit_request();
+                } else {
+                    self.intruder.inspector_view = self.intruder.inspector_view.next();
+                }
+            }
+            KeyCode::Char(ch) => match ch {
+                'j' => self.intruder_move(1),
+                'k' => self.intruder_move(-1),
+                'g' => self.intruder_toggle_view(),
+                'M' => self.intruder_mark_selected(),
+                ' ' => self.intruder.toggle_position_enabled(),
+                // Setup cycles the strategy; Results cycles the sort order, as
+                // the on-screen "Sort S" control advertises. Changing the
+                // strategy while reviewing results would silently mutate the
+                // next run.
+                'S' => {
+                    if setup {
+                        self.intruder.strategy_next();
+                    } else {
+                        self.intruder.cycle_sort();
+                    }
+                }
+                'C' => self.intruder.cycle_concurrency(),
+                'D' => self.intruder.cycle_duration(),
+                '+' | '=' => self.intruder.cycle_rate(),
+                '-' => self.intruder.cycle_rate(),
+                'R' => {
+                    self.intruder.toggle_redirects();
+                    self.notify_info(format!(
+                        "Redirects {}: every hop is validated on its own.",
+                        if self.intruder.follow_redirects {
+                            "ON"
+                        } else {
+                            "OFF"
+                        }
+                    ));
+                }
+                'A' => self.add_intruder_list(),
+                'L' if setup => self.rename_intruder_list(),
+                'X' => {
+                    if active {
+                        self.cancel_intruder_run();
+                    } else if setup {
+                        self.delete_intruder_list();
+                    } else {
+                        self.cancel_intruder_run();
+                    }
+                }
+                'W' => {
+                    self.intruder.prompt = Some(crate::intruder::IntruderPrompt::new(
+                        crate::intruder::PromptKind::WordlistPath,
+                        String::new(),
+                    ));
+                }
+                'N' => self.intruder.next_set(),
+                'B' => {
+                    if setup {
+                        self.intruder.previous_set();
+                    } else {
+                        self.intruder.set_baseline();
+                    }
+                }
+                'E' => self.intruder_edit_request(),
+                '2' => {
+                    if setup {
+                        if self.intruder.body_editable {
+                            self.intruder.editing = true;
+                            self.intruder.edit_target = EditTarget::Body;
+                            self.intruder.focus = IntruderFocus::Request;
+                        } else {
+                            self.notify_warning(
+                                "This body is binary; markers are placed from the component list instead of editing it as text.",
+                            );
+                        }
+                    }
+                }
+                'P' => self.toggle_intruder_pause(),
+                'V' => {
+                    if !setup {
+                        self.intruder.cycle_view();
+                    }
+                }
+                'F' => {
+                    if !setup {
+                        self.intruder.cycle_status_filter();
+                    }
+                }
+                'O' => {
+                    if !setup {
+                        self.intruder.cycle_outcome_filter();
+                    }
+                }
+                'U' => {
+                    if !setup {
+                        self.intruder.clear_filters();
+                    }
+                }
+                '/' => {
+                    if !setup {
+                        self.intruder.prompt = Some(crate::intruder::IntruderPrompt::new(
+                            crate::intruder::PromptKind::FilterQuery,
+                            self.intruder.filter.query.clone(),
+                        ));
+                    }
+                }
+                'T' => {
+                    if !setup {
+                        self.send_intruder_result_to_repeater();
+                    }
+                }
+                'Y' => {
+                    if !setup {
+                        self.send_intruder_result_to_decoder();
+                    }
+                }
+                'Z' if setup => {
+                    self.intruder.clear_positions();
+                    self.notify_info("All payload positions cleared.");
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    fn intruder_move(&mut self, delta: i32) {
+        use crate::intruder::IntruderFocus;
+
+        match self.intruder.focus {
+            IntruderFocus::Positions => {
+                let len = self.intruder.position_rows().len() as i32;
+                if len > 0 {
+                    self.intruder.position_selection =
+                        (self.intruder.position_selection as i32 + delta).clamp(0, len - 1)
+                            as usize;
+                }
+            }
+            IntruderFocus::Payloads => {
+                if delta > 0 {
+                    self.intruder.next_set();
+                } else {
+                    self.intruder.previous_set();
+                }
+            }
+            IntruderFocus::Strategy => {
+                if delta > 0 {
+                    self.intruder.strategy_next();
+                } else {
+                    self.intruder.strategy_previous();
+                }
+            }
+            IntruderFocus::Results => {
+                let step = if delta.abs() > 1 {
+                    delta.signum()
+                } else {
+                    delta
+                };
+                self.intruder.select_result(step);
+            }
+            _ => {
+                if delta.abs() >= 8 {
+                    let step = if delta > 0 { 8 } else { -8 };
+                    self.intruder.select_candidate(step);
+                } else {
+                    self.intruder.select_candidate(delta);
+                }
+            }
+        }
     }
 }

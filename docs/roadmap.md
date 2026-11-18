@@ -247,12 +247,52 @@ and render tests at all three supported sizes.
 Explicitly not included: Intruder, persistent Decoder history, scripting or
 shell execution, and automatic background transformations.
 
-## Later — Intruder
+## Milestone 8 — Intruder payload workbench (implemented)
 
-Intruder:
+### M8 status (this workspace)
 
-- Payload positions and templates, bounded concurrency/rate control, scope
-  enforcement, result analysis without fabricated findings.
+- Payload positions use the `§value§` marker and are scanned at the byte level,
+  so binary bodies work. Every marked span becomes a component-tagged position
+  (URL path, query value, header value, body) with a stable ID and its own
+  enabled flag. Unmatched markers, markers inside a header name, and non-UTF-8
+  payloads in URL or header positions are rejected with a message that names
+  the problem; an empty marker span is a valid empty literal.
+- Payload sources are editable manual lists, eight harmless built-in demo
+  values, session-local named lists (create, rename, inspect, delete), and local
+  wordlists imported by path. Wordlists are bounded at 4 MiB, streamed line by
+  line, never executed, and count invalid UTF-8 lines instead of replacing them.
+- Four strategies with exact counts: Sniper (`positions × payloads`), Battering
+  Ram (`payloads`), Pitchfork (shortest list, equal-length requirement), and
+  Cluster Bomb (Cartesian product). Empty lists, length mismatches, and plans
+  above 2048 requests are refused before execution, and the count is shown in
+  the header while editing.
+- Execution reuses `RepeaterEngine::execute`; there is no second HTTP stack.
+  Scope, resolve-once address policy, verified TLS, and timeouts match Repeater.
+  Redirects are off by default and re-validated on every hop.
+- Bounded concurrency, a conservative rate gate, per-request timeouts, bounded
+  response capture, pause/resume/cancel/shutdown, and typed outcomes are
+  enforced in `rawframe-intruder`, not in the UI.
+- A start confirmation names the target, strategy, request count, concurrency,
+  rate, redirect policy, and scope. Nothing is sent before it is accepted.
+- The results workspace shows real status, size, duration, payload values, and
+  request/response/payload inspection, with search, status and outcome filters,
+  sort, baseline comparison, and explicit Repeater transfer. No status or timing
+  difference is presented as a vulnerability.
+- History, Repeater, and Decoder transfer requests into the Intruder without
+  mutating the origin. Completed Intruder runs persist through schema v3 with
+  the payload values and optional origin capture; payload lists stay session-only.
+- Fits 140×40, 100×30, and 80×24, with real PTY frames under
+  `docs/screenshots/intruder/`.
+
+Exit criteria are covered by core planning/strategy/validation tests, engine and
+service integration tests against local HTTP and HTTPS origins (including
+pause/resume/cancel, scope refusal, timeouts, and redirect policy), wordlist
+limit tests, store migration/round-trip tests, transfer tests, and TUI render
+tests at all three sizes. The workspace suite is 427 passing tests.
+
+Explicitly not included: response-matching rules, fuzzing dictionaries beyond
+payload lists, HTTP/2 or WebSocket payloads, proxy rotation, and any evasion or
+rate-limit bypass.
 
 ## Known limitations at 0.2.0
 
@@ -280,6 +320,9 @@ Intruder:
   content and history are session-only and never persisted. JWT inspection does
   not verify signatures, MD5 is legacy-only, and clipboard copy relies on
   terminal OSC 52 support.
+- Intruder is HTTP/1.1 only, has no response-matching or fuzzing engine, and
+  keeps payload lists in memory. Its rate and concurrency are local pacing, not
+  a guarantee about the target.
 - No listener authentication. Keep the proxy on loopback; remote binding
   requires `--allow-remote-bind` and host-level protection.
 - Connection-limit overflow closes the socket rather than returning `503`.
@@ -292,6 +335,7 @@ Intruder:
 
 ## Recommended next step
 
-**Milestone 8: Intruder.** Repeater execution, history, sessions, export, and the
-Decoder now exist. Build payload-position/rate-controlled Intruder requests with
-scope enforcement and analysis that does not fabricate findings.
+**Traffic analysis and protocol expansion.** With M1–M8 implemented, the next
+useful work is comparative traffic analysis over stored history and broader
+protocol coverage (HTTP/2, WebSocket), followed by release hardening:
+dependency auditing, log rotation, and a persistent configuration file.

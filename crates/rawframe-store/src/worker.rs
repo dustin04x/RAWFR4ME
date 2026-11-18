@@ -211,6 +211,13 @@ pub fn spawn_capture_pump(
                             handle.try_record(*entry);
                         }
                     }
+                    AppEvent::Intruder(rawframe_core::IntruderEvent::Completed {
+                        entry, ..
+                    }) => {
+                        if entry.source == TrafficSource::Intruder {
+                            handle.try_record(*entry);
+                        }
+                    }
                     AppEvent::Shutdown => break,
                     _ => {}
                 }

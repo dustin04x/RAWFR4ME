@@ -1605,6 +1605,7 @@ dependencies = [
  "clap",
  "ratatui",
  "rawframe-core",
+ "rawframe-intruder",
  "rawframe-proxy",
  "rawframe-repeater",
  "rawframe-store",
@@ -1637,6 +1638,27 @@ dependencies = [
  "httparse",
  "rawframe-core",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "rawframe-intruder"
+version = "0.2.0"
+dependencies = [
+ "bytes",
+ "chrono",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rawframe-core",
+ "rawframe-repeater",
+ "rcgen",
+ "rustls",
+ "rustls-pemfile",
+ "tempfile",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -1690,6 +1712,7 @@ dependencies = [
 name = "rawframe-store"
 version = "0.2.0"
 dependencies = [
+ "base64",
  "chrono",
  "rawframe-core",
  "rusqlite",

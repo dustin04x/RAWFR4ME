@@ -1,0 +1,24 @@
+ RAWFRAME  |  Intruder                      PROXY LISTENING  |  INTERCEPTION OFF
+────────────────────────────────────────────────────────────────────────────────
+INTRUDER  positions · payloads · bounded execution                  ENGINE READY
+ SETUP   RESULTS                                              IDLE · 8 REQUESTS
+ Start ^↵    Edit req ↵    Mark M    Strategy S    List A
+ REQUEST GET http://127.0.0.1:39859/search?q=§seed§
+ 1 GET /search?q=seed HTTP/1.1
+ 2 accept-encoding: identity
+ 3 user-agent: rawframe-evidence
+ 4 Host: 127.0.0.1:39859
+BODY · empty
+ POSITIONS 1 marked · M marks · Space enables
+· PATH path              /search
+● QUERY query · q         seed
+· HEADER header · accept…  identity
+· HEADER header · user-a…  rawframe-evidence
+ CONFIG SNIPER · 8 REQUESTS · conc 2 · 2/s · 300s · redirects off
+ set: built-in demo values · 8 payloads
+
+ PREVIEW
+ 1 /search?q=1
+   1
+────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · 1 of 5 components marked · 8 REQUESTS  ^K commands  ? help  ^C quit

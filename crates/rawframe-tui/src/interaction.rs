@@ -20,12 +20,13 @@ pub enum NavSection {
 
 impl NavSection {
     /// Primary workspaces.
-    pub const PRIMARY: [Self; 5] = [
+    pub const PRIMARY: [Self; 6] = [
         Self::Proxy,
         Self::History,
         Self::Repeater,
-        Self::Settings,
+        Self::Intruder,
         Self::Decoder,
+        Self::Settings,
     ];
 
     /// All sections including clearly planned modules.
@@ -72,20 +73,20 @@ impl NavSection {
     }
 
     pub const fn uses_context(self) -> bool {
-        // Repeater renders its own response inspector, so the shared context
-        // pane would duplicate it and waste width.
+        // Repeater and Intruder render their own response inspectors, so the
+        // shared context pane would duplicate it and waste width.
         matches!(self, Self::Proxy | Self::History)
-    }
-
-    /// Modules that are visible in navigation but not implemented yet.
-    pub const fn is_planned(self) -> bool {
-        matches!(self, Self::Intruder)
     }
 
     pub const fn is_primary(self) -> bool {
         matches!(
             self,
-            Self::Proxy | Self::History | Self::Repeater | Self::Settings | Self::Decoder
+            Self::Proxy
+                | Self::History
+                | Self::Repeater
+                | Self::Intruder
+                | Self::Decoder
+                | Self::Settings
         )
     }
 
@@ -201,6 +202,23 @@ pub enum ActionId {
     DecoderPreview,
     SendRepeaterRequestToDecoder,
     SendRepeaterResponseToDecoder,
+    IntruderViewToggle,
+    IntruderEditRequest,
+    IntruderMarkPosition,
+    IntruderClearPositions,
+    IntruderTogglePosition,
+    IntruderNextSet,
+    IntruderAddList,
+    IntruderRenameList,
+    IntruderDeleteList,
+    IntruderImportWordlist,
+    IntruderStrategy,
+    IntruderStart,
+    IntruderPause,
+    IntruderCancel,
+    IntruderBaseline,
+    IntruderCycleSort,
+    IntruderSendToRepeater,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -351,6 +369,10 @@ pub enum HitTarget {
     RepeaterEditor,
     DecoderEditor,
     DecoderHistoryRow(usize),
+    IntruderCandidate(usize),
+    IntruderPositionRow(usize),
+    IntruderResultRow(usize),
+    IntruderEditor,
     InterceptionEditor,
     Setting(SettingId),
     SessionRow(usize),
@@ -378,6 +400,10 @@ pub enum ScrollRegion {
     Inspector,
     RepeaterEditor,
     DecoderEditor,
+    IntruderRequest,
+    IntruderResults,
+    IntruderInspector,
+    IntruderPreview,
     DecoderOutput,
     DecoderPipeline,
     DecoderHistory,
@@ -448,10 +474,13 @@ mod tests {
         assert!(NavSection::History.uses_context());
         assert!(!NavSection::Repeater.uses_context());
         assert!(!NavSection::Settings.uses_context());
-        assert!(NavSection::Intruder.is_planned());
+        // Intruder renders its own inspector, so it does not take the shared
+        // context pane.
+        assert!(!NavSection::Intruder.uses_context());
         assert!(NavSection::Proxy.is_primary());
         assert!(NavSection::Decoder.is_primary());
-        assert!(!NavSection::Decoder.is_planned());
+        assert!(NavSection::Intruder.is_primary());
+        assert_eq!(NavSection::PRIMARY.len(), NavSection::ALL.len());
     }
 
     #[test]

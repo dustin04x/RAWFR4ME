@@ -10,7 +10,7 @@ use rusqlite::{Connection, TransactionBehavior};
 use crate::error::StoreError;
 
 /// Schema version understood by this build.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Applies every migration the database is missing.
 pub fn migrate(conn: &mut Connection) -> Result<u32, StoreError> {
@@ -30,6 +30,7 @@ pub fn migrate(conn: &mut Connection) -> Result<u32, StoreError> {
         match next {
             1 => tx.execute_batch(SCHEMA_V1)?,
             2 => tx.execute_batch(SCHEMA_V2)?,
+            3 => tx.execute_batch(SCHEMA_V3)?,
             other => {
                 return Err(StoreError::Unavailable(format!(
                     "missing migration for schema version {other}"
@@ -52,6 +53,14 @@ pub fn migrate(conn: &mut Connection) -> Result<u32, StoreError> {
 /// Existing M5 databases are upgraded in place; no history is recreated.
 const SCHEMA_V2: &str = r#"
 ALTER TABLE traffic ADD COLUMN repeater_origin INTEGER;
+"#;
+
+/// M8: Intruder provenance. `intruder_payloads` holds the base64-encoded
+/// payload combination that produced the request, so a restored Intruder row
+/// keeps its combination metadata without re-deriving or re-executing anything.
+const SCHEMA_V3: &str = r#"
+ALTER TABLE traffic ADD COLUMN intruder_origin INTEGER;
+ALTER TABLE traffic ADD COLUMN intruder_payloads TEXT;
 "#;
 
 const SCHEMA_V1: &str = r#"
@@ -174,7 +183,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(migrate(&mut conn).unwrap(), 2);
+        assert_eq!(migrate(&mut conn).unwrap(), SCHEMA_VERSION);
         let rows: i64 = conn
             .query_row("SELECT COUNT(*) FROM traffic", [], |row| row.get(0))
             .unwrap();
@@ -187,6 +196,16 @@ mod tests {
             )
             .unwrap();
         assert_eq!(column, 1);
+        for added in ["intruder_origin", "intruder_payloads"] {
+            let column: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('traffic') WHERE name = ?1",
+                    [added],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(column, 1, "M8 column {added} was added in place");
+        }
     }
 
     #[test]
@@ -315,7 +334,7 @@ mod tests {
         let version: u32 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, SCHEMA_VERSION);
         let applied: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM schema_migrations WHERE version = 2",
@@ -324,6 +343,14 @@ mod tests {
             )
             .unwrap();
         assert_eq!(applied, 1, "migration was recorded exactly once");
+        let applied_v3: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version = 3",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(applied_v3, 1, "the M8 migration is recorded exactly once");
         let rows: i64 = conn
             .query_row("SELECT COUNT(*) FROM traffic", [], |row| row.get(0))
             .unwrap();

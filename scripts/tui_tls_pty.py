@@ -45,7 +45,105 @@ except ImportError:  # pragma: no cover - reported by main
     x509 = None
 
 REPO = Path(__file__).resolve().parent.parent
-FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+
+# Every glyph the panels use: box drawing, block/bar characters, arrows, the
+# position marker, and the footer's check/carriage-return pair. A face missing
+# any of these renders replacement boxes into published evidence, so font
+# discovery asks fontconfig for full coverage before falling back.
+GLYPH_PROBE = "─│╭╮╰╯├┼▌█░▒✓↵§·↑↓→←…"
+
+# Monospace font discovery is deliberately portable: an explicit override, a
+# coverage-checked fontconfig answer, then the usual Debian/Arch/Fedora/macOS/
+# Windows locations. PNG frames are optional evidence, so a machine without any
+# match still produces the mandatory text frames.
+FONT_CANDIDATES = (
+    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+    "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+    "/usr/share/fonts/liberation-mono/LiberationMono-Regular.ttf",
+    "/usr/share/fonts/noto/NotoSansMono-Regular.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf",
+    "/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf",
+    "/usr/share/fonts/TTF/FiraCodeNerdFontMono-Regular.ttf",
+    "/usr/share/fonts/TTF/JetBrainsMonoNerdFontMono-Regular.ttf",
+    "/System/Library/Fonts/Menlo.ttc",
+    "/Library/Fonts/Menlo.ttc",
+    "C:/Windows/Fonts/consola.ttf",
+)
+
+
+def _font_covers(path: Path) -> bool:
+    """True when fontconfig reports every probe glyph in this font's charset."""
+    if not shutil.which("fc-list"):
+        # Without fontconfig there is nothing authoritative to check; accept the
+        # candidate rather than losing PNG evidence entirely.
+        return True
+    try:
+        result = subprocess.run(
+            ["fc-list", f":file={path}", "-f", "%{charset}\n"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    line = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+    ranges: list[tuple[int, int]] = []
+    for token in line.split():
+        low, _, high = token.partition("-")
+        try:
+            ranges.append((int(low, 16), int(high or low, 16)))
+        except ValueError:
+            continue
+    if not ranges:
+        return False
+    return all(any(low <= ord(ch) <= high for low, high in ranges) for ch in GLYPH_PROBE)
+
+
+def _fc_match(pattern: str) -> Path | None:
+    if not shutil.which("fc-match"):
+        return None
+    try:
+        result = subprocess.run(
+            ["fc-match", "-f", "%{file}", pattern],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = result.stdout.strip()
+    return Path(match) if match and Path(match).is_file() else None
+
+
+def find_mono_font() -> Path | None:
+    """Returns a usable monospace font path, or None when none is installed."""
+    override = os.environ.get("RAWFRAME_MONO_FONT")
+    if override and Path(override).is_file():
+        return Path(override)
+
+    charset = " ".join(f"{ord(ch):04x}" for ch in GLYPH_PROBE)
+    covered = _fc_match(f"monospace:charset={charset}")
+    if covered is not None and _font_covers(covered):
+        return covered
+
+    for candidate in FONT_CANDIDATES:
+        path = Path(candidate)
+        if path.is_file() and _font_covers(path):
+            return path
+
+    if covered is not None:
+        return covered
+    fallback = _fc_match("monospace")
+    if fallback is not None:
+        return fallback
+    for candidate in FONT_CANDIDATES:
+        if Path(candidate).is_file():
+            return Path(candidate)
+    return None
 
 
 def char_width(ch: str) -> int:
@@ -335,9 +433,10 @@ def save_frame(text: str, path: Path) -> None:
         from PIL import Image, ImageDraw, ImageFont
     except ImportError:
         return
-    if not Path(FONT).exists():
+    mono = find_mono_font()
+    if mono is None:
         return
-    font = ImageFont.truetype(FONT, 14)
+    font = ImageFont.truetype(str(mono), 14)
     lines = text.splitlines() or [""]
     line_h = 18
     probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
@@ -735,8 +834,11 @@ def run_flow(
         # New post-enable CONNECT is decrypted and enters the queue.
         status, body = https_get(proxy_port, good.port, "/secure", ca_cert)
         checks(status == 200 and b"origin:/secure" in body, "decrypted HTTPS request succeeds")
-        text = app.wait_for("TLS DECRYPTED", timeout=10)
-        checks("/secure" in text or "GET" in text, "decrypted request appears in the TUI queue")
+        # The TUI repaints on a 250 ms cadence; under a loaded CI machine the
+        # decrypted row can take a few seconds to appear, so wait for the row
+        # itself rather than a single frame after a short fixed delay.
+        text = app.wait_for("/secure", timeout=30)
+        checks("TLS DECRYPTED" in text or "GET" in text, "decrypted request appears in the TUI queue")
         checks("/existing-opaque" not in text, "existing opaque session is not shown as decrypted")
         checks("PRIVATE KEY" not in text, "decrypted traffic view contains no key material")
         app.capture(captures, "07_decrypted_https", keep_png)

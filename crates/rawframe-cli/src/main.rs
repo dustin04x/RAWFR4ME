@@ -197,11 +197,22 @@ fn main() -> Result<()> {
     let (repeater_tx, repeater_rx) = tokio::sync::mpsc::channel(16);
     let repeater_service = runtime.spawn(rawframe_repeater::run_service(
         repeater_rx,
-        repeater_config,
-        events,
-        repeater_scope,
+        repeater_config.clone(),
+        events.clone(),
+        repeater_scope.clone(),
     ));
     app.attach_repeater_commands(repeater_tx);
+
+    // Intruder reuses the Repeater execution engine (same scope, DNS, TLS, and
+    // validation), so it only needs the same configuration plus a channel.
+    let (intruder_tx, intruder_rx) = tokio::sync::mpsc::channel(16);
+    let intruder_service = runtime.spawn(rawframe_intruder::run_service(
+        intruder_rx,
+        repeater_config.clone(),
+        events.clone(),
+        repeater_scope.clone(),
+    ));
+    app.attach_intruder_commands(intruder_tx);
 
     let ui_result = rawframe_tui::run(app).context("terminal session failed");
     runtime.block_on(async {
@@ -210,6 +221,9 @@ fn main() -> Result<()> {
         }
         if let Err(error) = repeater_service.await {
             tracing::error!(%error, "Repeater service task failed");
+        }
+        if let Err(error) = intruder_service.await {
+            tracing::error!(%error, "Intruder service task failed");
         }
     });
     runtime.shutdown_timeout(std::time::Duration::from_secs(2));

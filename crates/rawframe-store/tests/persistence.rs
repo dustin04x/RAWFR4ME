@@ -764,3 +764,120 @@ fn wait_status(
         _ => None,
     })
 }
+
+#[test]
+fn intruder_rows_keep_payload_metadata_and_stay_redacted() {
+    use rawframe_core::INTRUDER_ID_BASE;
+
+    let dir = TempDir::new().unwrap();
+    let session = Session::new("intruder");
+    let mut store = open(&dir, &session, policy());
+    let mut entry = sample_entry(INTRUDER_ID_BASE + 3);
+    entry.source = TrafficSource::Intruder;
+    entry.intruder_origin = Some(TrafficId(7));
+    // One text payload and one binary payload: the combination must survive
+    // byte-exactly, including invalid UTF-8.
+    entry.intruder_payloads = Some(vec![b"alice".to_vec(), vec![0x00, 0xff, 0xfe]]);
+    store.write_entry(&entry).unwrap();
+
+    let (entries, _) = store.load_session(&session.id, 10).unwrap();
+    let restored = &entries[0];
+    assert_eq!(restored.source, TrafficSource::Restored);
+    assert_eq!(restored.intruder_origin, Some(TrafficId(7)));
+    assert_eq!(
+        restored.intruder_payloads,
+        Some(vec![b"alice".to_vec(), vec![0x00, 0xff, 0xfe]])
+    );
+    // Provenance does not weaken the redaction policy.
+    assert_eq!(
+        restored.request.headers.get("authorization"),
+        Some("<redacted>")
+    );
+    assert_eq!(
+        restored.response.as_ref().unwrap().headers.get("x-api-key"),
+        Some("<redacted>")
+    );
+    assert!(restored.body_omitted);
+    assert!(restored.response.as_ref().unwrap().body.is_empty());
+
+    let export = dir.path().join("intruder.jsonl");
+    store.export_session(&session.id, &export).unwrap();
+    let line: serde_json::Value =
+        serde_json::from_str(fs::read_to_string(&export).unwrap().lines().next().unwrap()).unwrap();
+    assert_eq!(line["stored_source"], "intruder");
+    assert_eq!(line["intruder_origin"], 7);
+    assert_eq!(line["intruder_payloads"][0], "YWxpY2U=");
+    assert_eq!(line["intruder_payloads"][1], "AP/+");
+    assert_eq!(line["request_body"]["omitted"], true);
+}
+
+#[test]
+fn capture_pump_persists_completed_intruder_executions() {
+    use rawframe_core::INTRUDER_ID_BASE;
+    use rawframe_core::{IntruderEvent, IntruderResult};
+
+    let dir = TempDir::new().unwrap();
+    let session = Session::new("intruder-pump");
+    let mut bus = EventBus::new();
+    let mut observer = bus.subscribe();
+    let service = StorageService::spawn(
+        StorageOptions::new(dir.path().join("sessions.db"), session.clone(), policy()),
+        bus.sender(),
+    )
+    .unwrap();
+    let pump = spawn_capture_pump(bus.subscribe(), service.handle()).unwrap();
+
+    let mut entry = sample_entry(INTRUDER_ID_BASE + 1);
+    entry.source = TrafficSource::Intruder;
+    entry.intruder_payloads = Some(vec![b"probe".to_vec()]);
+    entry.intruder_origin = Some(TrafficId(31));
+    let result = IntruderResult {
+        id: entry.id,
+        run: 1,
+        index: 0,
+        payloads: vec![b"probe".to_vec()],
+        positions: vec![rawframe_core::PositionId(1)],
+        phase: RepeaterExecutionPhase::Completed,
+        result: RepeaterResult {
+            request: entry.request.clone(),
+            response: entry.response.clone(),
+            timings: RepeaterTimings {
+                total_ms: 4,
+                ..RepeaterTimings::default()
+            },
+            redirects: Vec::new(),
+            truncated: false,
+            response_bytes: 11,
+            error: None,
+            warnings: Vec::new(),
+            sent_at: Utc::now(),
+        },
+    };
+    bus.sender()
+        .send(AppEvent::Intruder(IntruderEvent::Completed {
+            run: 1,
+            result: Box::new(result),
+            entry: Box::new(entry),
+        }))
+        .unwrap();
+    wait_status(&mut observer, |status| status.persisted >= 1);
+    bus.sender().send(AppEvent::Shutdown).unwrap();
+    pump.join().unwrap();
+
+    service
+        .handle()
+        .command_sender()
+        .try_send(StorageCommand::LoadSession {
+            session_id: session.id.clone(),
+            limit: 10,
+        })
+        .expect("load accepted");
+    let loaded = wait_for(&mut observer, |event| match event {
+        StorageEvent::SessionLoaded { entries, .. } if !entries.is_empty() => Some(entries),
+        _ => None,
+    });
+    assert_eq!(loaded[0].intruder_origin, Some(TrafficId(31)));
+    assert_eq!(loaded[0].intruder_payloads, Some(vec![b"probe".to_vec()]));
+
+    service.shutdown();
+}

@@ -6,6 +6,7 @@ members = [
     "crates/rawframe-proxy",
     "crates/rawframe-store",
     "crates/rawframe-repeater",
+    "crates/rawframe-intruder",
     "crates/rawframe-tui",
     "crates/rawframe-cli",
 ]
@@ -25,6 +26,7 @@ rawframe-http = { path = "crates/rawframe-http" }
 rawframe-proxy = { path = "crates/rawframe-proxy" }
 rawframe-store = { path = "crates/rawframe-store" }
 rawframe-repeater = { path = "crates/rawframe-repeater" }
+rawframe-intruder = { path = "crates/rawframe-intruder" }
 rawframe-tui = { path = "crates/rawframe-tui" }
 
 anyhow = "1.0"

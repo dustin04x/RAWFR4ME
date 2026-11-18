@@ -4,7 +4,7 @@
 
 RAWFRAME is an open-source Rust workspace for authorized HTTP/1.1 testing from the terminal. It provides a local forward proxy, opaque HTTPS tunnelling, opt-in TLS interception, durable SQLite history with sessions and redacted export, and a live request workbench inside a keyboard-driven TUI. It is built for testers who want a compact terminal workflow with explicit scope and visible request lifecycle state.
 
-The current release is **0.2.0**. Milestones 1–7 are complete: core application, HTTP proxy, HTTP interception, HTTPS TLS interception, durable history/sessions/export, a functional Repeater with real HTTP/HTTPS execution, and a binary-safe Decoder with chained transformations and Repeater body transfer. Opaque `CONNECT` tunnelling is the default. Intruder, HTTP/2, and WebSocket support are not implemented.
+The current release is **0.2.0**. Milestones 1–8 are complete: core application, HTTP proxy, HTTP interception, HTTPS TLS interception, durable history/sessions/export, a functional Repeater with real HTTP/HTTPS execution, a binary-safe Decoder with chained transformations and Repeater body transfer, and an Intruder that runs real, bounded, scope-checked payload attacks with four strategies. Opaque `CONNECT` tunnelling is the default. HTTP/2 and WebSocket support are not implemented.
 
 RAWFRAME is intended **only** for systems you own or are explicitly authorized to test.
 
@@ -30,10 +30,18 @@ Captured from real PTY sessions of the current TUI at 140×40. These are termina
 | --- | --- |
 | ![Decoder workspace with a Base64 decode pipeline](docs/screenshots/decoder/140x40_01_workspace.png) | ![Decoder workspace at 80×24](docs/screenshots/decoder/80x24_01_workspace.png) |
 
+| Intruder setup with a marked query payload position | Real Intruder results from a local origin |
+| --- | --- |
+| ![Intruder setup with a marked position and payload list](docs/screenshots/intruder/140x40_01_setup.png) | ![Intruder results with 200, 404, and 500 responses](docs/screenshots/intruder/140x40_04_results.png) |
+
 The Repeater workspace is also captured from a real PTY at
 [100×30](docs/screenshots/repeater/100x30_01_workspace.png) and
 [80×24](docs/screenshots/repeater/80x24_01_workspace.png). The Decoder is
 captured at [100×30](docs/screenshots/decoder/100x30_01_workspace.png) as well.
+The Intruder is captured at [100×30](docs/screenshots/intruder/100x30_01_setup.png)
+and [80×24](docs/screenshots/intruder/80x24_01_setup.png); each size also has the
+confirmation, in-flight progress, and results frames (`*_02_confirm`,
+`*_03_progress`, `*_04_results`) under `docs/screenshots/intruder/`.
 
 ## Features
 
@@ -98,9 +106,21 @@ captured at [100×30](docs/screenshots/decoder/100x30_01_workspace.png) as well.
 - Session-only transformation history, copy through the terminal clipboard (OSC 52, best effort), swap, and clear.
 - Explicit Repeater transfer: send the active request or response body to the Decoder, and insert the transformed output into a Repeater request body. Stored captures and the original request remain unchanged.
 
+**Intruder**
+
+- Payload positions marked with `§value§` in the URL path, query values, header values, and request body; multiple positions, each enabled, disabled, and individually identified, with binary-safe request bodies.
+- Expansion preview and validation for malformed request heads, unmatched markers, markers inside header names, and non-UTF-8 values in URL or header positions. Per-position payload lists with explicit index assignments.
+- Payload sources: editable manual lists, harmless built-in demo values, session-local named lists (create, rename, inspect, delete), and bounded local wordlists imported by path.
+- Four strategies with exact request counts: Sniper, Battering Ram, Pitchfork, and Cluster Bomb. Counts, length mismatches, empty lists, and the request ceiling are reported before anything is sent.
+- Real execution through the same scoped Repeater engine: bounded concurrency, a conservative default rate, per-request timeouts, bounded response capture, pause, resume, cancel, and shutdown.
+- Typed per-request outcomes (response, blocked, timeout, failed, cancelled, not sent), progress, and a stop reason; redirects stay off unless enabled and are re-validated on every hop.
+- Results workspace with real status, size, duration, payload values, search, status/outcome filters, sort, request/response inspection, payload inspection, baseline comparison, and explicit "send to Repeater".
+- Explicit transfers: History, Repeater, and Decoder requests to the Intruder (the original capture is never mutated), and a chosen result back to Repeater without silent overwrite.
+- No evasion features: no proxy rotation, throttling bypass, CAPTCHA or rate-limit circumvention, or distributed scanning. Status, size, and timing differences are reported as observations, never as vulnerability claims.
+
 **Terminal interface**
 
-- Proxy, HTTP History, Repeater, Decoder, and Settings workspaces.
+- Proxy, HTTP History, Repeater, Intruder, Decoder, and Settings workspaces.
 - Request/response inspector with raw, headers, and body views.
 - Keyboard navigation, mouse support, command palette, and resizable panes.
 - Live engine state, TLS state, queue state, and source provenance.
@@ -108,13 +128,13 @@ captured at [100×30](docs/screenshots/decoder/100x30_01_workspace.png) as well.
 
 ### Planned, not implemented
 
-- Intruder and advanced traffic analysis.
+- Advanced traffic analysis.
 - HTTP/2, HTTP/3, and WebSocket interception.
 - HTTP proxy authentication and per-client rate limits.
 
 ## Architecture
 
-RAWFRAME is a seven-crate Cargo workspace. Dependency flow is one-way; the TUI never opens sockets or SQLite, and the proxy never depends on the TUI.
+RAWFRAME is an eight-crate Cargo workspace. Dependency flow is one-way; the TUI never opens sockets or SQLite, and the proxy never depends on the TUI.
 
 | Crate | Responsibility |
 | --- | --- |
@@ -122,6 +142,7 @@ RAWFRAME is a seven-crate Cargo workspace. Dependency flow is one-way; the TUI n
 | `rawframe-http` | Authored HTTP/1.x document parser used by Repeater and tests. This is not the live proxy wire implementation. |
 | `rawframe-proxy` | Tokio/Hyper listener, HTTP forwarding, opaque `CONNECT` relay, TLS interception, destination policy, body guards, limits, and graceful shutdown. |
 | `rawframe-repeater` | Repeater execution engine: request validation handoff, independent HTTP/1.1 connections, verified HTTPS, redirects, bounded response capture, timeouts, cancellation, and the command service. Reuses proxy destination/TLS policy but not its listener, CA, or interception queue. |
+| `rawframe-intruder` | Intruder execution service: plan construction, payload expansion, bounded worker pool, rate gate, pause/resume/cancel, typed outcomes, and wordlist import. Executes through the Repeater engine instead of a second HTTP stack. |
 | `rawframe-store` | SQLite schema/migrations, a single writer thread, redaction-on-write, session queries, restore, and redacted export. No proxy or TUI dependency. |
 | `rawframe-tui` | Ratatui/Crossterm application, workspaces, inspector, editor, layouts, input handling, and terminal lifecycle. |
 | `rawframe-cli` | Composition root: CLI validation, logging, Tokio runtime, proxy worker, storage worker/capture pump, and TUI loop. |
@@ -133,7 +154,9 @@ flowchart LR
     cli --> proxy
     cli --> store[rawframe-store]
     cli --> repeater[rawframe-repeater]
+    cli --> intruder[rawframe-intruder]
     repeater --> proxy
+    intruder --> repeater
     tui --> http[rawframe-http]
     tui --> core[rawframe-core]
     proxy --> core
@@ -142,6 +165,7 @@ flowchart LR
     http --> core
     proxy -. events .-> store
     repeater -. events .-> store
+    intruder -. events .-> store
 ```
 
 ### Request lifecycle
@@ -176,6 +200,8 @@ TLS interception is security-sensitive. RAWFRAME keeps it explicit and bounded.
 - **Protected database.** On Unix the database and exports are `0600` in a `0700` directory; WAL + `synchronous=FULL` limit crash loss, and a 512 MiB ceiling stops runaway growth with an explicit error instead of filling the disk.
 - **Honest save state.** The footer shows `DB ON`, `DB OFF`, or `DB ERROR`; dropped captures are counted and surfaced. Corrupt or unavailable databases disable persistence without deleting the file.
 - **Presentation safety.** Sensitive headers are redacted by default, and captured text is sanitized before terminal rendering.
+- **Intruder is confirmed and bounded.** Nothing is sent until the operator confirms a dialog that shows the target, strategy, request count, concurrency, rate, and scope. Every request is re-validated against scope and address policy, TLS verification stays mandatory, redirects are off by default and re-checked per hop, and there are no silent retries. Concurrency, rate, duration, payload size, position count, and the total request count are capped before execution, and stop/cancel aborts the pool instead of draining it.
+- **No intrusion automation beyond request replay.** Intruder has no proxy rotation, evasion, CAPTCHA or rate-limit bypass, or distributed scanning. It does not classify responses as vulnerabilities; it reports observed status, size, timing, and body differences for the operator to interpret.
 - **Decoder is local and inert.** Transformations run in-process on bounded byte buffers, never invoke a shell or external service, and are not persisted. JWT decoding never verifies a signature, and MD5 is labelled cryptographically broken. Repeater-to-Decoder transfer is explicit; it does not mutate stored captures.
 
 ### Limitations
@@ -188,6 +214,9 @@ TLS interception is security-sensitive. RAWFRAME keeps it explicit and bounded.
 - Bodies and sensitive header values are absent from stored history unless explicitly enabled, and cannot be recovered later.
 - Repeater transmits HTTP/1.1 only. It has no HTTP/2, WebSocket, client-certificate, or proxy-auth support.
 - Repeater requests are direct; they do not traverse the local proxy listener or reuse a captured connection. A different client certificate, source address, or proxy path can produce a different result.
+- Intruder executes HTTP/1.1 only, through the Repeater engine. It has no HTTP/2, WebSocket, or raw socket payloads, and no response-matching rules or fuzzing engine.
+- Intruder payload lists are session-only and are never written to SQLite; only completed Intruder transactions are persisted, with the payload values that produced them. Those values are execution metadata, not sensitive headers, so they are stored and exported unredacted: a wordlist entry can itself be a credential. Imported wordlists are read as local files, never executed, and capped at 4 MiB / 512 payloads per list after UTF-8-safe validation.
+- Intruder limits are 16 positions, 16 payload lists, 512 payloads per list, 4096 bytes per payload, 2048 generated requests, 8 concurrent workers, 20 requests/second, and a 1800 s duration ceiling. Rate is a local pacing control, not a guarantee about the target.
 - Decoder input and output are capped at 8 MiB and pipelines at 16 steps. Large or highly compressible gzip streams are bounded by the output limit rather than fully expanded. Decoder history is session-only and is never written to SQLite. Copy uses terminal OSC 52 and may be ignored by terminals that disable clipboard access.
 - Scope is edited in Settings or via `--scope`; wildcard and port rules apply to new proxy and Repeater requests immediately.
 - There is no proxy authentication, per-client rate limit, or HTTP `503` response for connection-limit overflow.
@@ -305,6 +334,19 @@ Repeater is independent of the proxy listener and does not require pressing `P`.
 4. Use `1`–`6` for Raw, Headers, Body, Pretty JSON, Hex, and Compare. `F` toggles safe redirect following; `X` clears the current response.
 5. Close a tab with `Ctrl+W`; `Ctrl+N` creates a new blank tab. Each tab keeps its own document, in-flight execution, response, and execution history.
 
+### Intruder quick start
+
+Intruder reuses Repeater's execution path, so the same scope and TLS rules apply.
+
+1. Start with an explicit scope for the target, for example `--scope http://127.0.0.1:8000 --allow-private-upstreams`.
+2. Capture or open a request in HTTP History, then press `I` (or `Ctrl+5` for an empty workspace before loading). `I` in Repeater sends the active document; `I` on the Decoder sends its output to a payload list.
+3. In Setup, move over the request components and press `M` to wrap a value in `§…§`. `Enter` edits the request head or body, and `Space` enables or disables a marked position.
+4. Manage payload lists with `A` (create), `L` (rename), `N`/`B` (cycle), `X` (delete), and `W` (import a wordlist); press `Enter` on the payload panel to type values. Choose a strategy with `S`. The header shows the exact request count, and the preview shows the first expanded requests.
+5. Press `Ctrl+Enter` to review the confirmation, then confirm with `↵`/`Y`. Results stream in as they complete; `P` pauses and resumes, `X` cancels.
+6. In Results, `↑`/`↓` selects a row, `V` cycles Raw, Headers, Body, Payloads, and Compare, `/` searches payload values, `F`/`O` filter by status and outcome, `S` sorts, `B` picks a baseline, and `T` sends the selected result to Repeater.
+
+Intruder runs write real results into History with `INTRUDER` provenance, the payload values used, and the originating capture when there was one. Payload lists themselves are session-only.
+
 Completed Repeater executions appear in HTTP History with `REPEATER` provenance and the original capture reference when the document came from History or the proxy. They are persisted under the same redaction/body policy as proxy traffic. No proxy capture is fabricated.
 
 ### CLI reference
@@ -351,7 +393,7 @@ Single-letter shortcuts are suppressed while typing in an editor, search field, 
 | --- | --- |
 | `Ctrl+K` | Open the command palette. |
 | `Ctrl+1` … `Ctrl+4` | Go to Proxy, HTTP History, Repeater, and Settings. |
-| `Ctrl+5` | Open the planned Intruder placeholder. |
+| `Ctrl+5` | Open the Intruder workspace. |
 | `Ctrl+6` | Open the Decoder workspace. |
 | `Ctrl+F` | Search HTTP History. |
 | `Ctrl+N` | Create a Repeater tab. |
@@ -404,6 +446,28 @@ Single-letter shortcuts are suppressed while typing in an editor, search field, 
 | Repeater | `1`–`6` | Raw, Headers, Body, Pretty JSON, Hex, Compare. |
 | Repeater | `X` | Clear the current response (history is retained). |
 | Repeater | `B` / `M` | Send the current request body / response body to the Decoder. |
+| Repeater | `I` | Send the active document to the Intruder. |
+| History | `I` | Send the selected request to the Intruder. |
+| Decoder | `I` | Send the current output to a new Intruder payload list. |
+| Intruder | `Ctrl+Enter` | Review and confirm the plan (nothing is sent before confirmation). |
+| Intruder | `M` | Mark or unmark the selected request component as a payload position. |
+| Intruder | `Space` | Enable or disable the selected position. |
+| Intruder | `S` | Cycle strategy in Setup; cycle sort order in Results. |
+| Intruder | `A` / `L` | Create a named payload list / rename the active list. |
+| Intruder | `X` | Delete the active list in Setup; cancel the run in Results. |
+| Intruder | `C` / `D` / `+` / `-` | Cycle concurrency / duration limit / requests per second. |
+| Intruder | `R` | Toggle redirect following (re-validated per hop). |
+| Intruder | `P` / `X` | Pause or resume / cancel the running attack. |
+| Intruder | `G` | Switch between Setup and Results. |
+| Intruder | `N` / `B` | Next payload list (Setup) or choose a baseline (Results). |
+| Intruder | `E` / `2` | Edit the request head / the request body. |
+| Intruder | `Z` | Clear all payload positions. |
+| Intruder | `↑` / `↓` | Select a position (Setup) or a result (Results). |
+| Intruder | `V` | Cycle the result inspector: Raw, Headers, Body, Payloads, Compare. |
+| Intruder | `F` / `O` / `U` | Cycle status filter, outcome filter, or clear result filters. |
+| Intruder | `T` / `Y` | Send the selected result to Repeater / to the Decoder. |
+| Intruder | `/` | Search results by payload value. |
+| Intruder | `W` | Import a local wordlist by path. |
 | Decoder | `1` / `2` / `3` | Focus the input, pipeline, or output panel. |
 | Decoder | `Enter` / `E` | Edit the input; with the pipeline focused, preview the selected step. |
 | Decoder | `←` / `→` or `[` / `]` | Select the transformation. |
@@ -456,7 +520,8 @@ Milestone numbers follow [docs/roadmap.md](docs/roadmap.md).
 | M5 — Persistence, sessions, and protocol coverage | Complete |
 | M6 — Functional Repeater | Complete |
 | M7 — Decoder and transformation workbench | Complete |
-| Later — Intruder, traffic analysis, protocol expansion, release hardening | Planned |
+| M8 — Intruder payload workbench | Complete |
+| Later — traffic analysis, protocol expansion, release hardening | Planned |
 
 Planned work is not available in this build. See [docs/roadmap.md](docs/roadmap.md) for scope, acceptance criteria, and known limitations.
 
@@ -472,9 +537,9 @@ cargo test --workspace
 
 Or run `./scripts/check.sh`.
 
-The latest verified M7 run reported:
+The latest verified M8 run reported:
 
-- **342 passing tests, 0 failed** across the workspace (M6 baseline: 322), including real local HTTP/HTTPS Repeater executions, binary bodies, duplicate headers, redirect loops and credential stripping, scope refusal, timeouts, cancellation, response limits, Repeater persistence/redaction, an end-to-end M5 schema-v1 upgrade fixture, and a complete Decoder transformation/pipeline matrix with known hash vectors, malformed input, size limits, and TUI transfer tests.
+- **427 passing tests, 0 failed** across the workspace (M7 baseline: 342), including real local HTTP/HTTPS Repeater executions, binary bodies, duplicate headers, redirect loops and credential stripping, scope refusal, timeouts, cancellation, response limits, Repeater persistence/redaction, an end-to-end M5 schema-v1 upgrade fixture, a complete Decoder transformation/pipeline matrix with known hash vectors, malformed input, and size limits, and Intruder planning/strategy counts, wordlist import, bounded execution against local HTTP and HTTPS servers, pause/resume/cancel, persistence, transfers, and TUI rendering at three terminal sizes.
 - The existing PTY screenshot and TLS enable/disable regressions still pass.
 - Repeater tests use local HTTP/HTTPS servers and self-signed test certificates; storage tests use isolated temporary databases; proxy tests use local servers only.
 
@@ -482,7 +547,7 @@ The PTY test requires Python 3 with `cryptography`; without it, that test skips 
 
 ## Project status and contribution
 
-RAWFRAME is under active pre-1.0 development. The M1–M7 foundations are implemented and tested; the planned Intruder module is visible in the navigation but clearly marked as a placeholder. Interfaces and terminal behavior may change.
+RAWFRAME is under active pre-1.0 development. The M1–M8 foundations are implemented and tested. Interfaces and terminal behavior may change.
 
 Contributions should preserve the security defaults: loopback binding, default-deny scope, explicit private-upstream opt-in, mandatory upstream TLS verification, redaction, and terminal sanitization. Add tests for behavioral changes and run the quality gates before submitting. See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/development.md](docs/development.md).
 

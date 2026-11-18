@@ -103,7 +103,7 @@ fn render_workspace(
         NavSection::Repeater => screens::repeater::render(frame, area, app, theme, output),
         NavSection::Settings => screens::settings::render(frame, area, app, theme, output),
         NavSection::Decoder => screens::decoder::render(frame, area, app, theme, output),
-        NavSection::Intruder => screens::placeholder::render(frame, area, app, theme, output),
+        NavSection::Intruder => screens::intruder::render(frame, area, app, theme, output),
     }
 }
 
@@ -309,10 +309,7 @@ fn render_sidebar(
     }
 
     let mut y = inner.y;
-    let groups: [(&str, &[NavSection]); 2] = [
-        ("PRIMARY", &NavSection::PRIMARY),
-        ("PLANNED", &[NavSection::Intruder]),
-    ];
+    let groups: [(&str, &[NavSection]); 1] = [("PRIMARY", &NavSection::PRIMARY)];
     for (heading, sections) in groups {
         if y >= inner.bottom() {
             break;
@@ -425,18 +422,12 @@ fn render_nav_item(
             label,
             if active {
                 theme.selected_accent()
-            } else if section.is_planned() {
-                theme.faint()
             } else {
                 theme.muted()
             },
         ),
     ];
-    let right = if section.is_planned() {
-        "planned".to_string()
-    } else {
-        section.shortcut().to_string()
-    };
+    let right = section.shortcut().to_string();
     let used = 2 + label.chars().count();
     let gap = (inner.width as usize).saturating_sub(used + right.chars().count() + 1);
     spans.push(Span::raw(" ".repeat(gap)));
@@ -599,7 +590,12 @@ fn current_mode(app: &App, theme: &Theme) -> (&'static str, Style) {
         ("HELP", theme.on_accent())
     } else if app.search.active {
         ("SEARCH", theme.on_warning())
-    } else if app.settings.edit.is_some() || app.repeater.editing || app.interception.editing {
+    } else if app.settings.edit.is_some()
+        || app.repeater.editing
+        || app.interception.editing
+        || app.intruder.editing
+        || app.intruder.prompt.is_some()
+    {
         ("EDIT", theme.on_warning())
     } else {
         ("NORMAL", theme.on_accent())
@@ -638,7 +634,17 @@ fn context_hints(app: &App) -> &'static str {
                 "1 input · 2 pipeline · 3 output · A add · D direction · ^↵ run · H history"
             }
         }
-        NavSection::Intruder => "Planned module  ·  ^1 Proxy  ^2 History  ^3 Repeater  ^4 Settings",
+        NavSection::Intruder => {
+            if app.intruder.editing {
+                "Esc commit edit  ·  Tab focus  ·  M mark component"
+            } else if app.intruder.is_active() {
+                "P pause/resume  ·  X cancel  ·  ↑↓ results  ·  Tab inspector"
+            } else if app.intruder.view == crate::intruder::IntruderView::Results {
+                "↑↓ results  ·  V view  ·  S sort  ·  F filters  ·  B baseline  ·  T send to Repeater"
+            } else {
+                "↑↓ components  ·  M mark  ·  Space enable  ·  ←→ list  ·  A/L lists  ·  ^↵ start"
+            }
+        }
     }
 }
 

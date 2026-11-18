@@ -2,7 +2,7 @@
 
 pub mod decoder;
 pub mod history;
-pub mod placeholder;
+pub mod intruder;
 pub mod proxy;
 pub mod repeater;
 pub mod settings;

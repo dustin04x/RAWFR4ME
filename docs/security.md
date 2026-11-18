@@ -231,6 +231,42 @@ network limits apply after the proxy is restarted.
   and carry `REPEATER` provenance plus an optional original-capture reference.
   Persistence failure is surfaced in the UI and never aborts an execution.
 
+### Intruder execution
+
+- Nothing is sent until the operator confirms a dialog that names the target,
+  strategy, request count, concurrency, rate, redirect policy, and scope. The
+  confirm action is a typed `ConfirmAction::IntruderStart`; there is no
+  auto-start, default-yes, or “run again” shortcut that bypasses it.
+- Intruder reuses `RepeaterEngine::execute` for every generated request. Scope,
+  resolve-once address policy, verified upstream TLS, header/body validation, and
+  timeouts are therefore identical to Repeater by construction, not reimplemented.
+  Scope is re-read per request and per redirect hop.
+- Redirects are off by default. When enabled, the Repeater redirect rules apply:
+  five-hop cap, per-hop scope check, and cross-origin credential stripping.
+- Payload expansion is bounded before execution: 16 positions, 16 payload sets,
+  512 payloads per set, 4096 bytes per payload, 2048 generated requests,
+  concurrency 8, rate 20/s, duration 1800 s, capture 256 KiB, body 1 MiB.
+  Requests above the ceiling are refused with a count instead of truncated.
+- The worker pool is finite and cancel-aware. `Pause` stops starting new
+  requests, `Cancel`/`Shutdown` abort the pool and mark unsent indices `NotSent`;
+  no request is retried silently, and no result is invented for an unsent index.
+- Results are observations: status, size, duration, headers, and body. RAWFRAME
+  does not label them as vulnerabilities, does not infer success from timing, and
+  does not hide negative results. Blocked, timed-out, failed, and not-sent
+  outcomes stay distinct from responses.
+- Wordlist files are read locally as data. They are never executed, and invalid
+  UTF-8 lines are skipped and counted rather than reinterpreted.
+- Payload lists are session-only and never persisted. Completed Intruder rows are
+  persisted under the same redaction policy as proxy traffic, with the payload
+  values that produced them and an optional origin-capture reference; export
+  includes those fields only for Intruder rows.
+- Transfers are explicit and non-destructive: History/Repeater/Decoder to
+  Intruder copies the request, and Intruder to Repeater opens the result as a new
+  tab without overwriting an existing draft.
+- No evasion capability exists: no proxy rotation, source-address spoofing,
+  throttling or rate-limit bypass, CAPTCHA handling, WAF evasion, or distributed
+  scanning. The local rate gate paces RAWFRAME, it does not hide the traffic.
+
 ### Decoder transformations
 
 - Decoder runs entirely in-process on bounded byte buffers. It has no network
@@ -278,7 +314,10 @@ When persistence is active, the database contains for each session:
   error/note text, interception and tunnel metadata;
 - bodies **only** when body persistence is enabled; otherwise SQL `NULL`;
 - sensitive header values only when sensitive-header persistence is enabled;
-  otherwise the literal `<redacted>`.
+  otherwise the literal `<redacted>`;
+- for completed Intruder requests only, the payload values that produced the
+  request (base64-encoded JSON) and the originating capture ID, if any. Payload
+  **lists** and imported wordlists are session-only and never stored.
 
 Completed Repeater transactions use the same row format and policy, with a
 `repeater` stored source and a nullable `repeater_origin` reference to the
@@ -360,12 +399,17 @@ database.
 | Redaction toggle does not rewrite existing Repeater buffers | A tab seeded while redaction was off retains visible secrets until reopened | Deliberate: editing must not silently mutate documents; warning shown |
 | Repeater is HTTP/1.1 and direct-only | HTTP/2, WebSocket, client certificates, proxy-auth, and proxy-routed execution are unavailable | Keep the limitations visible; protocol/client-auth support is future work |
 | Repeater cannot reuse a captured connection | Results can differ from the original capture (different TLS session, client certificate, source address, or proxy path) | Treat Repeater as a fresh request, not an exact replay; document provenance |
+| Intruder has no response-matching or fuzzing engine | Results must be reviewed by the operator; automated vulnerability tagging is not provided | Deliberate: RAWFRAME reports observations, not findings |
+| Intruder rate and concurrency are local pacing | They neither guarantee target load limits nor hide the request pattern | Use conservative defaults and explicit authorization |
+| Intruder payload lists are session-only | Closing the application loses named lists unless exported to a wordlist | Documented behavior; no hidden persistence |
+| Intruder payload values are persisted and exported unredacted | A payload can itself be a credential, so stored/exported Intruder rows may contain secrets | Treated as execution metadata; delete or protect the database and exports, and prefer harmless wordlists |
+| Intruder runs HTTP/1.1 only | HTTP/2, WebSocket, and raw-socket payloads are unavailable | Same protocol limitation as Repeater |
 | Clipboard copy uses OSC 52 only | Terminals that disable clipboard writes may ignore `Copy`; no shell helper is invoked | Treat copy as best effort; UI reports that the request was sent |
 
 TLS interception, CA generation, live pause/edit/drop, SQLite persistence,
 redaction-on-write, export, crash recovery, live scope updates, Repeater,
-and bounded in-process Decoder transformations are covered by local tests and a
-real-binary PTY regression. Repeater tests use real local HTTP/HTTPS origins and
+bounded in-process Decoder transformations, and bounded Intruder execution are
+covered by local tests and a real-binary PTY regression. Repeater tests use real local HTTP/HTTPS origins and
 verify scope,
 address policy, certificate validation, redirect credential stripping, limits,
 timeouts, and cancellation. Storage tests' assertions check the actual database

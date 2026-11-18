@@ -1166,10 +1166,13 @@ impl ContextMenuState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum ConfirmAction {
     Quit,
     CloseRepeaterTab(usize),
+    /// Start a confirmed attack. The plan is captured when the prompt opens, so
+    /// confirming sends exactly the preview the operator reviewed.
+    IntruderStart(Box<rawframe_core::IntruderLaunch>),
 }
 
 #[derive(Debug, Clone)]

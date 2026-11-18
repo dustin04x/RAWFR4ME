@@ -11,6 +11,7 @@ pub mod commands;
 pub mod components;
 pub mod input;
 pub mod interaction;
+pub mod intruder;
 pub mod layout;
 pub mod screens;
 pub mod state;

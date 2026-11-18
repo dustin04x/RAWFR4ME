@@ -19,6 +19,7 @@ pub mod decoder;
 pub mod events;
 pub mod filter;
 pub mod fixtures;
+pub mod intruder;
 pub mod models;
 pub mod repeater;
 pub mod security;
@@ -34,6 +35,17 @@ pub use events::{
     Notice, NoticeLevel, ProxyState, TlsStatus,
 };
 pub use filter::{HistoryFilter, StatusFilter};
+pub use intruder::{
+    AttackPlan, DEFAULT_CONCURRENCY, DEFAULT_MAX_DURATION_SECS, DEFAULT_RATE_PER_SECOND,
+    INTRUDER_ID_BASE, IntruderCommand, IntruderCommandSender, IntruderEvent, IntruderLaunch,
+    IntruderOutcome, IntruderPhase, IntruderResult, IntruderStopReason, IntruderSummary,
+    IntruderTemplate, MARKER, MAX_CONCURRENCY, MAX_DURATION_SECS, MAX_GENERATED_REQUESTS,
+    MAX_PAYLOAD_BYTES, MAX_PAYLOAD_SETS, MAX_PAYLOADS_PER_SET, MAX_POSITIONS, MAX_RATE_PER_SECOND,
+    MAX_WORDLIST_BYTES, MAX_WORDLIST_LINE_BYTES, PayloadError, PayloadSet, PayloadSource,
+    PlanError, Position, PositionArea, PositionId, ResultFilter, ResultSort, Strategy,
+    TemplateAnalysis, TemplateError, WordlistOutcome, build_plan, intruder_entry, plan_count,
+    sorted_indices,
+};
 pub use models::{
     AccentPreset, AppConfig, CertificateMetadata, EditableHttpRequest, Header, Headers,
     HttpRequest, HttpResponse, InterceptionMetadata, InterceptionRule, Project, ProjectId,

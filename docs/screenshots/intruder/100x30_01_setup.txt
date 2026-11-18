@@ -1,0 +1,30 @@
+ RAWFRAME  |  Intruder               PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 1 allowlist rule
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││INTRUDER  positions · payloads · bounded execution                 ENGINE READY
+ PRIMARY           ││ SETUP   RESULTS                                             IDLE · 8 REQUESTS
+  Proxy         ^1 ││ Start ^↵    Edit req ↵    Mark M    Strategy S    List A
+  History       ^2 ││ REQUEST GET http://127.0.0.1:33569/search?q=§seed§
+  Repeater      ^3 ││ 1 GET /search?q=seed HTTP/1.1
+▌ Intruder      ^5 ││ 2 accept-encoding: identity
+  Decoder       ^6 ││ 3 user-agent: rawframe-evidence
+  Settings      ^4 ││ 4 Host: 127.0.0.1:33569
+                   ││BODY · empty
+                   ││ POSITIONS 1 marked · M marks · Space enables
+                   ││· PATH path              /search
+                   ││● QUERY query · q         seed
+                   ││· HEADER header · accept…  identity
+                   ││· HEADER header · user-a…  rawframe-evidence
+                   ││ CONFIG SNIPER · 8 REQUESTS · conc 2 · 2/s · 300s · redirects off
+                   ││ set: built-in demo values · 8 payloads
+                   ││
+                   ││ PREVIEW
+                   ││ 1 /search?q=1
+                   ││   1
+                   ││ 2 /search?q=2
+ STATUS            ││   2
+ Engine active     ││ 3 /search?q=test
+ Interception off  ││   test
+ No pending        ││ 4 /search?q=example
+                   ││   example
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · 1 of 5 components marked · 8 REQUESTS                      ^K commands  ? help  ^C quit

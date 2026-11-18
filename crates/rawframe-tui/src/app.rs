@@ -25,10 +25,15 @@ use rawframe_core::{
     AppCommand, AppEvent, CommandSender, EventBus, EventSender, HistoryFilter, Notice, ProxyState,
     TlsStatus,
 };
+use rawframe_core::{
+    IntruderCommand, IntruderCommandSender, IntruderEvent, IntruderPhase, IntruderSummary,
+    WordlistOutcome,
+};
 
 use crate::commands::{CommandId, CommandSpec, filter_commands};
 use crate::components::lifecycle;
 use crate::interaction::{ActionId, Focus, HitTarget, MessageSide, NavSection, SettingId};
+use crate::intruder::{IntruderFocus, IntruderState, IntruderView};
 use crate::layout::{AppLayout, DragTarget, LayoutState, compute};
 use crate::state::{
     ConfirmAction, ConfirmState, ContextMenuState, DecoderState, InspectorState, MenuAction,
@@ -85,6 +90,7 @@ pub struct App {
     pub(crate) proxy_address: Option<SocketAddr>,
     pub(crate) proxy_sender: Option<CommandSender>,
     pub(crate) repeater_sender: Option<RepeaterCommandSender>,
+    pub(crate) intruder_sender: Option<IntruderCommandSender>,
     pub(crate) traffic: Vec<TrafficEntry>,
     pub(crate) proxy_selected: Option<TrafficId>,
     pub(crate) history_selected: Option<TrafficId>,
@@ -92,6 +98,7 @@ pub struct App {
     pub(crate) search: SearchState,
     pub(crate) inspector: InspectorState,
     pub(crate) repeater: RepeaterState,
+    pub(crate) intruder: IntruderState,
     pub(crate) decoder: DecoderState,
     pub(crate) settings: SettingsState,
     pub(crate) palette: Option<PaletteState>,
@@ -143,6 +150,7 @@ impl App {
             proxy_address: None,
             proxy_sender: None,
             repeater_sender: None,
+            intruder_sender: None,
             traffic,
             proxy_selected: None,
             history_selected: None,
@@ -150,6 +158,7 @@ impl App {
             search: SearchState::default(),
             inspector: InspectorState::default(),
             repeater,
+            intruder: IntruderState::new(),
             decoder: DecoderState::new(),
             settings: SettingsState::default(),
             palette: None,
@@ -264,6 +273,16 @@ impl App {
 
     pub fn repeater_engine_available(&self) -> bool {
         self.repeater_sender.is_some()
+    }
+
+    /// Connects the Intruder attack service. Without it the workspace can build
+    /// and preview a plan but never implies it was executed.
+    pub fn attach_intruder_commands(&mut self, sender: IntruderCommandSender) {
+        self.intruder_sender = Some(sender);
+    }
+
+    pub fn intruder_engine_available(&self) -> bool {
+        self.intruder_sender.is_some()
     }
 
     /// Connects storage commands. The database itself stays in the worker.
@@ -535,6 +554,7 @@ impl App {
                 self.tls_status = status;
             }
             AppEvent::Repeater(event) => self.handle_repeater_event(event),
+            AppEvent::Intruder(event) => self.handle_intruder_event(event),
             AppEvent::Notice(notice) => self.notify(notice),
             AppEvent::Storage(event) => self.handle_storage_event(event),
             AppEvent::Shutdown => self.should_quit = true,
@@ -1298,6 +1318,31 @@ impl App {
             ActionId::DecoderHistory => self.toggle_decoder_history(),
             ActionId::DecoderPreview => self.preview_decoder_step(),
             ActionId::SendRepeaterRequestToDecoder => self.send_repeater_request_body_to_decoder(),
+            ActionId::IntruderViewToggle => self.intruder_toggle_view(),
+            ActionId::IntruderEditRequest => self.intruder_edit_request(),
+            ActionId::IntruderMarkPosition => self.intruder_mark_selected(),
+            ActionId::IntruderClearPositions => {
+                self.intruder.clear_positions();
+                self.notify_info("All payload positions cleared; the request text is restored.");
+            }
+            ActionId::IntruderTogglePosition => self.intruder.toggle_position_enabled(),
+            ActionId::IntruderNextSet => self.intruder.next_set(),
+            ActionId::IntruderAddList => self.add_intruder_list(),
+            ActionId::IntruderRenameList => self.rename_intruder_list(),
+            ActionId::IntruderDeleteList => self.delete_intruder_list(),
+            ActionId::IntruderImportWordlist => {
+                self.intruder.prompt = Some(crate::intruder::IntruderPrompt::new(
+                    crate::intruder::PromptKind::WordlistPath,
+                    String::new(),
+                ));
+            }
+            ActionId::IntruderStrategy => self.intruder.strategy_next(),
+            ActionId::IntruderStart => self.request_intruder_start(),
+            ActionId::IntruderPause => self.toggle_intruder_pause(),
+            ActionId::IntruderCancel => self.cancel_intruder_run(),
+            ActionId::IntruderBaseline => self.intruder.set_baseline(),
+            ActionId::IntruderCycleSort => self.intruder.cycle_sort(),
+            ActionId::IntruderSendToRepeater => self.send_intruder_result_to_repeater(),
             ActionId::SendRepeaterResponseToDecoder => {
                 self.send_repeater_response_body_to_decoder()
             }
@@ -1771,6 +1816,7 @@ impl App {
                 self.repeater.close_active();
                 self.notify_info("Repeater tab closed.");
             }
+            ConfirmAction::IntruderStart(launch) => self.start_intruder_run(*launch),
         }
     }
 
@@ -2754,6 +2800,447 @@ impl App {
     /// Dispatch an application command through the UI boundary (public wrapper for integration).
     pub fn dispatch_app_command(&mut self, command: AppCommand) {
         self.dispatch_command(command);
+    }
+
+    // --- Intruder -------------------------------------------------------
+
+    fn handle_intruder_event(&mut self, event: IntruderEvent) {
+        match event {
+            IntruderEvent::Started { run, total } => {
+                self.intruder.begin_run(run, total);
+                self.notify_info(format!(
+                    "Intruder run {run} started: {total} requests, concurrency {}, {} req/s.",
+                    self.intruder.concurrency, self.intruder.rate
+                ));
+            }
+            IntruderEvent::Phase { run, phase } => {
+                match phase {
+                    IntruderPhase::Paused => {
+                        self.notify_info("Intruder paused after the in-flight requests.")
+                    }
+                    IntruderPhase::Running => {}
+                    IntruderPhase::Cancelling => {
+                        self.notify_warning("Intruder cancelling; in-flight requests will finish.")
+                    }
+                    _ => {}
+                }
+                self.intruder.apply_phase(run, phase);
+            }
+            IntruderEvent::Completed { run, result, entry } => {
+                if run != self.intruder.run {
+                    return;
+                }
+                self.intruder.record_result((*result).clone());
+                // Intruder traffic joins the shared traffic list with INTRUDER
+                // provenance and payload metadata, exactly like Repeater results:
+                // visible in History, never labelled as a live capture.
+                self.upsert_traffic(*entry);
+            }
+            IntruderEvent::Finished { run, summary } => {
+                self.finish_intruder_run(run, summary);
+            }
+            IntruderEvent::Failed { run, error } => {
+                if run != self.intruder.run {
+                    return;
+                }
+                self.intruder.fail_run(run, error.clone());
+                self.notify_error(format!("Intruder failed: {error}"));
+            }
+            IntruderEvent::Wordlist(outcome) => self.apply_intruder_wordlist(outcome),
+        }
+    }
+
+    fn finish_intruder_run(&mut self, run: u64, summary: IntruderSummary) {
+        self.intruder.finish_run(run, summary);
+        let reason = summary
+            .reason
+            .map(|reason| reason.label())
+            .unwrap_or("COMPLETE");
+        let message = format!(
+            "Intruder {reason} · {} responded · {} blocked · {} timed out · {} failed · {} not sent · {} ms",
+            summary.responded,
+            summary.blocked,
+            summary.timed_out,
+            summary.failed,
+            summary.not_sent,
+            summary.duration_ms
+        );
+        // A completed run is only good news when every request actually got a
+        // response; blocks and failures carry the same weight here as in the
+        // table.
+        let stopped = matches!(
+            summary.reason,
+            Some(
+                rawframe_core::IntruderStopReason::Cancelled
+                    | rawframe_core::IntruderStopReason::Shutdown
+                    | rawframe_core::IntruderStopReason::DurationLimit
+            )
+        );
+        if stopped || summary.blocked + summary.timed_out + summary.failed > 0 {
+            self.notify_warning(message);
+        } else {
+            self.notify_success(message);
+        }
+    }
+
+    fn apply_intruder_wordlist(&mut self, outcome: WordlistOutcome) {
+        if Some(outcome.request) != self.intruder.pending_wordlist {
+            return;
+        }
+        let imported = outcome.payloads.len();
+        let error = outcome.error.clone();
+        let path = outcome.path.clone();
+        self.intruder.apply_wordlist(outcome);
+        if imported == 0 {
+            self.notify_error(format!(
+                "Wordlist not loaded: {}",
+                error.unwrap_or_else(|| "no usable lines".into())
+            ));
+        } else {
+            self.notify_success(format!("Imported {imported} payloads from {path}."));
+        }
+    }
+
+    /// Opens the confirmation prompt for the plan currently on screen. The plan
+    /// is captured now, so what starts is exactly what was previewed.
+    pub(crate) fn request_intruder_start(&mut self) {
+        if self.intruder_sender.is_none() {
+            self.notify_warning(
+                "Intruder engine is not attached. Run the packaged RAWFRAME binary to execute a plan.",
+            );
+            return;
+        }
+        if self.intruder.is_active() {
+            self.notify_warning("A run is already in flight. Pause or cancel it first.");
+            return;
+        }
+        if !self.intruder.has_template() {
+            self.notify_warning("Load a request from History or Repeater before starting.");
+            return;
+        }
+        let launch = match self.intruder.build_launch() {
+            Ok(launch) => launch,
+            Err(error) => {
+                self.notify_error(format!("Cannot start: {error}"));
+                return;
+            }
+        };
+        let target = format!(
+            "{}://{}{}",
+            launch.template.scheme,
+            launch.template.authority(),
+            launch.template.target
+        );
+        // The dialog is deliberately short: it must fit without scrolling, so a
+        // confirmed start never hides the request count or the authorization
+        // reminder behind an ellipsis.
+        let body = format!(
+            "{target}\n{} requests · {} · {} position{} · conc {} · {}/s\nRedirects {} · {} · scope {}\nOnly test systems you are authorized to test.",
+            launch.plan.count,
+            self.intruder.strategy.label(),
+            launch.plan.positions.len(),
+            if launch.plan.positions.len() == 1 {
+                ""
+            } else {
+                "s"
+            },
+            launch.concurrency,
+            launch.rate_per_second,
+            if launch.follow_redirects {
+                "ON (re-validated per hop)"
+            } else {
+                "off"
+            },
+            if launch.template.scheme == rawframe_core::Scheme::Https {
+                "TLS verified"
+            } else {
+                "plaintext HTTP"
+            },
+            self.config.proxy.scope.summary()
+        );
+        self.confirm = Some(ConfirmState {
+            title: "Start Intruder attack?".into(),
+            body,
+            confirm_label: "Start",
+            action: ConfirmAction::IntruderStart(Box::new(launch)),
+        });
+        self.focus = Focus::Content;
+    }
+
+    pub(crate) fn start_intruder_run(&mut self, launch: rawframe_core::IntruderLaunch) {
+        let Some(sender) = &self.intruder_sender else {
+            self.notify_error("Intruder engine is unavailable; nothing was sent.");
+            return;
+        };
+        let run = self.intruder.run + 1;
+        match sender.try_send(IntruderCommand::Start {
+            run,
+            launch: Box::new(launch),
+        }) {
+            Ok(()) => {
+                self.navigate(NavSection::Intruder);
+                self.intruder
+                    .begin_run(run, self.intruder.planned_count().unwrap_or_default());
+                self.focus = Focus::Content;
+            }
+            Err(_) => self.notify_error("Intruder command queue is unavailable."),
+        }
+    }
+
+    pub(crate) fn toggle_intruder_pause(&mut self) {
+        if !self.intruder.is_active() {
+            self.notify_info("No Intruder run is in flight.");
+            return;
+        }
+        let Some(sender) = &self.intruder_sender else {
+            return;
+        };
+        let run = self.intruder.run;
+        let command = if self.intruder.phase == IntruderPhase::Paused {
+            IntruderCommand::Resume { run }
+        } else {
+            IntruderCommand::Pause { run }
+        };
+        if sender.try_send(command).is_err() {
+            self.notify_error("Intruder command queue is unavailable.");
+        }
+    }
+
+    pub(crate) fn cancel_intruder_run(&mut self) {
+        if !self.intruder.is_active() {
+            self.notify_info("No Intruder run is in flight.");
+            return;
+        }
+        let run = self.intruder.run;
+        if let Some(sender) = &self.intruder_sender
+            && sender.try_send(IntruderCommand::Cancel { run }).is_ok()
+        {
+            self.notify_info("Cancelling Intruder run…");
+        }
+    }
+
+    pub(crate) fn add_intruder_list(&mut self) {
+        if self.intruder.sets.len() >= rawframe_core::MAX_PAYLOAD_SETS {
+            self.notify_error(format!(
+                "Payload list limit reached ({}). Delete one before adding another.",
+                rawframe_core::MAX_PAYLOAD_SETS
+            ));
+            return;
+        }
+        self.intruder.prompt = Some(crate::intruder::IntruderPrompt::new(
+            crate::intruder::PromptKind::NewListName,
+            format!("list {}", self.intruder.sets.len() + 1),
+        ));
+    }
+
+    pub(crate) fn rename_intruder_list(&mut self) {
+        let Some(set) = self.intruder.active_set() else {
+            self.notify_warning("No payload list is selected to rename.");
+            return;
+        };
+        let current = set.name.clone();
+        self.intruder.prompt = Some(crate::intruder::IntruderPrompt::new(
+            crate::intruder::PromptKind::RenameList,
+            current,
+        ));
+    }
+
+    pub(crate) fn delete_intruder_list(&mut self) {
+        match self.intruder.delete_active_set() {
+            Ok(()) => self.notify_info("Payload list deleted."),
+            Err(error) => self.notify_warning(error),
+        }
+    }
+
+    /// Hands a wordlist path to the engine, which reads it off the UI thread
+    /// under the Intruder byte/line/payload limits.
+    pub(crate) fn import_intruder_wordlist(&mut self) {
+        let Some(prompt) = &self.intruder.prompt else {
+            return;
+        };
+        let path = prompt.buffer.trim().to_string();
+        self.intruder.prompt = None;
+        if path.is_empty() {
+            self.notify_warning("No wordlist path was given.");
+            return;
+        }
+        let Some(sender) = &self.intruder_sender else {
+            self.notify_warning(
+                "Wordlists are read by the Intruder service. Run the packaged RAWFRAME binary to import one.",
+            );
+            return;
+        };
+        let request = self.intruder.run.saturating_mul(1_000) + self.intruder.sets.len() as u64 + 1;
+        match sender.try_send(IntruderCommand::LoadWordlist {
+            request,
+            path: std::path::PathBuf::from(&path),
+        }) {
+            Ok(()) => {
+                self.intruder.pending_wordlist = Some(request);
+                self.notify_info(format!(
+                    "Reading wordlist {path} within the Intruder limits…"
+                ));
+            }
+            Err(_) => self.notify_error("Intruder command queue is unavailable."),
+        }
+    }
+
+    /// Sends the active Repeater request to Intruder. The Repeater tab keeps its
+    /// own document; Intruder works on a copy.
+    pub(crate) fn send_repeater_request_to_intruder(&mut self) {
+        let Some(tab) = self.repeater.active_tab() else {
+            self.notify_warning("Open a Repeater tab first.");
+            return;
+        };
+        if let Some(error) = &tab.parse_error {
+            self.notify_error(format!("Fix the Repeater request first: {error}"));
+            return;
+        }
+        let request = tab.execution_request();
+        let origin = match tab.origin {
+            RepeaterOrigin::Captured(id) | RepeaterOrigin::Simulated(id) => Some(id),
+            RepeaterOrigin::Blank => None,
+        };
+        let label = tab.title().to_string();
+        self.intruder.load_request(&request, origin);
+        self.navigate(NavSection::Intruder);
+        self.focus = Focus::Content;
+        self.notify_info(format!(
+            "Loaded Repeater '{label}' into Intruder. Mark positions with M; the Repeater draft is unchanged."
+        ));
+    }
+
+    /// Loads a stored or captured request into Intruder by traffic id.
+    pub(crate) fn open_in_intruder(&mut self, id: TrafficId) {
+        let Some(entry) = self.traffic.iter().find(|entry| entry.id == id).cloned() else {
+            self.notify_warning("That request is no longer available.");
+            return;
+        };
+        self.intruder.load_request(&entry.request, Some(id));
+        self.navigate(NavSection::Intruder);
+        self.focus = Focus::Content;
+        self.notify_info(format!(
+            "Loaded request #{id} into Intruder. Mark positions with M, then review the plan before starting."
+        ));
+    }
+
+    /// Sends the selected result to a new Repeater tab, preserving the generated
+    /// request and its response. Never overwrites an existing tab.
+    pub(crate) fn send_intruder_result_to_repeater(&mut self) {
+        let Some(result) = self.intruder.selected_result() else {
+            self.notify_warning("Select a result first.");
+            return;
+        };
+        let request = result.result.request.clone();
+        let execution = result.result.clone();
+        let index = result.index;
+        let payloads = result.payload_display().join(", ");
+        let id = result.id;
+        self.repeater.add_request(
+            request,
+            RepeaterOrigin::Captured(id),
+            self.config.appearance.redact_sensitive_headers,
+        );
+        if let Some(tab) = self.repeater.active_tab_mut() {
+            // The generated request and the response it produced are both kept,
+            // so the operator continues from real evidence instead of a retype.
+            tab.execution = RepeaterExecutionPhase::Completed;
+            tab.response = Some(execution.clone());
+            tab.executions.push(execution);
+        }
+        self.navigate(NavSection::Repeater);
+        self.focus = Focus::Content;
+        self.notify_success(format!(
+            "Opened Intruder result #{index} in a new Repeater tab (payloads: {payloads}). The original run is unchanged."
+        ));
+    }
+
+    /// Sends the selected result's response body to Decoder through the existing
+    /// explicit transfer mechanism.
+    pub(crate) fn send_intruder_result_to_decoder(&mut self) {
+        let Some(result) = self.intruder.selected_result() else {
+            self.notify_warning("Select a result first.");
+            return;
+        };
+        let Some(response) = result.result.response.as_ref() else {
+            self.notify_warning("That result has no response body to decode.");
+            return;
+        };
+        if response.body.is_empty() {
+            self.notify_warning(
+                "That response body was not captured (size limit or storage policy).",
+            );
+            return;
+        }
+        let label = format!("INTRUDER #{}", result.index);
+        let body = response.body.clone();
+        self.decoder.load_input(body, label);
+        self.navigate(NavSection::Decoder);
+        self.focus = Focus::Content;
+        self.notify_info("Loaded Intruder response body into Decoder.");
+    }
+
+    /// Turns Decoder output into a session-local payload list. This is the
+    /// explicit transfer path for generating payloads from transformed data.
+    pub(crate) fn send_decoder_output_to_intruder_payloads(&mut self) {
+        if self.decoder.output.is_none() && self.decoder.view_step.is_none() {
+            self.notify_warning("Run a transformation before sending output to Intruder.");
+            return;
+        }
+        let bytes = self.decoder.displayed_bytes.clone();
+        let text = match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(_) => {
+                self.notify_error(
+                    "Decoder output is binary; Intruder payload lists accept UTF-8 lines only. Encode it first.",
+                );
+                return;
+            }
+        };
+        let name = format!("decoder {}", self.intruder.sets.len() + 1);
+        if let Err(error) = self.intruder.add_list(&name) {
+            self.notify_error(error);
+            return;
+        }
+        self.intruder.payload_text = TextBuffer::from_text(&text);
+        self.intruder.edit_target = crate::intruder::EditTarget::Payloads;
+        self.intruder.apply_edit();
+        let count = self.intruder.active_set().map(|set| set.len()).unwrap_or(0);
+        self.navigate(NavSection::Intruder);
+        self.focus = Focus::Content;
+        self.notify_success(format!(
+            "Created payload list '{name}' with {count} lines from Decoder output."
+        ));
+    }
+
+    pub(crate) fn intruder_edit_request(&mut self) {
+        if !self.intruder.has_template() {
+            self.notify_warning("Load a request from History or Repeater first.");
+            return;
+        }
+        self.intruder.editing = true;
+        self.intruder.edit_target = crate::intruder::EditTarget::Head;
+        self.intruder.focus = IntruderFocus::Request;
+        self.nav = NavSection::Intruder;
+        self.focus = Focus::Content;
+    }
+
+    pub(crate) fn intruder_mark_selected(&mut self) {
+        self.intruder.toggle_selected_marker();
+        let marked = self.intruder.candidates().len();
+        let positions = self.intruder.position_rows().len();
+        self.notify_info(format!(
+            "{positions} of {marked} components marked · {}",
+            self.intruder.plan_status()
+        ));
+    }
+
+    pub(crate) fn intruder_toggle_view(&mut self) {
+        self.intruder.view = self.intruder.view.toggled();
+        self.intruder.focus = match self.intruder.view {
+            IntruderView::Setup => IntruderFocus::Request,
+            IntruderView::Results => IntruderFocus::Results,
+        };
     }
 }
 

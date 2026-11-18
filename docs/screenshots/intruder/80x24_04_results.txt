@@ -1,0 +1,24 @@
+ RAWFRAME  |  Intruder                      PROXY LISTENING  |  INTERCEPTION OFF
+────────────────────────────────────────────────────────────────────────────────
+INTRUDER  positions · payloads · bounded execution                  ENGINE READY
+ SETUP   RESULTS                                    FINISHED · 8/8 · 8 REQUESTS
+ Pause P    Cancel X    To Repeater T    Baseline B    Sort S
+ 8/8 results · no filter · sort reque / filter · F status · O outcome · U clear
+    8/8    ██████████████████████████████████████████████ 100%  FINISHED
+╭  RESULTS  ───────────────────────────────────────────────────────────────────╮
+│  #  STAT OUTCOME        SIZE    TIME  PAYLOADS                               │
+│#1   200  RESPONSE        8 B    0 ms  1                                      │
+│#2   200  RESPONSE        8 B    1 ms  2                                      │
+│#3   200  RESPONSE       11 B    1 ms  test                                   │
+│#4   500  RESPONSE       12 B    1 ms  example                                │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭  INSPECT · V cycles view  ───────────────────────────────────────────────────╮
+│ Raw  Headers  Body  Payloads  Compare                                        │
+│GET /search?q=1 HTTP/1.1                                                      │
+│accept-encoding: identity                                                     │
+│user-agent: rawframe-evidence                                                 │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ✓ Intruder COMPLETE · 8 responded · 0 b… ^K commands  ? help  ^C quit
