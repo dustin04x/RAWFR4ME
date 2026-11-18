@@ -1,4 +1,4 @@
-//! Independent HTTP/1.1 execution engine for the Repeater.
+//! Independent HTTP/1.1 and HTTP/2 execution engine for the Repeater.
 //!
 //! Every execution resolves the destination exactly once, validates every
 //! resolved address, connects only to those addresses, and verifies upstream TLS
@@ -12,9 +12,10 @@ use std::time::{Duration, Instant};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
-use hyper::header::{HOST, HeaderName, HeaderValue};
+use hyper::header::{CONTENT_LENGTH, HOST, HeaderName, HeaderValue};
 use hyper::{Method, Request, Version};
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use rawframe_core::h2;
 use rawframe_core::models::config::{ProxyConfiguration, Scope};
 use rawframe_core::models::message::{HttpRequest, HttpResponse, Scheme};
 use rawframe_core::models::traffic::{TrafficEntry, TrafficId, TrafficSource, TrafficState};
@@ -392,43 +393,94 @@ impl RepeaterEngine {
                 }
             };
 
-            let handshake = timeout_or_cancel(
-                self.config.connect_timeout,
-                hyper::client::conn::http1::handshake(TokioIo::new(stream)),
-                &cancel,
-            )
-            .await;
-            let (mut sender, connection) = match handshake {
-                Ok(Ok(Ok(pair))) => pair,
-                Ok(Ok(Err(error))) => {
-                    return self.failure(
-                        &current,
-                        started,
-                        timings,
-                        redirects,
-                        None,
-                        ExecutionFailure::Protocol(format!(
-                            "upstream HTTP handshake failed: {error}"
-                        )),
-                    );
+            // ALPN is checked, never assumed. Plaintext HTTP stays HTTP/1.1
+            // (RAWFRAME does not implement h2c), and TLS uses HTTP/2 only when
+            // the server actually selected `h2`.
+            let h2_negotiated = match &stream {
+                Stream::Plain(_) => false,
+                Stream::Tls(tls) => h2::alpn_is_h2(tls.get_ref().1.alpn_protocol()),
+            };
+
+            let mut sender = if h2_negotiated {
+                let handshake = timeout_or_cancel(
+                    self.config.connect_timeout,
+                    hyper::client::conn::http2::handshake(
+                        TokioExecutor::new(),
+                        TokioIo::new(stream),
+                    ),
+                    &cancel,
+                )
+                .await;
+                match handshake {
+                    Ok(Ok(Ok((sender, connection)))) => {
+                        spawn_connection(connection);
+                        Sender::Http2(sender)
+                    }
+                    Ok(Ok(Err(error))) => {
+                        return self.failure(
+                            &current,
+                            started,
+                            timings,
+                            redirects,
+                            None,
+                            ExecutionFailure::Protocol(format!(
+                                "upstream HTTP/2 handshake failed: {error}"
+                            )),
+                        );
+                    }
+                    Ok(Err(_)) => {
+                        return self.failure(
+                            &current,
+                            started,
+                            timings,
+                            redirects,
+                            None,
+                            ExecutionFailure::Timeout("upstream HTTP/2 handshake timed out".into()),
+                        );
+                    }
+                    Err(()) => {
+                        return self.cancelled(&current, started, timings, redirects, None);
+                    }
                 }
-                Ok(Err(_)) => {
-                    return self.failure(
-                        &current,
-                        started,
-                        timings,
-                        redirects,
-                        None,
-                        ExecutionFailure::Timeout("upstream HTTP handshake timed out".into()),
-                    );
-                }
-                Err(()) => {
-                    return self.cancelled(&current, started, timings, redirects, None);
+            } else {
+                let handshake = timeout_or_cancel(
+                    self.config.connect_timeout,
+                    hyper::client::conn::http1::handshake(TokioIo::new(stream)),
+                    &cancel,
+                )
+                .await;
+                match handshake {
+                    Ok(Ok(Ok((sender, connection)))) => {
+                        spawn_connection(connection);
+                        Sender::Http1(sender)
+                    }
+                    Ok(Ok(Err(error))) => {
+                        return self.failure(
+                            &current,
+                            started,
+                            timings,
+                            redirects,
+                            None,
+                            ExecutionFailure::Protocol(format!(
+                                "upstream HTTP handshake failed: {error}"
+                            )),
+                        );
+                    }
+                    Ok(Err(_)) => {
+                        return self.failure(
+                            &current,
+                            started,
+                            timings,
+                            redirects,
+                            None,
+                            ExecutionFailure::Timeout("upstream HTTP handshake timed out".into()),
+                        );
+                    }
+                    Err(()) => {
+                        return self.cancelled(&current, started, timings, redirects, None);
+                    }
                 }
             };
-            tokio::spawn(async move {
-                let _ = connection.await;
-            });
 
             let request_headers = match hyper_headers(&current) {
                 Ok(headers) => headers,
@@ -471,20 +523,69 @@ impl RepeaterEngine {
             };
             let mut upstream_request = Request::new(Full::new(Bytes::from(current.body.clone())));
             *upstream_request.method_mut() = method;
-            *upstream_request.uri_mut() = uri;
-            *upstream_request.version_mut() = Version::HTTP_11;
-            *upstream_request.headers_mut() = request_headers;
-            if !upstream_request.headers().contains_key(HOST)
-                && let Ok(value) = HeaderValue::from_str(&current.authority())
+            *upstream_request.version_mut() = if h2_negotiated {
+                Version::HTTP_2
+            } else {
+                Version::HTTP_11
+            };
+            if h2_negotiated {
+                // Absolute URI carries :scheme/:authority/:path; pseudo-headers
+                // never appear in the regular header list, and connection-specific
+                // HTTP/1.1 fields (including Host) are dropped.
+                let absolute = match h2::absolute_uri(&current).parse::<hyper::Uri>() {
+                    Ok(uri) => uri,
+                    Err(_) => {
+                        return self.failure(
+                            &current,
+                            started,
+                            timings,
+                            redirects,
+                            None,
+                            ExecutionFailure::Validation("invalid absolute URI for HTTP/2".into()),
+                        );
+                    }
+                };
+                *upstream_request.uri_mut() = absolute;
+                let sanitized = h2::sanitize_headers_for_h2(&current.headers);
+                let mut headers = hyper::HeaderMap::new();
+                for header in sanitized.iter() {
+                    if let (Ok(name), Ok(value)) = (
+                        hyper::header::HeaderName::from_bytes(header.name.as_bytes()),
+                        HeaderValue::from_bytes(header.value.as_bytes()),
+                    ) {
+                        headers.append(name, value);
+                    }
+                }
+                *upstream_request.headers_mut() = headers;
+            } else {
+                *upstream_request.uri_mut() = uri;
+                *upstream_request.headers_mut() = request_headers;
+                if !upstream_request.headers().contains_key(HOST)
+                    && let Ok(value) = HeaderValue::from_str(&current.authority())
+                {
+                    upstream_request.headers_mut().insert(HOST, value);
+                }
+            }
+            if let Some(length) = upstream_request.headers().get(CONTENT_LENGTH)
+                && length
+                    .to_str()
+                    .ok()
+                    .and_then(|value| value.trim().parse::<usize>().ok())
+                    != Some(current.body.len())
             {
-                upstream_request.headers_mut().insert(HOST, value);
+                upstream_request.headers_mut().remove(CONTENT_LENGTH);
             }
 
             progress(RepeaterExecutionPhase::Sending);
             let send_started = Instant::now();
             let response = timeout_or_cancel(
                 self.config.response_timeout,
-                sender.send_request(upstream_request),
+                async {
+                    match &mut sender {
+                        Sender::Http1(sender) => sender.send_request(upstream_request).await,
+                        Sender::Http2(sender) => sender.send_request(upstream_request).await,
+                    }
+                },
                 &cancel,
             )
             .await;
@@ -932,8 +1033,27 @@ fn redirect_request(base: &HttpRequest, location: &str) -> Result<HttpRequest, S
 fn version_string(version: Version) -> String {
     match version {
         Version::HTTP_10 => "HTTP/1.0".into(),
+        Version::HTTP_2 => "HTTP/2.0".into(),
+        Version::HTTP_3 => "HTTP/3.0".into(),
         _ => "HTTP/1.1".into(),
     }
+}
+
+/// An established upstream connection in whichever protocol ALPN selected.
+enum Sender {
+    Http1(hyper::client::conn::http1::SendRequest<Full<Bytes>>),
+    Http2(hyper::client::conn::http2::SendRequest<Full<Bytes>>),
+}
+
+/// Drives an upstream connection future. The Repeater owns the request/response
+/// pair; the connection task only services framing.
+fn spawn_connection<C>(connection: C)
+where
+    C: std::future::Future<Output = Result<(), hyper::Error>> + Send + 'static,
+{
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
 }
 
 fn elapsed_ms(started: Instant) -> u64 {

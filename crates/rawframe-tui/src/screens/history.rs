@@ -283,12 +283,15 @@ enum Column {
     Duration,
     Age,
     Source,
+    Proto,
 }
 
 fn table_columns(width: u16) -> Vec<Column> {
     use Column::*;
     if width >= 100 {
-        vec![Id, Method, Host, Path, Status, Size, Duration, Age, Source]
+        vec![
+            Id, Method, Host, Path, Status, Size, Duration, Age, Source, Proto,
+        ]
     } else if width >= 76 {
         vec![Id, Method, Host, Path, Status, Duration, Age, Source]
     } else if width >= 56 {
@@ -311,6 +314,7 @@ fn column_widths(columns: &[Column]) -> Vec<Constraint> {
             Duration => Constraint::Length(8),
             Age => Constraint::Length(6),
             Source => Constraint::Length(5),
+            Proto => Constraint::Length(9),
         })
         .collect()
 }
@@ -329,6 +333,7 @@ fn table_header(theme: &Theme, columns: &[Column]) -> Row<'static> {
             Duration => "TIME",
             Age => "AGE",
             Source => "SRC",
+            Proto => "PROTOCOL",
         })
         .collect();
 
@@ -339,6 +344,16 @@ fn table_header(theme: &Theme, columns: &[Column]) -> Row<'static> {
             .collect::<Vec<_>>(),
     )
     .style(Style::new().bg(theme.palette.surface))
+}
+
+/// Protocol actually negotiated for the captured exchange. CONNECT tunnels are
+/// opaque, so their inner protocol is unknown and never inferred.
+fn protocol_cell(entry: &TrafficEntry) -> String {
+    if entry.kind == TrafficKind::ConnectTunnel {
+        "—".to_string()
+    } else {
+        rawframe_core::h2::protocol_label(&entry.request.version).to_string()
+    }
 }
 
 fn build_row(
@@ -371,7 +386,22 @@ fn build_row(
                     .method(&entry.request.method)
                     .add_modifier(Modifier::BOLD),
             )),
-            Host => Cell::from(Span::styled(entry.request.host.clone(), theme.text())),
+            Host => Cell::from(Span::styled(
+                {
+                    // Wide layouts have a dedicated PROTOCOL column. Every other
+                    // layout keeps the protocol visible next to the host.
+                    if columns.contains(&Proto) {
+                        entry.request.host.clone()
+                    } else {
+                        format!(
+                            "{} {}",
+                            crate::components::protocol_tag(entry),
+                            entry.request.host
+                        )
+                    }
+                },
+                theme.text(),
+            )),
             Path => Cell::from(Span::styled(
                 if entry.kind == TrafficKind::ConnectTunnel {
                     "(CONNECT tunnel)".to_string()
@@ -399,6 +429,7 @@ fn build_row(
                 theme.faint(),
             )),
             Source => Cell::from(source_badge(theme, entry.source)),
+            Proto => Cell::from(Span::styled(protocol_cell(entry), theme.faint())),
         };
         cells.push(cell);
     }
@@ -464,6 +495,36 @@ mod tests {
     fn narrow_history_keeps_essential_columns() {
         assert_eq!(table_columns(50).len(), 5);
         assert_eq!(table_columns(70).len(), 6);
-        assert_eq!(table_columns(110).len(), 9);
+        assert_eq!(table_columns(110).len(), 10);
+        assert!(table_columns(110).contains(&Column::Proto));
+    }
+
+    #[test]
+    fn protocol_cell_distinguishes_h2_h1_and_opaque_tunnels() {
+        use rawframe_core::models::traffic::TrafficId;
+        use rawframe_core::models::traffic::TunnelMetadata;
+        use rawframe_core::models::{HttpRequest, Scheme};
+
+        let request = HttpRequest::new("GET", Scheme::Https, "a.test", 443, "/");
+        let mut h2 = TrafficEntry::new(TrafficId(1), request.clone());
+        h2.request.version = "HTTP/2.0".into();
+        assert_eq!(protocol_cell(&h2), "HTTP/2");
+
+        let h1 = TrafficEntry::new(TrafficId(2), request.clone());
+        assert_eq!(protocol_cell(&h1), "HTTP/1.1");
+
+        let mut unknown = TrafficEntry::new(TrafficId(4), request.clone());
+        unknown.request.version = String::new();
+        assert_eq!(protocol_cell(&unknown), "unknown");
+        assert_eq!(crate::components::protocol_tag(&unknown), "??");
+
+        let mut tunnel = TrafficEntry::new(TrafficId(3), request);
+        tunnel.kind = TrafficKind::ConnectTunnel;
+        tunnel.tunnel = Some(TunnelMetadata::default());
+        assert_eq!(
+            protocol_cell(&tunnel),
+            "—",
+            "an opaque tunnel has no negotiated inner protocol"
+        );
     }
 }

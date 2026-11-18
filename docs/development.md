@@ -115,6 +115,28 @@ silence a lint without fixing or documenting the underlying design issue.
   run ID. Repeater transfer must remain an explicit command and must not mutate
   the original request or stored traffic.
 
+### Working on HTTP/2
+
+- Never infer the protocol. ALPN offers `h2` then `http/1.1`, and the connection
+  path must read the negotiated value back after the handshake and require an
+  exact `h2` match. Do not add h2c or a "use HTTP/2" flag that bypasses ALPN.
+- Keep HTTP/1.1 and HTTP/2 on the same networking stack. The proxy and Repeater
+  use Hyper; do not add a second HTTP client/server implementation.
+- Pseudo-headers are structured fields. Convert through `rawframe_core::h2`
+  (`absolute_uri`, `sanitize_headers_for_h2`) instead of copying
+  `:method`/`:authority` into the ordinary header list or storing them in
+  captures. The `version` string records the real protocol on each side.
+- Do not hold a lock across an HTTP/2 response wait. `SendRequest` is cloneable;
+  concurrent streams must not serialize. HTTP/1.1 keeps its existing mutex.
+- Every h2 feature needs a test that performs a real TLS handshake and real h2
+  framing against a local origin. A handler unit test or a mocked ALPN value is
+  not evidence that HTTP/2 works.
+- Preserve existing bounds when adding streams: 128 concurrent streams per
+  connection, 64 KiB request header lists, and the existing body/timeout caps.
+- If you change persistence, remember protocol metadata already lives in the
+  existing `version`/`response_version` columns. Additive migrations only; never
+  recreate a user database.
+
 ### Working on the proxy
 
 - `rawframe-proxy` is runtime-agnostic. `run_service` is spawned by the CLI; unit

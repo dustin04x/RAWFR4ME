@@ -2,11 +2,13 @@
 //!
 //! Security invariants:
 //! - Upstream TLS verification is always enabled (trusted roots, hostname/SNI verified).
-//! - Only HTTP/1.1 is advertised for intercepted client sessions.
-//! - Client-facing and upstream TLS sessions are separate.
+//! - Both legs advertise `h2` then `http/1.1`; the negotiated value is read back
+//!   after each handshake and h2 is used only on an exact `h2` match.
+//! - Client-facing and upstream TLS sessions negotiate independently.
 
 use std::sync::Arc;
 
+use rawframe_core::h2;
 use rustls::pki_types::ServerName;
 use rustls::server::ResolvesServerCert;
 use rustls::sign::CertifiedKey;
@@ -63,8 +65,9 @@ pub fn build_upstream_tls_config_with_trust_file(
     let mut config = ClientConfig::builder()
         .with_root_certificates(roots)
         .with_no_client_auth();
-    // Advertise only HTTP/1.1 for this milestone's intercepted pipeline.
-    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    // Prefer HTTP/2 but keep HTTP/1.1 as a first-class fallback. The proxy reads
+    // the negotiated protocol; advertising is not a claim of negotiation.
+    config.alpn_protocols = vec![h2::ALPN_H2.to_vec(), h2::ALPN_HTTP11.to_vec()];
     Ok(config)
 }
 
@@ -88,7 +91,8 @@ fn certified_key_from_material(material: LeafMaterial) -> Result<Arc<CertifiedKe
 }
 
 /// Builds a per-destination server acceptor that presents a leaf certificate for
-/// the validated CONNECT destination and advertises only HTTP/1.1 via ALPN.
+/// the validated CONNECT destination and advertises HTTP/2 with an HTTP/1.1
+/// fallback via ALPN.
 /// SNI, when provided by the client, must match the CONNECT authority host.
 pub async fn server_acceptor_for_destination(
     issuer: LeafIssuer,
@@ -104,7 +108,7 @@ pub async fn server_acceptor_for_destination(
             certified,
             destination,
         }));
-    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    config.alpn_protocols = vec![h2::ALPN_H2.to_vec(), h2::ALPN_HTTP11.to_vec()];
     Ok(TlsAcceptor::from(Arc::new(config)))
 }
 

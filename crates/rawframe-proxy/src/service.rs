@@ -16,7 +16,8 @@ use hyper::header::{
 use hyper::service::service_fn;
 use hyper::upgrade::OnUpgrade;
 use hyper::{Method, Request, Response, StatusCode, Version};
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use rawframe_core::h2;
 use rawframe_core::models::HttpResponse;
 use rawframe_core::models::traffic::{TrafficEntry, TrafficTimings, TunnelMetadata, TunnelOutcome};
 use rawframe_core::{AppConfig, AppEvent, EventSender};
@@ -30,6 +31,14 @@ use crate::interception::{InterceptionManager, PauseOutcome};
 use crate::server::next_id;
 use crate::tls::TlsController;
 use crate::tunnel::relay;
+
+/// Bound on simultaneously open HTTP/2 streams per client connection. It is
+/// deliberately generous enough for a real browser but small enough that one
+/// connection cannot exhaust the task/body budget.
+const MAX_H2_STREAMS: u32 = 128;
+/// Bound on the encoded header list a peer may send, in bytes. HTTP/2's default
+/// is unlimited; RAWFRAME keeps a ceiling.
+const MAX_H2_HEADER_LIST: u32 = 64 * 1024;
 
 #[derive(Clone)]
 pub(crate) struct ServiceContext {
@@ -45,6 +54,29 @@ pub(crate) struct ServiceContext {
     pub shutdown: watch::Receiver<bool>,
     pub interception: InterceptionManager,
     pub tls: Arc<TlsController>,
+}
+
+/// An upstream HTTP connection in either protocol. HTTP/2 senders are cloned per
+/// stream, so concurrent decrypted requests multiplex instead of serialising;
+/// HTTP/1.1 keeps the single-flight mutex it has always used.
+enum UpstreamClient {
+    Http1(Arc<Mutex<hyper::client::conn::http1::SendRequest<ProxyBody>>>),
+    Http2(hyper::client::conn::http2::SendRequest<ProxyBody>),
+}
+
+impl UpstreamClient {
+    fn is_h2(&self) -> bool {
+        matches!(self, Self::Http2(_))
+    }
+
+    async fn send(&self, request: Request<ProxyBody>) -> Result<Response<Incoming>, hyper::Error> {
+        match self {
+            Self::Http1(sender) => sender.lock().await.send_request(request).await,
+            // Cloning the HTTP/2 sender dispatches a new stream; the lock, were
+            // one used, would cover dispatch only, never the response body.
+            Self::Http2(sender) => sender.clone().send_request(request).await,
+        }
+    }
 }
 
 impl ServiceContext {
@@ -952,7 +984,9 @@ async fn handle_connect_intercepted(
         server_acceptor_for_destination, upstream_connector, upstream_server_name,
     };
     use hyper::client::conn::http1 as client_http1;
+    use hyper::client::conn::http2 as client_http2;
     use hyper::server::conn::http1 as server_http1;
+    use hyper::server::conn::http2 as server_http2;
     use hyper_util::rt::{TokioIo, TokioTimer};
 
     let started_at = Utc::now();
@@ -1105,51 +1139,100 @@ async fn handle_connect_intercepted(
             .await;
         }
     };
-    let (sender, upstream_connection) = match timeout(
-        connect_timeout,
-        client_http1::handshake(TokioIo::new(upstream_tls)),
-    )
-    .await
-    {
-        Ok(Ok(parts)) => parts,
-        Ok(Err(error)) => {
-            return reject_connect(
-                &context,
-                id,
-                captured_request,
-                started_at,
-                StatusCode::BAD_GATEWAY,
-                format!("upstream HTTP/1.1 handshake failed: {error}"),
-            )
-            .await;
+    // The upstream leg negotiates its own ALPN. It is checked, never assumed: a
+    // server that selects nothing (or http/1.1) keeps the HTTP/1.1 client.
+    let upstream_protocol = upstream_tls.get_ref().1.alpn_protocol().map(<[u8]>::to_vec);
+    let upstream_h2 = h2::alpn_is_h2(upstream_protocol.as_deref());
+    let upstream_client = if upstream_h2 {
+        match timeout(
+            connect_timeout,
+            client_http2::handshake(TokioExecutor::new(), TokioIo::new(upstream_tls)),
+        )
+        .await
+        {
+            Ok(Ok((sender, connection))) => {
+                let mut shutdown_conn = context.shutdown.clone();
+                context.tracker.spawn(async move {
+                    tokio::select! {
+                        _ = connection => {}
+                        _ = shutdown_conn.changed() => {}
+                    }
+                });
+                UpstreamClient::Http2(sender)
+            }
+            Ok(Err(error)) => {
+                return reject_connect(
+                    &context,
+                    id,
+                    captured_request,
+                    started_at,
+                    StatusCode::BAD_GATEWAY,
+                    format!("upstream HTTP/2 handshake failed: {error}"),
+                )
+                .await;
+            }
+            Err(_) => {
+                return reject_connect(
+                    &context,
+                    id,
+                    captured_request,
+                    started_at,
+                    StatusCode::GATEWAY_TIMEOUT,
+                    "upstream HTTP/2 handshake timed out",
+                )
+                .await;
+            }
         }
-        Err(_) => {
-            return reject_connect(
-                &context,
-                id,
-                captured_request,
-                started_at,
-                StatusCode::GATEWAY_TIMEOUT,
-                "upstream HTTP/1.1 handshake timed out",
-            )
-            .await;
+    } else {
+        match timeout(
+            connect_timeout,
+            client_http1::handshake(TokioIo::new(upstream_tls)),
+        )
+        .await
+        {
+            Ok(Ok((sender, connection))) => {
+                let mut shutdown_conn = context.shutdown.clone();
+                context.tracker.spawn(async move {
+                    tokio::select! {
+                        _ = connection => {}
+                        _ = shutdown_conn.changed() => {}
+                    }
+                });
+                UpstreamClient::Http1(Arc::new(Mutex::new(sender)))
+            }
+            Ok(Err(error)) => {
+                return reject_connect(
+                    &context,
+                    id,
+                    captured_request,
+                    started_at,
+                    StatusCode::BAD_GATEWAY,
+                    format!("upstream HTTP/1.1 handshake failed: {error}"),
+                )
+                .await;
+            }
+            Err(_) => {
+                return reject_connect(
+                    &context,
+                    id,
+                    captured_request,
+                    started_at,
+                    StatusCode::GATEWAY_TIMEOUT,
+                    "upstream HTTP/1.1 handshake timed out",
+                )
+                .await;
+            }
         }
     };
-    let mut shutdown_conn = context.shutdown.clone();
-    context.tracker.spawn(async move {
-        tokio::select! {
-            _ = upstream_connection => {}
-            _ = shutdown_conn.changed() => {}
-        }
-    });
+    let upstream_label = if upstream_h2 { "HTTP/2" } else { "HTTP/1.1" };
 
     // Record CONNECT establishment for an intercepted (decrypted) HTTPS session.
     // This is never represented as an opaque tunnel.
     let mut session_entry = live_entry(id, captured_request, started_at);
     session_entry.response = Some(connect_response_model());
-    session_entry.note = Some(
-        "HTTPS interception session established (decrypted HTTP/1.1; upstream TLS verified)".into(),
-    );
+    session_entry.note = Some(format!(
+        "HTTPS interception session established (upstream TLS verified; upstream {upstream_label})"
+    ));
     let _ = session_entry.forward();
     let _ = session_entry.complete(
         connect_response_model(),
@@ -1163,7 +1246,7 @@ async fn handle_connect_intercepted(
     let tunnel_context = context.clone();
     let idle = Duration::from_secs(context.config.proxy.idle_timeout_secs);
     let dest = destination.clone();
-    let sender = Arc::new(Mutex::new(sender));
+    let upstream_client = Arc::new(upstream_client);
     context.tracker.spawn(async move {
         let _permit = permit;
         let upgraded = match timeout(connect_timeout, on_upgrade).await {
@@ -1214,41 +1297,82 @@ async fn handle_connect_intercepted(
             }
         };
 
+        // The client-facing leg negotiates independently of the upstream leg.
+        // Serving h2 is decided by the ALPN result of this handshake alone.
+        let client_h2 = h2::alpn_is_h2(client_tls.get_ref().1.alpn_protocol());
         let service_dest = dest.clone();
         let service_ctx = tunnel_context.clone();
+        let service_upstream = upstream_client.clone();
         let service = service_fn(move |req: Request<Incoming>| {
             let context = service_ctx.clone();
             let destination = service_dest.clone();
-            let sender = sender.clone();
+            let upstream = service_upstream.clone();
             async move {
                 Ok::<_, Infallible>(
-                    handle_intercepted_https_request(req, context, destination, sender).await,
+                    handle_intercepted_https_request(
+                        req,
+                        context,
+                        destination,
+                        upstream,
+                        client_h2,
+                    )
+                    .await,
                 )
             }
         });
-        let mut http = server_http1::Builder::new();
-        http.timer(TokioTimer::new());
-        http.header_read_timeout(Some(idle));
-        let connection = http.serve_connection(TokioIo::new(client_tls), service);
-        tokio::pin!(connection);
         let mut shutdown = tunnel_context.shutdown.clone();
-        tokio::select! {
-            result = &mut connection => {
-                if let Err(error) = result {
-                    let _ = tunnel_context
-                        .events
-                        .send_async(AppEvent::Notice(rawframe_core::Notice::warning(format!(
-                            "Intercepted HTTPS session ended for {}: {error}",
-                            dest.authority
-                        ))))
-                        .await;
+        if client_h2 {
+            let mut http = server_http2::Builder::new(TokioExecutor::new());
+            http.timer(TokioTimer::new());
+            http.max_concurrent_streams(MAX_H2_STREAMS);
+            http.max_header_list_size(MAX_H2_HEADER_LIST);
+            let connection = http.serve_connection(TokioIo::new(client_tls), service);
+            tokio::pin!(connection);
+            tokio::select! {
+                result = &mut connection => {
+                    if let Err(error) = result {
+                        let _ = tunnel_context
+                            .events
+                            .send_async(AppEvent::Notice(rawframe_core::Notice::warning(
+                                format!(
+                                    "Intercepted HTTP/2 session ended for {}: {error}",
+                                    dest.authority
+                                ),
+                            )))
+                            .await;
+                    }
+                }
+                _ = shutdown.changed() => {
+                    connection.as_mut().graceful_shutdown();
+                    let _ = timeout(Duration::from_secs(2), &mut connection).await;
                 }
             }
-            _ = shutdown.changed() => {
-                // Let in-flight requests observe cancellation and publish their
-                // terminal state before the decrypted connection is closed.
-                connection.as_mut().graceful_shutdown();
-                let _ = timeout(Duration::from_secs(2), &mut connection).await;
+        } else {
+            let mut http = server_http1::Builder::new();
+            http.timer(TokioTimer::new());
+            http.header_read_timeout(Some(idle));
+            let connection = http.serve_connection(TokioIo::new(client_tls), service);
+            tokio::pin!(connection);
+            tokio::select! {
+                result = &mut connection => {
+                    if let Err(error) = result {
+                        let _ = tunnel_context
+                            .events
+                            .send_async(AppEvent::Notice(rawframe_core::Notice::warning(
+                                format!(
+                                    "Intercepted HTTPS session ended for {}: {error}",
+                                    dest.authority
+                                ),
+                            )))
+                            .await;
+                    }
+                }
+                _ = shutdown.changed() => {
+                    // Let in-flight requests observe cancellation and publish
+                    // their terminal state before the connection is closed.
+                    connection.as_mut().graceful_shutdown();
+                    let _ = timeout(Duration::from_secs(2), &mut connection).await;
+                }
             }
         }
     });
@@ -1262,7 +1386,8 @@ async fn handle_intercepted_https_request(
     request: Request<Incoming>,
     context: ServiceContext,
     tunnel_destination: Destination,
-    sender: Arc<Mutex<hyper::client::conn::http1::SendRequest<ProxyBody>>>,
+    upstream: Arc<UpstreamClient>,
+    client_h2: bool,
 ) -> Response<ProxyBody> {
     let started_at = Utc::now();
     let started = Instant::now();
@@ -1393,7 +1518,14 @@ async fn handle_intercepted_https_request(
             PauseOutcome::ForwardedUnchanged => (captured_request.clone(), false),
             PauseOutcome::ForwardedModified(edited) => {
                 let final_req = match editable_to_http_request(&edited) {
-                    Ok(req) => req,
+                    Ok(mut req) => {
+                        // The editor's version field is not the wire protocol: the
+                        // protocol was fixed by the TLS/ALPN handshake. Record what
+                        // the client actually spoke so history cannot claim a
+                        // modified HTTP/2 request was HTTP/1.1 (or vice versa).
+                        req.version = captured_request.version.clone();
+                        req
+                    }
                     Err(message) => {
                         let mut entry = live_entry(id, captured_request.clone(), started_at);
                         entry.original_request = Some(captured_request.clone());
@@ -1517,23 +1649,26 @@ async fn handle_intercepted_https_request(
             .await;
         }
     };
-    let upstream_request =
-        match build_upstream_request_from_model(&effective_request, &dest_for_req) {
-            Ok(req) => req,
-            Err(message) => {
-                let mut entry = live_entry(id, effective_request.clone(), started_at);
-                entry.original_request = Some(captured_request.clone());
-                entry.final_request = Some(effective_request.clone());
-                entry.interception.intercepted = should_pause;
-                entry.interception.modified = modified;
-                let _ = entry.fail(message.clone());
-                let _ = context
-                    .events
-                    .send_async(AppEvent::TrafficCaptured(Box::new(entry)))
-                    .await;
-                return error_response(StatusCode::BAD_REQUEST, message);
-            }
-        };
+    let upstream_request = match if upstream.is_h2() {
+        build_upstream_h2_request_from_model(&effective_request, &dest_for_req)
+    } else {
+        build_upstream_request_from_model(&effective_request, &dest_for_req)
+    } {
+        Ok(req) => req,
+        Err(message) => {
+            let mut entry = live_entry(id, effective_request.clone(), started_at);
+            entry.original_request = Some(captured_request.clone());
+            entry.final_request = Some(effective_request.clone());
+            entry.interception.intercepted = should_pause;
+            entry.interception.modified = modified;
+            let _ = entry.fail(message.clone());
+            let _ = context
+                .events
+                .send_async(AppEvent::TrafficCaptured(Box::new(entry)))
+                .await;
+            return error_response(StatusCode::BAD_REQUEST, message);
+        }
+    };
 
     let mut forwarded_entry = live_entry(id, effective_request.clone(), started_at);
     forwarded_entry.original_request = Some(captured_request.clone());
@@ -1546,14 +1681,11 @@ async fn handle_intercepted_https_request(
         .send_async(AppEvent::TrafficCaptured(Box::new(forwarded_entry)))
         .await;
 
-    let send_result = {
-        let mut guard = sender.lock().await;
-        timeout(
-            Duration::from_secs(context.config.proxy.upstream_timeout_secs),
-            guard.send_request(upstream_request),
-        )
-        .await
-    };
+    let send_result = timeout(
+        Duration::from_secs(context.config.proxy.upstream_timeout_secs),
+        upstream.send(upstream_request),
+    )
+    .await;
     let upstream_response = match send_result {
         Ok(Ok(response)) => response,
         Ok(Err(error)) => {
@@ -1679,7 +1811,14 @@ async fn handle_intercepted_https_request(
         .boxed();
     let mut response = Response::new(body);
     *response.status_mut() = status;
-    *response.version_mut() = Version::HTTP_11;
+    // hyper validates the response version against the connection it encodes
+    // on, so mirror the client-facing protocol. The captured response keeps the
+    // upstream's real version above.
+    *response.version_mut() = if client_h2 {
+        Version::HTTP_2
+    } else {
+        Version::HTTP_11
+    };
     let mut headers = parts_resp.headers;
     filter_headers(&mut headers, true);
     *response.headers_mut() = headers;
@@ -1899,6 +2038,48 @@ async fn finish_tunnel_failure(
         .events
         .send_async(AppEvent::TrafficUpdated(Box::new(entry)))
         .await;
+}
+
+/// Builds the upstream message for an HTTP/2 connection. The absolute URI is the
+/// single source of `:scheme`, `:authority`, and `:path`; pseudo-headers are
+/// never written into the regular header list, and HTTP/1.1 connection-specific
+/// fields (including `Host`) are removed.
+fn build_upstream_h2_request_from_model(
+    request: &rawframe_core::models::HttpRequest,
+    destination: &Destination,
+) -> Result<Request<ProxyBody>, String> {
+    let body = Bytes::from(request.body.clone());
+    let body: ProxyBody = Full::new(body).map_err(|never| match never {}).boxed();
+    let mut headers = HeaderMap::new();
+    for header in h2::sanitize_headers_for_h2(&request.headers).iter() {
+        if let (Ok(name), Ok(value)) = (
+            HeaderName::from_bytes(header.name.as_bytes()),
+            HeaderValue::from_bytes(header.value.as_bytes()),
+        ) {
+            headers.append(name, value);
+        }
+    }
+    // The body length is known and hyper sets it; a stale authored value would
+    // be a protocol error.
+    headers.remove(CONTENT_LENGTH);
+    headers.remove(TRANSFER_ENCODING);
+    let method = Method::from_bytes(request.method.as_bytes())
+        .map_err(|_| "invalid HTTP method".to_string())?;
+    let uri = h2::absolute_uri(request)
+        .parse::<hyper::Uri>()
+        .map_err(|_| "invalid absolute URI for HTTP/2".to_string())?;
+    // The authority in the URI is derived from the already-validated destination
+    // model, so this cannot redirect the request past scope enforcement.
+    debug_assert_eq!(
+        uri.authority().map(|a| a.as_str()),
+        Some(destination.authority.as_str())
+    );
+    let mut upstream = Request::new(body);
+    *upstream.method_mut() = method;
+    *upstream.uri_mut() = uri;
+    *upstream.version_mut() = Version::HTTP_2;
+    *upstream.headers_mut() = headers;
+    Ok(upstream)
 }
 
 fn build_upstream_request(

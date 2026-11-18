@@ -6,6 +6,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use rawframe_core::h2::protocol_label;
 use rawframe_core::models::traffic::{TrafficEntry, TrafficKind, TrafficState};
 use rawframe_core::models::{Headers, HttpRequest, HttpResponse};
 use rawframe_core::security::{DisplayBytes, display_bytes, sanitize_for_display};
@@ -90,7 +91,7 @@ pub fn render_inspector(
         return;
     }
 
-    render_meta(frame, inner, entry, theme);
+    render_meta(frame, inner, entry, theme, inspector.side);
     // Tabs occupy two rows, lifecycle metadata two more, then a separator.
     let content_y = inner.y + 5;
     if content_y >= inner.bottom() {
@@ -222,7 +223,13 @@ fn render_tabs(
     }
 }
 
-fn render_meta(frame: &mut Frame, inner: Rect, entry: &TrafficEntry, theme: &Theme) {
+fn render_meta(
+    frame: &mut Frame,
+    inner: Rect,
+    entry: &TrafficEntry,
+    theme: &Theme,
+    side: MessageSide,
+) {
     let meta_y = inner.y + 2;
     if meta_y >= inner.bottom() {
         return;
@@ -232,7 +239,19 @@ fn render_meta(frame: &mut Frame, inner: Rect, entry: &TrafficEntry, theme: &The
     } else {
         entry.request.url()
     };
-    let line1 = Line::from(vec![
+    // Protocol is shown for the captured request and, when it differs, the
+    // upstream response too: a bridged HTTP/2 client over HTTP/1.1 upstream must
+    // not look like a single-protocol exchange.
+    // The request protocol is shown on the request side; the response side
+    // carries its own version in the status line, and a dropped request must not
+    // grow a response-shaped protocol claim.
+    let protocol = protocol_label(&entry.request.version).to_string();
+    let protocol_width = if side == MessageSide::Request && inner.width >= 30 {
+        protocol.chars().count() as u16 + 2
+    } else {
+        0
+    };
+    let mut line1_spans = vec![
         Span::styled(format!("#{:04}  ", entry.id.0), theme.faint()),
         Span::styled(
             entry.request.method.clone(),
@@ -241,11 +260,19 @@ fn render_meta(frame: &mut Frame, inner: Rect, entry: &TrafficEntry, theme: &The
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
-        Span::styled(
-            truncate(&target, inner.width.saturating_sub(24) as usize),
-            theme.text(),
+    ];
+    if protocol_width > 0 {
+        line1_spans.push(Span::styled(protocol, theme.accent()));
+        line1_spans.push(Span::raw("  "));
+    }
+    line1_spans.push(Span::styled(
+        truncate(
+            &target,
+            inner.width.saturating_sub(24 + protocol_width) as usize,
         ),
-    ]);
+        theme.text(),
+    ));
+    let line1 = Line::from(line1_spans);
     frame.render_widget(
         Paragraph::new(line1),
         Rect::new(inner.x, meta_y, inner.width, 1),
@@ -915,5 +942,28 @@ mod tests {
         let text = render_text(Some(&entry), &inspector);
         assert!(text.contains("DROPPED BY USER"), "{text}");
         assert!(!text.contains("HTTP/1.1"), "{text}");
+    }
+
+    #[test]
+    fn http2_request_shows_the_negotiated_protocol() {
+        let mut request =
+            HttpRequest::new("POST", Scheme::Https, "h2.example.test", 443, "/stream");
+        request.version = "HTTP/2.0".to_string();
+        let mut entry = TrafficEntry::new(TrafficId(7), request);
+        entry.forward().unwrap();
+        let mut response = HttpResponse::with_body(200, "text/plain", b"ok".to_vec());
+        response.version = "HTTP/2.0".to_string();
+        entry.complete(response, 5).unwrap();
+        let inspector = InspectorState {
+            side: MessageSide::Request,
+            view: InspectorView::Raw,
+            scroll: 0,
+        };
+        let text = render_text(Some(&entry), &inspector);
+        assert!(text.contains("HTTP/2"), "{text}");
+        assert!(
+            !text.contains("HTTP/1.1"),
+            "an h2 exchange must never be labelled HTTP/1.1: {text}"
+        );
     }
 }

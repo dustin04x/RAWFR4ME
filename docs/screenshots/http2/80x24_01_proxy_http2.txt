@@ -1,0 +1,24 @@
+ RAWFRAME  |  Proxy                         PROXY LISTENING  |  INTERCEPTION OFF
+────────────────────────────────────────────────────────────────────────────────
+╭ TRAFFIC · 4 live capture(s) · TLS DECRYPTED ─────────────────────────────────╮
+│ Stop proxy P    Interception off I    Inspect Enter    Replay R              │
+│ID    METHOD  HOST             PATH           LIFECYCLE / STATUS DURATION SRC │
+│ 1003 POST    localhost        h2 /h2-two     200                42ms     LIVE│
+│ 1002 CONNECT localhost        h1 localhost:… 200                4ms      LIVE│
+│ 1001 GET     localhost        h2 /h2-one     200                2ms      LIVE│
+│ 1000 CONNECT localhost        h1 localhost:… 200                7ms      LIVE│
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · Captured POST /h2-two from localhost   ^K commands  ? help  ^C quit

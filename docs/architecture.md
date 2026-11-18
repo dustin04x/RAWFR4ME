@@ -1,9 +1,10 @@
 # RAWFRAME Architecture
 
-**Status:** Milestone 6 — Repeater (0.2.0). HTTP/1.1 forwarding, opaque HTTPS
-CONNECT tunnels, live pause/edit/forward/drop, opt-in HTTP/1.1 TLS interception,
-SQLite sessions/persistence, redacted export, live scope editing, and real
-Repeater execution/inspection/comparison are implemented.
+**Status:** Milestone 9 — HTTP/2 (0.2.0). HTTP/1.1 forwarding, opaque HTTPS
+CONNECT tunnels, live pause/edit/forward/drop, opt-in TLS interception for
+HTTP/1.1 and HTTP/2 over negotiated ALPN, SQLite sessions/persistence, redacted
+export, live scope editing, real Repeater execution and comparison, a Decoder
+pipeline, an Intruder workbench, and multiplexed HTTP/2 streams are implemented.
 
 ## 1. Design constraints
 
@@ -267,6 +268,11 @@ listener still accepts keep-alive client connections, but this milestone does
 not pool upstream connections. This is deliberate simplicity, not a claim of
 high-throughput production proxying.
 
+Plaintext proxying remains HTTP/1.1: RAWFRAME implements no h2c. HTTP/2 is
+negotiated through ALPN inside intercepted TLS sessions (§5.4) and by the
+Repeater's direct TLS connections (§5.7); §5.10 describes the shared protocol
+representation and bounds.
+
 ### 5.3 Opaque CONNECT
 
 1. Parse authority-form `CONNECT host:port` (with the same normalization and
@@ -294,18 +300,24 @@ high-throughput production proxying.
    serverAuth EKU, bounded deduplicated cache). The leaf key is generated in a
    blocking task, never on a Tokio worker.
 3. A separate upstream TLS session is established with mandatory chain and
-   hostname verification against trusted roots. Only HTTP/1.1 ALPN is offered.
-   Upstream verification completes before the `200` CONNECT response, so an
-   untrusted chain or hostname mismatch fails closed without forwarding.
+   hostname verification against trusted roots. ALPN offers `h2` then
+   `http/1.1`; the result is read back from the completed handshake and never
+   assumed. Upstream verification completes before the `200` CONNECT response,
+   so an untrusted chain or hostname mismatch fails closed without forwarding.
 4. The client-facing TLS acceptor presents the leaf. SNI, when sent, must match
    the CONNECT authority; the certificate resolver returns no certificate on a
    mismatch, failing the handshake.
-5. Decrypted HTTP/1.1 requests run through a Hyper server on the client TLS
-   stream and are forwarded through the existing interception manager, body
-   guards, history, lifecycle, and event pipeline. A per-session mutex serializes
-   upstream HTTP/1.1 requests; multiple requests on one TLS connection reuse the
-   verified upstream session.
-6. Modified requests must remain `https` and within the intercepted session
+5. The client-facing ALPN result selects the server protocol: `h2` runs a Hyper
+   HTTP/2 server, anything else keeps the HTTP/1.1 server. The two legs negotiate
+   independently, so an HTTP/2 client can be bridged to an HTTP/1.1 upstream and
+   the reverse. Each side's real protocol is recorded on the captured request and
+   response.
+6. Decrypted requests run through the existing interception manager, body
+   guards, history, lifecycle, and event pipeline. HTTP/1.1 upstream requests are
+   serialized by a per-session mutex. HTTP/2 uses a cloned multiplexed sender, so
+   concurrent streams do not hold a lock across the response wait and are bounded
+   at 128 streams per client connection and a 64 KiB header list.
+7. Modified requests must remain `https` and within the intercepted session
    authority, and are revalidated against scope before forwarding. Dropped
    requests never reach upstream.
 
@@ -421,9 +433,11 @@ those addresses.
 4. For HTTPS, build a Rustls client with certificate-chain and hostname
 verification mandatory. No CA or verification bypass exists. A lab trust bundle
 may replace roots, exactly as for proxied upstreams.
-5. Send one HTTP/1.1 request on a fresh connection and collect a bounded response
-with connect, response-header, body-idle, and total timeouts. Cancellation is a
-`CancellationToken` per execution.
+5. Send one request on a fresh connection and collect a bounded response with
+connect, response-header, body-idle, and total timeouts. Cancellation is a
+`CancellationToken` per execution. Over TLS, ALPN offers `h2` then `http/1.1`;
+an exact `h2` result uses Hyper's HTTP/2 client and anything else keeps HTTP/1.1.
+The authored document version is not treated as the wire protocol.
 6. If redirects are enabled, parse `Location`, reject non-origin-form targets,
 scope-check the next destination, strip credentials cross-origin, apply
 301/302 POST→GET and 303→GET rules (307/308 preserve method/body), cap at five
@@ -543,6 +557,49 @@ Wordlist import (`LoadWordlist`) reads a local file on the service thread, caps
 it at 4 MiB total, 512 payloads, and bounded line sizes, counts and skips lines
 that are not valid UTF-8 instead of replacing them, reports truncation, and
 never executes file content.
+
+## 5.10 HTTP/2 protocol support
+
+HTTP/2 is a real protocol path, not a relabelled HTTP/1.1 exchange. Hyper's
+`http2` feature provides framing and HPACK; RAWFRAME owns negotiation, the
+conversion boundary, capture representation, and bounds.
+
+**Representation.** `HttpRequest` and `HttpResponse` keep their existing
+`version` string. HTTP/2 pseudo-headers are never stored as ordinary headers:
+
+| HTTP/2 | Model |
+|---|---|
+| `:method` | `HttpRequest.method` |
+| `:scheme` | `HttpRequest.scheme` |
+| `:authority` | `HttpRequest.host` / `port` |
+| `:path` | `HttpRequest.target` |
+
+`rawframe_core::h2` is the single conversion boundary shared by the proxy and
+Repeater: ALPN matching, protocol labels, `sanitize_headers_for_h2` (drops
+HTTP/1.1 connection-specific fields and `Host`), and `absolute_uri` (rebuilds the
+required absolute URI from the structured fields). Because `version` already
+exists in the schema, no migration was needed; M5–M8 rows remain readable and
+HTTP/2 rows persist through the same columns and redacted export.
+
+**Negotiation rules.** ALPN is advertised as `h2`, then `http/1.1`, on both
+intercepted legs and in the Repeater. The selected value is read back after the
+handshake; `h2` must match exactly. A server that selects nothing, an unexpected
+value, or an HTTP/1.1 preference falls back without special cases. Certificate
+and hostname verification are unchanged and mandatory. Plaintext HTTP never
+offers h2c.
+
+**Streams and isolation.** Intercepted HTTP/2 serves bounded concurrent streams.
+Each stream becomes its own traffic entry and interception decision; a paused
+stream does not block other streams on the connection. A client stream reset
+cancels and dequeues its pending decision without forwarding. Interception
+timeouts, drop, modified forwarding, shutdown cancellation, and scope
+revalidation behave per stream. Per-stream request and response versions are
+recorded truthfully, including cross-protocol bridges; a modified request keeps
+the negotiated protocol rather than the editor's version field.
+
+**Bounds.** 128 concurrent streams per client connection and a 64 KiB request
+header list. Request/response body caps, timeouts, connection caps, and event
+queue bounds are the existing proxy limits.
 
 ## 6. Scope and destination address policy
 
@@ -774,6 +831,17 @@ captures are clearly distinguished.
   round-trips/truncation/output limits, binary pipelines, and step failures.
   TUI tests exercise pipeline editing, preview, history, copy/swap/clear, and
   explicit Repeater body transfer without mutating stored captures.
+- **HTTP/2 tests** (`crates/rawframe-proxy/tests/http2.rs`,
+  `crates/rawframe-repeater/tests/http2.rs`, and an Intruder case in
+  `crates/rawframe-intruder/tests/execution.rs`) negotiate real ALPN over TLS
+  and speak HTTP/2 with Hyper. They cover both-legs h2, cross-protocol bridges
+  with truthful per-side versions, HTTP/1.1 fallback, multiplexed concurrent
+  streams, per-stream pause/forward/drop/modify, interception timeout,
+  client-reset cancellation, shutdown cancellation, redirects over h2, and
+  Intruder execution through the shared Repeater path. They also assert that
+  pseudo-headers never enter the captured header list and that `Host` is not sent
+  as an h2 regular header. Protocol metadata round-trips through SQLite and
+  export without a migration.
 - **Repeater tests** (`crates/rawframe-repeater/tests/execution.rs`) use real
   local HTTP/1.1 and HTTPS servers. They cover GET/query/custom port, duplicate
   ordered headers, binary POST bodies, repeated executions, response truncation,
@@ -808,6 +876,10 @@ and local TLS servers.
 |---|---|
 | Dedicated proxy crate, no TUI dependency | Clean boundary and testability; CLI must own all wiring |
 | Per-request upstream connections | Simple, predictable isolation; no pooling/throughput optimization |
+| HTTP/2 only over negotiated TLS, never h2c | No protocol ambiguity and reuses the verified TLS path; plaintext HTTP stays HTTP/1.1 |
+| Protocol stored in the existing `version` string | No migration and existing export/history keep working; no separate protocol enum in the schema |
+| Independent ALPN per leg | Real client and upstream protocols can differ and are reported honestly; requires explicit conversion at the boundary |
+| One multiplexed upstream h2 sender, no lock across response wait | Streams progress concurrently; requires per-stream capture/error handling |
 | Resolve once and connect to validated IPs | Resistant to DNS rebinding; ignores later DNS changes for that request |
 | Conservative address policy | Blocks some legitimate special-purpose labs; safe by default |
 | Bounded event queue + async sends | Prevents unbounded memory from fast traffic; proxy can slow under UI pressure |
@@ -854,6 +926,12 @@ Repeater body transfer.
 `rawframe-intruder` service that executes every generated request through the
 Repeater engine under concurrency/rate/duration ceilings, with pause/resume/
 cancel, a results workspace, explicit transfers, and schema-v3 persistence of
-payload provenance. Next: traffic analysis and protocol expansion.
+payload provenance.
+
+**Milestone 9 (implemented).** Genuine HTTP/2 support over ALPN in intercepted
+TLS and the Repeater, shared pseudo-header/URI conversion in `rawframe-core`,
+multiplexed streams with per-stream interception, truthful protocol display in
+the inspector and history, and real h2 integration tests and PTY evidence.
+Next: traffic analysis, HTTP/3 and WebSocket coverage, and release hardening.
 
 See [roadmap.md](roadmap.md) for acceptance criteria.

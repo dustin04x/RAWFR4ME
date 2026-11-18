@@ -116,6 +116,28 @@ database libraries need deliberate review and version pinning.
   stalls, and downstream disconnects are recorded as failures. A `200` is never
   fabricated, and a terminal `Completed` state requires the body to end normally.
 
+### HTTP/2 handling
+
+- HTTP/2 is used only after an exact `h2` ALPN result on a TLS leg. Each leg
+  negotiates independently, and the recorded protocol reflects what was actually
+  selected; nothing is relabelled by configuration. h2c is not implemented.
+- Certificate-chain and hostname verification are unchanged on the upstream leg,
+  and the client-facing certificate remains a per-destination leaf from the local
+  CA. Negotiating h2 never weakens verification.
+- Pseudo-headers are structural, not ordinary headers. `:method`, `:scheme`,
+  `:authority`, and `:path` map to validated request fields, and
+  connection-specific HTTP/1.1 fields are removed before an h2 send. An h2
+  request cannot smuggle a second `Host` or connection-control field.
+- Per-connection stream count (128) and request header list size (64 KiB) are
+  bounded. Body caps, timeouts, and connection limits still apply per stream.
+- Each stream is a separate interception decision and traffic entry. A paused or
+  slow stream cannot hold another stream's response, and drop/modify/timeout
+  apply only to that stream. A client stream reset cancels its pending decision
+  and drains it from the queue without forwarding; proxy shutdown cancels all
+  pending streams.
+- Cross-protocol bridges keep both versions: an h2 client over an HTTP/1.1
+  upstream (or the reverse) is displayed with the real protocol on each side.
+
 ### Opaque CONNECT handling
 
 - CONNECT destinations pass the same scope and address policy before the
@@ -383,12 +405,13 @@ database.
 
 | Gap | Consequence | Planned handling |
 |---|---|---|
-| TLS interception is HTTP/1.1 only | HTTP/2, HTTP/3, WebSocket, and pinned clients cannot be inspected through the intercepted path | Keep opaque CONNECT available; protocol coverage is future work |
+| HTTP/3, WebSocket, and pinned clients cannot be inspected | Some traffic stays opaque; plaintext h2c is unsupported | Keep opaque CONNECT available; further protocol coverage is future work |
 | Opaque CONNECT can reach any authorized TCP service | Scope authorizes host/port, not application-layer safety | Use narrow scope and private-upstream defaults; do not authorize broad wildcards casually |
 | No proxy authentication | A remote listener is usable by anyone who can reach it | Keep loopback; firewall remote binds; authentication is future work |
 | No per-client rate limit | One authorized client can use the global connection/body budget | Global semaphores and body caps; add quotas later if needed |
 | Connection-limit overflow closes the socket | Client sees a transport error, not an HTTP `503` | Documented behavior; revisit with later protocol work |
-| No HTTP/2, HTTP/3, WebSocket forwarding | Some traffic cannot traverse the proxy; `Upgrade` is stripped | Future protocol work |
+| No HTTP/3 or WebSocket forwarding, no h2c | Plaintext HTTP stays HTTP/1.1 and `Upgrade` is stripped; HTTP/2 requires TLS | Future protocol work |
+| HTTP/2 server push, priority, and extended CONNECT are not exposed | Applications relying on those features see standard request/response behavior only | Deliberate scope: request/response framing and multiplexing only |
 | Persisted metadata can be sensitive | Hostnames, paths, and non-sensitive headers remain on disk | Protect/delete the database; body and credential storage stay opt-in |
 | Stored bodies/credentials are plaintext when opted in | A local reader or backup can expose them | Owner-only permissions, warning, full-disk encryption; off by default |
 | No automatic retention limit | Long-running sessions grow until the 512 MiB ceiling | Manual session management/export; retention policy is future work |
@@ -397,16 +420,17 @@ database.
 | No automated dependency audit | Supply-chain drift is possible | Add `cargo audit`/`cargo deny` in CI |
 | Local logs are not rotated | Log growth over long runs | Add bounded retention with logging settings |
 | Redaction toggle does not rewrite existing Repeater buffers | A tab seeded while redaction was off retains visible secrets until reopened | Deliberate: editing must not silently mutate documents; warning shown |
-| Repeater is HTTP/1.1 and direct-only | HTTP/2, WebSocket, client certificates, proxy-auth, and proxy-routed execution are unavailable | Keep the limitations visible; protocol/client-auth support is future work |
+| Repeater is direct-only and negotiates automatically | HTTP/2 is used when ALPN selects it (no manual override), but WebSocket, client certificates, proxy-auth, and proxy-routed execution are unavailable | Keep the limitations visible; remaining protocol/client-auth support is future work |
 | Repeater cannot reuse a captured connection | Results can differ from the original capture (different TLS session, client certificate, source address, or proxy path) | Treat Repeater as a fresh request, not an exact replay; document provenance |
 | Intruder has no response-matching or fuzzing engine | Results must be reviewed by the operator; automated vulnerability tagging is not provided | Deliberate: RAWFRAME reports observations, not findings |
 | Intruder rate and concurrency are local pacing | They neither guarantee target load limits nor hide the request pattern | Use conservative defaults and explicit authorization |
 | Intruder payload lists are session-only | Closing the application loses named lists unless exported to a wordlist | Documented behavior; no hidden persistence |
 | Intruder payload values are persisted and exported unredacted | A payload can itself be a credential, so stored/exported Intruder rows may contain secrets | Treated as execution metadata; delete or protect the database and exports, and prefer harmless wordlists |
-| Intruder runs HTTP/1.1 only | HTTP/2, WebSocket, and raw-socket payloads are unavailable | Same protocol limitation as Repeater |
+| Intruder has no raw-socket payloads | WebSocket and raw-socket payloads are unavailable, though HTTP/2 is inherited from Repeater | Same boundary as Repeater |
 | Clipboard copy uses OSC 52 only | Terminals that disable clipboard writes may ignore `Copy`; no shell helper is invoked | Treat copy as best effort; UI reports that the request was sent |
 
-TLS interception, CA generation, live pause/edit/drop, SQLite persistence,
+TLS interception (HTTP/1.1 and HTTP/2), CA generation, live pause/edit/drop,
+SQLite persistence,
 redaction-on-write, export, crash recovery, live scope updates, Repeater,
 bounded in-process Decoder transformations, and bounded Intruder execution are
 covered by local tests and a real-binary PTY regression. Repeater tests use real local HTTP/HTTPS origins and

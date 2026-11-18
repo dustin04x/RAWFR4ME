@@ -1,0 +1,40 @@
+ RAWFRAME  |  Proxy                                                          PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 1 allowlist rule
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││╭ TRAFFIC · 4 live capture(s) · TLS DECRYPTED ─────────────────────────────╮│╭ INSPECTOR ─────────────────────────────╮
+ PRIMARY           │││ Stop proxy P    Interception off I    Inspect Enter    Replay R          │││ Request   Response                   × │
+▌ Proxy         ^1 │││ID    METHOD  HOST           PATH         LIFECYCLE / STATUS DURATION SRC │││ Raw  Headers  Body           REDACTED  │
+  History       ^2 │││▌1003 POST    localhost      h2 /h2-two   200                42ms     LIVE│││#1003  POST  HTTP/2  https:/…           │
+  Repeater      ^3 │││ 1002 CONNECT localhost      h1 localhos… 200                4ms      LIVE│││Response 200  LIVE                      │
+  Intruder      ^5 │││ 1001 GET     localhost      h2 /h2-one   200                1ms      LIVE│││────────────────────────────────────────│
+  Decoder       ^6 │││ 1000 CONNECT localhost      h1 localhos… 200                8ms      LIVE│││POST /h2-two HTTP/2.0                   │
+  Settings      ^4 │││                                                                          │││user-agent: curl/8.23.0                 │
+                   │││                                                                          │││accept: */*                             │
+                   │││                                                                          │││content-length: 11                      │
+                   │││                                                                          │││content-type: application/x-www-form-url│
+                   │││                                                                          │││Host: localhost:37347                   │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││payload=two                             │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+ STATUS            │││                                                                          │││                                        │
+ Engine active     │││                                                                          │││                                        │
+ Interception off  │││                                                                          │││                                        │
+ No pending        │││                                                                          │││                                        │
+                   ││╰──────────────────────────────────────────────────────────────────────────╯│╰────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · Captured POST /h2-two from localhost                                                               ^K commands  ? help  ^C quit

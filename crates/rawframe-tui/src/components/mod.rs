@@ -11,7 +11,7 @@ use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
-use rawframe_core::models::traffic::{TrafficSource, TrafficState};
+use rawframe_core::models::traffic::{TrafficEntry, TrafficKind, TrafficSource, TrafficState};
 use rawframe_core::models::{HttpResponse, StatusClass};
 
 use crate::interaction::{ActionId, HitTarget, RenderOutput};
@@ -242,6 +242,19 @@ pub fn source_badge(theme: &Theme, source: TrafficSource) -> Span<'static> {
         TrafficSource::Repeater => Span::styled("REPEATER", theme.success()),
         TrafficSource::Intruder => Span::styled("INTRUDER", theme.accent_bold()),
         TrafficSource::Restored => Span::styled("RESTORED", theme.accent()),
+    }
+}
+
+/// Compact protocol tag for tables that have no room for a full label. Opaque
+/// CONNECT tunnels have no negotiated inner protocol and are never inferred.
+pub fn protocol_tag(entry: &TrafficEntry) -> &'static str {
+    if entry.kind == TrafficKind::ConnectTunnel {
+        return "--";
+    }
+    match rawframe_core::h2::protocol_label(&entry.request.version) {
+        "HTTP/2" => "h2",
+        "HTTP/1.1" | "HTTP/1.0" => "h1",
+        _ => "??",
     }
 }
 

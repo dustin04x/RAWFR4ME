@@ -1,0 +1,30 @@
+ RAWFRAME  |  History                PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 1 allowlist rule
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Search method, host, path, status…  (/ or ^F)                       │╭ INSPECTOR ─────────────────╮
+ Method: all M    Status: all status S    Host: any H                ││ Request   Response       × │
+ 21 shown / 21 total · 4 live · 17 simulated   Live, simulated and re││ Raw  Headers  Body         │
+╭ HTTP HISTORY ─────────────────────────────────────────────────────╮││#0017  GET  htt…            │
+│ID    METHOD  HOST                    STATUS           AGE    SRC  │││Forwarded                   │
+│ 1003 POST    h2 localhost            200              2s     LIVE │││────────────────────────────│
+│ 1002 CONNECT h1 localhost            200              2s     LIVE │││GET /v1/notifications?unread│
+│ 1001 GET     h2 localhost            200              2s     LIVE │││Host: api.rawframe.test     │
+│ 1000 CONNECT h1 localhost            200              2s     LIVE │││User-Agent: rawframe-sim/0.1│
+│▌0017 GET     h1 api.rawframe.test    FORWARDED        3s     SIM  │││Accept: */*                 │
+│ 0016 GET     h1 api.rawframe.test    CAPTURED         5s     SIM  │││                            │
+│ 0015 DELETE  h1 api.rawframe.test    PAUSED           10s    SIM  │││                            │
+│ 0014 POST    h1 api.rawframe.test    PAUSED           14s    SIM  │││                            │
+│ 0013 GET     h1 internal.rawframe.te DROPPED (USER)   16s    SIM  │││                            │
+│ 0012 GET     h1 expired.rawframe.tes FAILED           19s    SIM  │││                            │
+│ 0011 GET     h1 probe.rawframe.test  200              24s    SIM  │││                            │
+│ 0010 OPTIONS h1 api.rawframe.test    204              30s    SIM  │││                            │
+│ 0009 GET     h1 cdn.rawframe.test    304              37s    SIM  │││                            │
+│ 0008 GET     h1 api.rawframe.test    500              50s    SIM  │││                            │
+│ 0007 DELETE  h1 legacy.rawframe.test 403              1m     SIM  │││                            │
+│ 0006 PUT     h1 api.rawframe.test    200              1m     SIM  │││                            │
+│ 0005 POST    h1 shop.rawframe.test   302              1m     SIM  │││                            │
+│ 0004 GET     h1 shop.rawframe.test   200              1m     SIM  │││                            │
+│ 0003 POST    h1 auth.rawframe.test   401              2m     SIM  │││                            │
+│ 0002 GET     h1 api.rawframe.test    404              2m     SIM  │││                            │
+╰───────────────────────────────────────────────────────────────────╯│╰────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · Captured POST /h2-two from localhost                       ^K commands  ? help  ^C quit

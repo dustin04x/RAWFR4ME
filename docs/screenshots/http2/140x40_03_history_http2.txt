@@ -1,0 +1,40 @@
+ RAWFRAME  |  History                                                        PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 1 allowlist rule
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││ Search method, host, path, status…  (/ or ^F)                              │╭ INSPECTOR ─────────────────────────────╮
+ PRIMARY           ││ Method: all M    Status: all status S    Host: any H                       ││ Request   Response                   × │
+  Proxy         ^1 ││ 21 shown / 21 total · 4 live · 17 simulated   Live, simulated and restored ││ Raw  Headers  Body           REDACTED  │
+▌ History       ^2 ││╭ HTTP HISTORY ────────────────────────────────────────────────────────────╮││#0017  GET  HTTP/1.1  https…            │
+  Repeater      ^3 │││ID    METHOD  HOST                           STATUS           AGE    SRC  │││Forwarded  SIM                          │
+  Intruder      ^5 │││ 1003 POST    h2 localhost                   200              1s     LIVE │││────────────────────────────────────────│
+  Decoder       ^6 │││ 1002 CONNECT h1 localhost                   200              1s     LIVE │││GET /v1/notifications?unread=true HTTP/1│
+  Settings      ^4 │││ 1001 GET     h2 localhost                   200              1s     LIVE │││Host: api.rawframe.test                 │
+                   │││ 1000 CONNECT h1 localhost                   200              1s     LIVE │││User-Agent: rawframe-sim/0.1 (fixture)  │
+                   │││▌0017 GET     h1 api.rawframe.test           FORWARDED        2s     SIM  │││Accept: */*                             │
+                   │││ 0016 GET     h1 api.rawframe.test           CAPTURED         4s     SIM  │││                                        │
+                   │││ 0015 DELETE  h1 api.rawframe.test           PAUSED           9s     SIM  │││                                        │
+                   │││ 0014 POST    h1 api.rawframe.test           PAUSED           13s    SIM  │││                                        │
+                   │││ 0013 GET     h1 internal.rawframe.test      DROPPED (USER)   15s    SIM  │││                                        │
+                   │││ 0012 GET     h1 expired.rawframe.test       FAILED           18s    SIM  │││                                        │
+                   │││ 0011 GET     h1 probe.rawframe.test         200              23s    SIM  │││                                        │
+                   │││ 0010 OPTIONS h1 api.rawframe.test           204              29s    SIM  │││                                        │
+                   │││ 0009 GET     h1 cdn.rawframe.test           304              36s    SIM  │││                                        │
+                   │││ 0008 GET     h1 api.rawframe.test           500              49s    SIM  │││                                        │
+                   │││ 0007 DELETE  h1 legacy.rawframe.test        403              1m     SIM  │││                                        │
+                   │││ 0006 PUT     h1 api.rawframe.test           200              1m     SIM  │││                                        │
+                   │││ 0005 POST    h1 shop.rawframe.test          302              1m     SIM  │││                                        │
+                   │││ 0004 GET     h1 shop.rawframe.test          200              1m     SIM  │││                                        │
+                   │││ 0003 POST    h1 auth.rawframe.test          401              2m     SIM  │││                                        │
+                   │││ 0002 GET     h1 api.rawframe.test           404              2m     SIM  │││                                        │
+                   │││ 0001 GET     h1 api.rawframe.test           200              3m     SIM  │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+ STATUS            │││                                                                          │││                                        │
+ Engine active     │││                                                                          │││                                        │
+ Interception off  │││                                                                          │││                                        │
+ No pending        │││                                                                          │││                                        │
+                   ││╰──────────────────────────────────────────────────────────────────────────╯│╰────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · Captured POST /h2-two from localhost                                                               ^K commands  ? help  ^C quit

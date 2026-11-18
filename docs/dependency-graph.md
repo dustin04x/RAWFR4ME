@@ -104,8 +104,8 @@ Versions are declared once in the workspace manifest and inherited by crates.
 | `tokio-rustls`, `rustls` | 0.26 / 0.23 | repeater | verified upstream TLS client for direct HTTPS execution |
 | `thiserror` | 2.0 | core, http, proxy | typed errors with context |
 | `httparse` | 1.10 | http | HTTP/1.x document parsing |
-| `hyper` | 1.x (`http1`, `server`, `client`) | proxy | HTTP/1.1 wire parsing, client/server connections |
-| `hyper-util` | 0.1 (`tokio`) | proxy | Tokio I/O adapter |
+| `hyper` | 1.x (`http1`, `http2`, `server`, `client`) | proxy, repeater, intruder tests | HTTP/1.1 and HTTP/2 wire parsing, client/server connections, and multiplexed h2 streams |
+| `hyper-util` | 0.1 (`tokio`) | proxy, repeater | Tokio I/O adapter and `TokioExecutor` for HTTP/2 connections |
 | `http-body-util` | 0.1 | proxy | body boxing/mapping combinators |
 | `bytes` | 1.10 | proxy | zero-copy body frames |
 | `ratatui` | 0.30 | tui, cli tests | immediate-mode terminal rendering |
@@ -124,8 +124,11 @@ Versions are declared once in the workspace manifest and inherited by crates.
 
 Notes:
 
-- Hyper and Tokio provide HTTP/1.1 parsing, framing, upgrades, and async I/O.
-  RAWFRAME does not reimplement wire framing.
+- Hyper and Tokio provide HTTP/1.1 and HTTP/2 parsing, framing, and async I/O.
+  RAWFRAME does not reimplement wire framing. Hyper's `http2` feature pulls in
+  `h2` for framing and HPACK; ALPN negotiation, the pseudo-header conversion
+  boundary, capture representation, and stream bounds remain RAWFRAME code in
+  `rawframe-core::h2` and the proxy/Repeater connection setup.
 - `rawframe-http` remains a document parser for the Repeater, not the proxy's
   wire parser. The Repeater engine uses Hyper for wire framing, exactly like the
   proxy's upstream path.
@@ -134,8 +137,9 @@ Notes:
   server, CA manager, or interception queue.
 - `tokio-util` is used only for task tracking; no runtime is embedded in a
   library crate.
-- No HTTP/2, HTTP/3, UUID, OS clipboard helper, or network-logging dependency
-  is present. Clipboard copy is encoded by the TUI and emitted as terminal
+- No HTTP/3/QUIC, UUID, OS clipboard helper, or network-logging dependency is
+  present. HTTP/2 comes from Hyper plus `h2`, both already vetted in the Rust
+  HTTP stack. Clipboard copy is encoded by the TUI and emitted as terminal
   OSC 52. TLS/certificate dependencies are limited to the proxy and Repeater
   crates; SQLite is limited to the storage crate.
 - `rawframe-core`'s data-format dependencies (`base64`, `flate2`, `sha2`,
@@ -161,7 +165,7 @@ These are listed for design transparency only. They are not in `Cargo.lock`.
 
 | Milestone | Likely dependency | Purpose |
 |---|---|---|
-| later | protocol libraries | HTTP/2/WebSocket support, only when implemented and tested |
+| later | protocol libraries | WebSocket/HTTP/3 support, only when implemented and tested |
 
 Every planned addition must preserve the rule that networking and storage are
 invisible to the presentation crate.

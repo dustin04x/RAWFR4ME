@@ -881,3 +881,62 @@ fn capture_pump_persists_completed_intruder_executions() {
 
     service.shutdown();
 }
+
+#[test]
+fn http2_protocol_metadata_round_trips_without_a_migration() {
+    let dir = TempDir::new().unwrap();
+    let session = Session::new("http2");
+    let mut store = open(&dir, &session, policy());
+
+    // One HTTP/1.1 row written alongside an HTTP/2 row proves the protocol
+    // metadata is additive: nothing about the older row changes.
+    let mut legacy = sample_entry(1);
+    legacy.request.version = "HTTP/1.1".into();
+    legacy.response.as_mut().unwrap().version = "HTTP/1.1".into();
+    store.write_entry(&legacy).unwrap();
+
+    let mut h2 = sample_entry(2);
+    h2.request.version = "HTTP/2.0".into();
+    h2.request.headers.append("X-Trace", "stream-one");
+    let mut response = h2.response.clone().unwrap();
+    response.version = "HTTP/2.0".into();
+    h2.response = Some(response);
+    store.write_entry(&h2).unwrap();
+
+    let (entries, _) = store.load_session(&session.id, 10).unwrap();
+    assert_eq!(entries.len(), 2);
+    let restored_h1 = entries
+        .iter()
+        .find(|e| e.request.version == "HTTP/1.1")
+        .expect("HTTP/1.1 row");
+    assert_eq!(restored_h1.request.version, "HTTP/1.1");
+    assert_eq!(restored_h1.response.as_ref().unwrap().version, "HTTP/1.1");
+    let restored_h2 = entries
+        .iter()
+        .find(|e| e.request.version == "HTTP/2.0")
+        .expect("HTTP/2 row");
+    assert!(
+        restored_h2
+            .request
+            .headers
+            .get("x-trace")
+            .is_some_and(|value| value == "stream-one"),
+        "ordered headers survive the round trip"
+    );
+    assert_eq!(restored_h2.request.version, "HTTP/2.0");
+    assert_eq!(restored_h2.response.as_ref().unwrap().version, "HTTP/2.0");
+
+    let export = dir.path().join("http2.jsonl");
+    store.export_session(&session.id, &export).unwrap();
+    let text = fs::read_to_string(&export).unwrap();
+    assert_eq!(
+        text.matches("\"HTTP/2.0\"").count(),
+        2,
+        "export must carry both request and response protocol metadata"
+    );
+    assert_eq!(
+        rawframe_store::schema::SCHEMA_VERSION,
+        3,
+        "protocol metadata reuses the existing columns; no migration is needed"
+    );
+}

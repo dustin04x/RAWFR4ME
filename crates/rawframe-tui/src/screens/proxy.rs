@@ -13,7 +13,8 @@ use crate::app::App;
 use crate::components::editor::render_editor_with_target;
 use crate::components::lifecycle;
 use crate::components::{
-    ButtonSpec, button_row, empty_state, focused_panel, format_age, source_badge, truncate,
+    ButtonSpec, button_row, empty_state, focused_panel, format_age, protocol_tag, source_badge,
+    truncate,
 };
 use crate::interaction::{ActionId, Focus, HitTarget, RenderOutput, ScrollRegion};
 use crate::screens::window_start;
@@ -470,6 +471,19 @@ fn render_proxy_traffic_table(
             } else {
                 entry.request.target.clone()
             };
+            // Protocol is part of the row at every width, so a narrow terminal
+            // never loses the difference between HTTP/1.1 and HTTP/2. Without a
+            // path column the tag lives beside the host instead.
+            let host_cell = if show_path {
+                entry.request.host.clone()
+            } else {
+                format!("{} {}", protocol_tag(entry), entry.request.host)
+            };
+            let path = if show_path {
+                format!("{} {path}", protocol_tag(entry))
+            } else {
+                path
+            };
             let duration = entry
                 .duration_ms()
                 .map(|ms| format!("{ms}ms"))
@@ -500,7 +514,7 @@ fn render_proxy_traffic_table(
                         .add_modifier(Modifier::BOLD),
                 )),
                 Cell::from(Span::styled(
-                    truncate(&entry.request.host, host_width as usize),
+                    truncate(&host_cell, host_width as usize),
                     theme.text(),
                 )),
             ];

@@ -288,18 +288,62 @@ Exit criteria are covered by core planning/strategy/validation tests, engine and
 service integration tests against local HTTP and HTTPS origins (including
 pause/resume/cancel, scope refusal, timeouts, and redirect policy), wordlist
 limit tests, store migration/round-trip tests, transfer tests, and TUI render
-tests at all three sizes. The workspace suite is 427 passing tests.
+tests at all three sizes. At the M8 exit the workspace suite was 427 passing
+tests.
 
 Explicitly not included: response-matching rules, fuzzing dictionaries beyond
 payload lists, HTTP/2 or WebSocket payloads, proxy rotation, and any evasion or
 rate-limit bypass.
 
+## Milestone 9 — HTTP/2 support (implemented)
+
+### M9 status (this workspace)
+
+- Genuine HTTP/2 is negotiated through ALPN and spoken with Hyper's HTTP/2
+  implementation. A plaintext proxy request is never relabelled: h2c is not
+  implemented, and `h2` is used only on an exact ALPN match.
+- Intercepted TLS offers `h2` then `http/1.1` on both the client-facing and
+  upstream legs, and reads back each negotiated result independently. An HTTP/2
+  client can therefore be bridged to an HTTP/1.1 upstream and the reverse.
+- Multiplexed upstream streams no longer serialize behind a single mutex. The
+  HTTP/1.1 path keeps its mutex unchanged; the HTTP/2 path clones a send handle
+  per stream and waits for the response without holding a lock.
+- Pseudo-headers stay structured: `:method`, `:scheme`, `:authority`, and `:path`
+  map to the existing request fields and are never stored as ordinary headers.
+  `rawframe_core::h2` is the single conversion boundary for the proxy and
+  Repeater (ALPN matching, header sanitization, absolute-URI reconstruction).
+- Per-stream interception works over one HTTP/2 connection: two paused streams
+  are queued together, and forwarding one does not block or forward the other.
+  Drop, modified forwarding, timeout, and scope revalidation remain per stream.
+- The proxy, history, inspector, Repeater, and Intruder report the actual
+  protocol. History gained a `PROTOCOL` column at wide sizes and the inspector
+  shows the request protocol; a response reports the upstream protocol even when
+  it differs from the client leg. Opaque tunnels stay labelled unknown.
+- Limits: 128 concurrent streams per client connection and a 64 KiB request
+  header list, on top of the existing body, timeout, connection, and queue caps.
+- No schema migration was required: protocol metadata uses the existing
+  `version`/`response_version` columns, and M5–M8 data remains readable.
+- Fits 140×40, 100×30, and 80×24, with real PTY frames under
+  `docs/screenshots/http2/`.
+
+Exit criteria are covered by HTTP/2 integration tests that perform real ALPN
+handshakes and Hyper HTTP/2 framing: both-legs h2 with concurrent streams,
+HTTP/1.1 fallback, cross-protocol bridges, per-stream pause/forward/drop/modify,
+interception timeout, shutdown cancellation, redirects, Intruder execution
+through the Repeater, and protocol round-trips through SQLite/export. The
+workspace suite is 447 passing tests.
+
+Explicitly not included: HTTP/3, WebSocket upgrades, h2c, server push, priority
+controls, QUIC, and any second networking stack.
+
 ## Known limitations at 0.2.0
 
-- Only HTTP/1.1 is handled. HTTP/2, HTTP/3, and WebSocket upgrade forwarding are
-  not supported; `Upgrade` is stripped.
-- HTTPS TLS interception is HTTP/1.1 only. Pinned clients fail the intercepted
-  handshake by design; RAWFRAME does not bypass certificate pinning.
+- The plaintext listener is HTTP/1.1 only; h2c is not implemented. HTTP/2
+  requires TLS and an `h2` ALPN result. HTTP/3 and WebSocket upgrade forwarding
+  are not supported; `Upgrade` is stripped.
+- HTTP/2 server push, priority, and extended CONNECT are not exposed. Pinned
+  clients fail the intercepted handshake by design; RAWFRAME does not bypass
+  certificate pinning.
 - Opaque `CONNECT` captures only destination/outcome/byte/duration metadata; no
   URL, headers, body, or tunneled certificate is visible.
 - Scope rules are editable in Settings while the proxy runs. Established
@@ -307,21 +351,22 @@ rate-limit bypass.
   under; changes apply to new requests.
 - Interception is scoped per CONNECT session; a modified request cannot switch
   to a different authority inside the same intercepted TLS session.
+- HTTP/2 is automatic over TLS; there is no manual protocol override. Header
+  order is preserved where HTTP/2 permits it.
 - Persisted history is a local SQLite database with a 512 MiB default ceiling.
   Bodies and sensitive header values are off by default; changing the policy
   never rewrites entries already stored. Settings themselves (limits, accent)
   remain session-only because there is no configuration file.
-- Protocol coverage is HTTP/1.1 only.
-- Repeater opens direct connections and supports HTTP/1.1 only. It cannot reuse
-  a captured connection, client certificate, or proxy-auth path; results may
-  differ from the original capture. Drafts are session-only; completed
-  executions are persisted.
+- Repeater opens direct connections and negotiates HTTP/1.1 or HTTP/2 over TLS.
+  It cannot reuse a captured connection, client certificate, or proxy-auth path;
+  results may differ from the original capture. Drafts are session-only;
+  completed executions are persisted.
 - Decoder input/output is capped at 8 MiB and pipelines at 16 steps. Decoder
   content and history are session-only and never persisted. JWT inspection does
   not verify signatures, MD5 is legacy-only, and clipboard copy relies on
   terminal OSC 52 support.
-- Intruder is HTTP/1.1 only, has no response-matching or fuzzing engine, and
-  keeps payload lists in memory. Its rate and concurrency are local pacing, not
+- Intruder inherits Repeater protocol negotiation; it has no response-matching
+  or fuzzing engine and keeps payload lists in memory. Its rate and concurrency are local pacing, not
   a guarantee about the target.
 - No listener authentication. Keep the proxy on loopback; remote binding
   requires `--allow-remote-bind` and host-level protection.
@@ -335,7 +380,7 @@ rate-limit bypass.
 
 ## Recommended next step
 
-**Traffic analysis and protocol expansion.** With M1–M8 implemented, the next
-useful work is comparative traffic analysis over stored history and broader
-protocol coverage (HTTP/2, WebSocket), followed by release hardening:
+**Traffic analysis and remaining protocol coverage.** With M1–M9 implemented,
+the next useful work is comparative traffic analysis over stored history and
+WebSocket/HTTP/3 coverage, followed by release hardening:
 dependency auditing, log rotation, and a persistent configuration file.

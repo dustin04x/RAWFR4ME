@@ -16,7 +16,7 @@ use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioExecutor, TokioIo};
 use rawframe_core::models::config::{Scope, ScopeRule};
 use rawframe_core::models::message::{HttpRequest, Scheme};
 use rawframe_core::repeater::RepeaterExecutionPhase;
@@ -273,6 +273,83 @@ async fn serve_https(
         connections,
         task,
     }
+}
+
+/// HTTPS origin that only offers HTTP/2, plus a count of served streams. It
+/// proves the Intruder reaches the wire through the Repeater's real h2 path.
+async fn serve_https_h2(
+    reply: Reply,
+    cert: CertificateDer<'static>,
+    key: PrivateKeyDer<'static>,
+) -> (Server, Arc<AtomicUsize>) {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let loans = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let connections = Arc::new(AtomicUsize::new(0));
+    let streams = Arc::new(AtomicUsize::new(0));
+    let mut config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(vec![cert], key)
+        .unwrap();
+    config.alpn_protocols = vec![b"h2".to_vec()];
+    let acceptor = TlsAcceptor::from(Arc::new(config));
+
+    let task_seen = seen.clone();
+    let task_flight = loans.clone();
+    let task_peak = peak.clone();
+    let task_connections = connections.clone();
+    let task_streams = streams.clone();
+    let task = tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                break;
+            };
+            task_connections.fetch_add(1, Ordering::Relaxed);
+            let acceptor = acceptor.clone();
+            let reply = reply.clone();
+            let seen = task_seen.clone();
+            let in_flight = task_flight.clone();
+            let peak = task_peak.clone();
+            let streams = task_streams.clone();
+            tokio::spawn(async move {
+                let Ok(tls) = acceptor.accept(stream).await else {
+                    return;
+                };
+                let service = service_fn(move |request| {
+                    let reply = reply.clone();
+                    let seen = seen.clone();
+                    let in_flight = in_flight.clone();
+                    let peak = peak.clone();
+                    let streams = streams.clone();
+                    async move {
+                        streams.fetch_add(1, Ordering::Relaxed);
+                        let current = in_flight.fetch_add(1, Ordering::Relaxed) + 1;
+                        peak.fetch_max(current, Ordering::Relaxed);
+                        let result = handle(request, reply, seen).await;
+                        in_flight.fetch_sub(1, Ordering::Relaxed);
+                        result
+                    }
+                });
+                let _ = hyper::server::conn::http2::Builder::new(TokioExecutor::new())
+                    .serve_connection(TokioIo::new(tls), service)
+                    .await;
+            });
+        }
+    });
+
+    (
+        Server {
+            addr,
+            seen,
+            in_flight: loans,
+            peak,
+            connections,
+            task,
+        },
+        streams,
+    )
 }
 
 fn scope_for(port: u16, scheme: Scheme) -> Scope {
@@ -991,4 +1068,50 @@ async fn results_carry_entries_with_intruder_provenance() {
         rawframe_core::models::traffic::TrafficState::Completed
     );
     assert_eq!(results[0].id, entry.id);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn h2_attacks_run_through_the_shared_repeater_engine() {
+    let (pem, cert, key) = tls_identity("localhost");
+    let (server, streams) = serve_https_h2(Reply::new(200, b"h2-ok"), cert, key).await;
+    let mut trust = NamedTempFile::new().unwrap();
+    {
+        use std::io::Write;
+        trust.write_all(pem.as_bytes()).unwrap();
+    }
+    let plan = launch(
+        template(server.addr.port(), Scheme::Https, "/§p§"),
+        Strategy::Sniper,
+        &sets(&[&["alpha", "beta"]]),
+        &[(1, 0)],
+        PlanSpec {
+            concurrency: 2,
+            ..PlanSpec::default()
+        },
+    );
+    let (summary, results, _) = run(
+        engine(
+            server.addr.port(),
+            Scheme::Https,
+            Some(trust.path().to_path_buf()),
+        ),
+        plan,
+        CancellationToken::new(),
+        Arc::new(AtomicBool::new(false)),
+    )
+    .await;
+
+    assert_eq!(summary.responded, 2, "{summary:?}");
+    assert_eq!(summary.failed, 0, "{summary:?}");
+    assert_eq!(server.targets(), vec!["/alpha", "/beta"]);
+    assert_eq!(streams.load(Ordering::Relaxed), 2, "real h2 streams served");
+    assert_eq!(server.connections.load(Ordering::Relaxed), 2);
+    for result in &results {
+        let response = result.result.response.as_ref().expect("response");
+        assert_eq!(
+            response.version, "HTTP/2.0",
+            "Intruder must report the negotiated protocol"
+        );
+        assert_eq!(response.body, b"h2-ok".to_vec());
+    }
 }

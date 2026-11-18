@@ -1,0 +1,30 @@
+ RAWFRAME  |  Proxy                  PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 1 allowlist rule
+────────────────────────────────────────────────────────────────────────────────────────────────────
+╭ TRAFFIC · 4 live capture(s) · TLS DECRYPTED ──────────────────────╮│╭ INSPECTOR ─────────────────╮
+│ Stop proxy P    Interception off I    Inspect Enter    Replay R   │││                            │
+│ID    METHOD  HOST          PATH        STATUS          DUR    SRC │││                            │
+│ 1003 POST    localhost     h2 /h2-two  200             36ms   LIVE│││                            │
+│ 1002 CONNECT localhost     h1 localho… 200             5ms    LIVE│││                            │
+│ 1001 GET     localhost     h2 /h2-one  200             1ms    LIVE│││                            │
+│ 1000 CONNECT localhost     h1 localho… 200             4ms    LIVE│││     NO REQUEST SELECTED    │
+│                                                                   │││                            │
+│                                                                   │││     Select a traffic or    │
+│                                                                   │││  history entry to inspect  │
+│                                                                   │││      protocol details.     │
+│                                                                   │││  The main workspace stays  │
+│                                                                   │││  focused on the queue and  │
+│                                                                   │││     active interception    │
+│                                                                   │││            work.           │
+│                                                                   │││                            │
+│                                                                   │││     Enter inspect  ·  I    │
+│                                                                   │││     toggle inspector  ·    │
+│                                                                   │││       Ctrl+4 Settings      │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+│                                                                   │││                            │
+╰───────────────────────────────────────────────────────────────────╯│╰────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · Captured POST /h2-two from localhost                       ^K commands  ? help  ^C quit

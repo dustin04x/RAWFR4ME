@@ -1,0 +1,40 @@
+ RAWFRAME  |  Proxy                                                          PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 1 allowlist rule
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││╭ TRAFFIC · 4 live capture(s) · TLS DECRYPTED ─────────────────────────────╮│╭ INSPECTOR ─────────────────────────────╮
+ PRIMARY           │││ Stop proxy P    Interception off I    Inspect Enter    Replay R          │││                                        │
+▌ Proxy         ^1 │││ID    METHOD  HOST           PATH         LIFECYCLE / STATUS DURATION SRC │││                                        │
+  History       ^2 │││ 1003 POST    localhost      h2 /h2-two   200                42ms     LIVE│││                                        │
+  Repeater      ^3 │││ 1002 CONNECT localhost      h1 localhos… 200                4ms      LIVE│││                                        │
+  Intruder      ^5 │││ 1001 GET     localhost      h2 /h2-one   200                1ms      LIVE│││                                        │
+  Decoder       ^6 │││ 1000 CONNECT localhost      h1 localhos… 200                8ms      LIVE│││                                        │
+  Settings      ^4 │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││           NO REQUEST SELECTED          │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││  Select a traffic or history entry to  │
+                   │││                                                                          │││        inspect protocol details.       │
+                   │││                                                                          │││   The main workspace stays focused on  │
+                   │││                                                                          │││    the queue and active interception   │
+                   │││                                                                          │││                  work.                 │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││  Enter inspect  ·  I toggle inspector  │
+                   │││                                                                          │││           ·  Ctrl+4 Settings           │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+                   │││                                                                          │││                                        │
+ STATUS            │││                                                                          │││                                        │
+ Engine active     │││                                                                          │││                                        │
+ Interception off  │││                                                                          │││                                        │
+ No pending        │││                                                                          │││                                        │
+                   ││╰──────────────────────────────────────────────────────────────────────────╯│╰────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · Captured POST /h2-two from localhost                                                               ^K commands  ? help  ^C quit

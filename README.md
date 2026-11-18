@@ -2,9 +2,9 @@
 
 **Terminal-native HTTP interception and security testing workbench.**
 
-RAWFRAME is an open-source Rust workspace for authorized HTTP/1.1 testing from the terminal. It provides a local forward proxy, opaque HTTPS tunnelling, opt-in TLS interception, durable SQLite history with sessions and redacted export, and a live request workbench inside a keyboard-driven TUI. It is built for testers who want a compact terminal workflow with explicit scope and visible request lifecycle state.
+RAWFRAME is an open-source Rust workspace for authorized HTTP/1.1 and HTTP/2 testing from the terminal. It provides a local forward proxy, opaque HTTPS tunnelling, opt-in TLS interception, durable SQLite history with sessions and redacted export, and a live request workbench inside a keyboard-driven TUI. It is built for testers who want a compact terminal workflow with explicit scope and visible request lifecycle state.
 
-The current release is **0.2.0**. Milestones 1–8 are complete: core application, HTTP proxy, HTTP interception, HTTPS TLS interception, durable history/sessions/export, a functional Repeater with real HTTP/HTTPS execution, a binary-safe Decoder with chained transformations and Repeater body transfer, and an Intruder that runs real, bounded, scope-checked payload attacks with four strategies. Opaque `CONNECT` tunnelling is the default. HTTP/2 and WebSocket support are not implemented.
+The current release is **0.2.0**. Milestones 1–9 are complete: core application, HTTP proxy, HTTP interception, HTTPS TLS interception, durable history/sessions/export, a functional Repeater with real HTTP/HTTPS execution, a binary-safe Decoder with chained transformations and Repeater body transfer, an Intruder that runs real, bounded, scope-checked payload attacks with four strategies, and genuine HTTP/2 over negotiated ALPN in the proxy, Repeater, and Intruder. Opaque `CONNECT` tunnelling is the default. HTTP/2 is used only when ALPN actually negotiates `h2`; plaintext HTTP stays HTTP/1.1 (no h2c), and HTTP/3 and WebSocket are not implemented.
 
 RAWFRAME is intended **only** for systems you own or are explicitly authorized to test.
 
@@ -34,6 +34,13 @@ Captured from real PTY sessions of the current TUI at 140×40. These are termina
 | --- | --- |
 | ![Intruder setup with a marked position and payload list](docs/screenshots/intruder/140x40_01_setup.png) | ![Intruder results with 200, 404, and 500 responses](docs/screenshots/intruder/140x40_04_results.png) |
 
+HTTP/2 evidence is captured from a real PTY at 140×40, 100×30, and 80×24
+under `docs/screenshots/http2/` (`*_01_proxy_http2.txt`,
+`*_02_inspector_http2.txt` where the inspector is visible, and
+`*_03_history_http2.txt`). The capture script drives `curl --http2` through the
+proxy against a local TLS origin that only offers `h2` and asserts
+`%{http_version} = 2`; the text frames are the mandatory evidence.
+
 The Repeater workspace is also captured from a real PTY at
 [100×30](docs/screenshots/repeater/100x30_01_workspace.png) and
 [80×24](docs/screenshots/repeater/80x24_01_workspace.png). The Decoder is
@@ -50,6 +57,8 @@ confirmation, in-flight progress, and results frames (`*_02_confirm`,
 **Proxy and destination policy**
 
 - HTTP/1.1 forward proxying with streamed request and response bodies.
+- HTTP/2 upstream and downstream over intercepted TLS when ALPN negotiates `h2`; HTTP/1.1 remains the fallback on either leg.
+- Multiplexed HTTP/2 streams per intercepted connection, with per-stream interception decisions and bounded concurrency (128 streams, 64 KiB header lists).
 - Opaque HTTPS `CONNECT` tunnelling with bidirectional relay and half-close.
 - IPv4, IPv6, and hostname destinations with absolute-form and `Host` validation.
 - End-to-end header preservation, including duplicates and `Set-Cookie`, with hop-by-hop filtering.
@@ -59,7 +68,8 @@ confirmation, in-flight progress, and results frames (`*_02_confirm`,
 
 **HTTPS TLS interception**
 
-- Opt-in HTTP/1.1 TLS interception; opaque `CONNECT` remains the default.
+- Opt-in TLS interception for HTTP/1.1 and HTTP/2; opaque `CONNECT` remains the default for clients that do not trust the local CA.
+- Independent ALPN negotiation on the client and upstream legs; the negotiated protocol is recorded, never assumed.
 - Local certificate authority with explicit creation, fingerprint display, and public-certificate export.
 - Per-host leaf certificates with a bounded cache.
 - Separate upstream TLS session with mandatory certificate-chain and hostname verification.
@@ -86,7 +96,8 @@ confirmation, in-flight progress, and results frames (`*_02_confirm`,
 
 **Repeater**
 
-- Real HTTP/1.1 execution to scoped destinations over direct client connections; no simulated responses or placeholder success states.
+- Real HTTP/1.1 and HTTP/2 execution to scoped destinations over direct client connections; no simulated responses or placeholder success states.
+- Automatic HTTP/2 negotiation over TLS with an HTTP/1.1 fallback; the Repeater reports the protocol the server actually selected.
 - `http` and `https` schemes, arbitrary valid methods, custom ports, query strings, ordered duplicate headers, and binary request bodies.
 - Multiple independent tabs with per-tab editor, draft state, execution history, follow-redirect toggle, and response comparison.
 - Separate editor and response panels (vertical split below 84 columns), Raw, Headers, Body, Pretty JSON, Hex, and Compare views.
@@ -129,7 +140,7 @@ confirmation, in-flight progress, and results frames (`*_02_confirm`,
 ### Planned, not implemented
 
 - Advanced traffic analysis.
-- HTTP/2, HTTP/3, and WebSocket interception.
+- HTTP/3 and WebSocket interception; plaintext h2c; HTTP/2 server push and priority controls.
 - HTTP proxy authentication and per-client rate limits.
 
 ## Architecture
@@ -141,7 +152,7 @@ RAWFRAME is an eight-crate Cargo workspace. Dependency flow is one-way; the TUI 
 | `rawframe-core` | Domain models, configuration, scope rules, lifecycle, filters, bounded event/command contracts, terminal-safety primitives, and labelled fixtures. No network or terminal I/O. |
 | `rawframe-http` | Authored HTTP/1.x document parser used by Repeater and tests. This is not the live proxy wire implementation. |
 | `rawframe-proxy` | Tokio/Hyper listener, HTTP forwarding, opaque `CONNECT` relay, TLS interception, destination policy, body guards, limits, and graceful shutdown. |
-| `rawframe-repeater` | Repeater execution engine: request validation handoff, independent HTTP/1.1 connections, verified HTTPS, redirects, bounded response capture, timeouts, cancellation, and the command service. Reuses proxy destination/TLS policy but not its listener, CA, or interception queue. |
+| `rawframe-repeater` | Repeater execution engine: request validation handoff, independent HTTP/1.1 and HTTP/2 connections over verified HTTPS, redirects, bounded response capture, timeouts, cancellation, and the command service. Reuses proxy destination/TLS policy but not its listener, CA, or interception queue. |
 | `rawframe-intruder` | Intruder execution service: plan construction, payload expansion, bounded worker pool, rate gate, pause/resume/cancel, typed outcomes, and wordlist import. Executes through the Repeater engine instead of a second HTTP stack. |
 | `rawframe-store` | SQLite schema/migrations, a single writer thread, redaction-on-write, session queries, restore, and redacted export. No proxy or TUI dependency. |
 | `rawframe-tui` | Ratatui/Crossterm application, workspaces, inspector, editor, layouts, input handling, and terminal lifecycle. |
@@ -206,15 +217,18 @@ TLS interception is security-sensitive. RAWFRAME keeps it explicit and bounded.
 
 ### Limitations
 
-- HTTP/1.1 only. HTTP/2, HTTP/3, and WebSocket forwarding/interception are not supported.
+- Plaintext proxying is HTTP/1.1 only; h2c is not implemented. HTTP/2 requires TLS and an `h2` ALPN result.
+- HTTP/3 and WebSocket forwarding/interception are not supported.
+- HTTP/2 features beyond request/response framing (server push, priority, extended CONNECT) are not exposed. Header order is preserved where HTTP/2 permits it; pseudo-headers are represented as structured request fields rather than ordinary headers.
 - TLS interception does not bypass certificate pinning. Pinned clients fail the intercepted handshake by design.
 - Modified HTTPS requests cannot change the original `CONNECT` authority; changing host or port requires a new connection.
 - Opaque tunnels expose only destination, duration, byte counts, and outcome; payload and inner headers are not captured.
 - Captured history and sessions persist in SQLite. Settings, storage policy, and scope rules are runtime state: set them with CLI flags or in the UI for the current run. There is no configuration file.
 - Bodies and sensitive header values are absent from stored history unless explicitly enabled, and cannot be recovered later.
-- Repeater transmits HTTP/1.1 only. It has no HTTP/2, WebSocket, client-certificate, or proxy-auth support.
+- Repeater negotiates HTTP/2 automatically over verified TLS and falls back to HTTP/1.1. There is no manual protocol override and no h2c, WebSocket, client-certificate, or proxy-auth support.
+- Repeater requests are re-validated against destination and scope on every execution, including edits and HTTP/2 requests; a connection is never reused across destinations.
 - Repeater requests are direct; they do not traverse the local proxy listener or reuse a captured connection. A different client certificate, source address, or proxy path can produce a different result.
-- Intruder executes HTTP/1.1 only, through the Repeater engine. It has no HTTP/2, WebSocket, or raw socket payloads, and no response-matching rules or fuzzing engine.
+- Intruder executes through the Repeater engine, so it inherits HTTP/2 negotiation and HTTP/1.1 fallback. It has no h2c, WebSocket, or raw socket payloads, and no response-matching rules or fuzzing engine.
 - Intruder payload lists are session-only and are never written to SQLite; only completed Intruder transactions are persisted, with the payload values that produced them. Those values are execution metadata, not sensitive headers, so they are stored and exported unredacted: a wordlist entry can itself be a credential. Imported wordlists are read as local files, never executed, and capped at 4 MiB / 512 payloads per list after UTF-8-safe validation.
 - Intruder limits are 16 positions, 16 payload lists, 512 payloads per list, 4096 bytes per payload, 2048 generated requests, 8 concurrent workers, 20 requests/second, and a 1800 s duration ceiling. Rate is a local pacing control, not a guarantee about the target.
 - Decoder input and output are capped at 8 MiB and pipelines at 16 steps. Large or highly compressible gzip streams are bounded by the output limit rather than fully expanded. Decoder history is session-only and is never written to SQLite. Copy uses terminal OSC 52 and may be ignored by terminals that disable clipboard access.
@@ -521,6 +535,7 @@ Milestone numbers follow [docs/roadmap.md](docs/roadmap.md).
 | M6 — Functional Repeater | Complete |
 | M7 — Decoder and transformation workbench | Complete |
 | M8 — Intruder payload workbench | Complete |
+| M9 — HTTP/2 support | Complete |
 | Later — traffic analysis, protocol expansion, release hardening | Planned |
 
 Planned work is not available in this build. See [docs/roadmap.md](docs/roadmap.md) for scope, acceptance criteria, and known limitations.
@@ -537,9 +552,9 @@ cargo test --workspace
 
 Or run `./scripts/check.sh`.
 
-The latest verified M8 run reported:
+The latest verified M9 run reported:
 
-- **427 passing tests, 0 failed** across the workspace (M7 baseline: 342), including real local HTTP/HTTPS Repeater executions, binary bodies, duplicate headers, redirect loops and credential stripping, scope refusal, timeouts, cancellation, response limits, Repeater persistence/redaction, an end-to-end M5 schema-v1 upgrade fixture, a complete Decoder transformation/pipeline matrix with known hash vectors, malformed input, and size limits, and Intruder planning/strategy counts, wordlist import, bounded execution against local HTTP and HTTPS servers, pause/resume/cancel, persistence, transfers, and TUI rendering at three terminal sizes.
+- **447 passing tests, 0 failed** across the workspace (M8 baseline: 427), including real local HTTP/HTTPS Repeater executions, binary bodies, duplicate headers, redirect loops and credential stripping, scope refusal, timeouts, cancellation, response limits, Repeater persistence/redaction, an end-to-end M5 schema-v1 upgrade fixture, a complete Decoder transformation/pipeline matrix with known hash vectors, malformed input, and size limits, Intruder planning/strategy counts, wordlist import, bounded execution against local HTTP and HTTPS servers, pause/resume/cancel, persistence, transfers, and TUI rendering at three terminal sizes, plus genuine HTTP/2 ALPN negotiation, multiplexed streams, per-stream interception including client-reset cancellation and shutdown, cross-protocol bridges, Repeater/intruder h2 execution, and protocol persistence round-trips.
 - The existing PTY screenshot and TLS enable/disable regressions still pass.
 - Repeater tests use local HTTP/HTTPS servers and self-signed test certificates; storage tests use isolated temporary databases; proxy tests use local servers only.
 
@@ -547,7 +562,7 @@ The PTY test requires Python 3 with `cryptography`; without it, that test skips 
 
 ## Project status and contribution
 
-RAWFRAME is under active pre-1.0 development. The M1–M8 foundations are implemented and tested. Interfaces and terminal behavior may change.
+RAWFRAME is under active pre-1.0 development. The M1–M9 foundations are implemented and tested. Interfaces and terminal behavior may change.
 
 Contributions should preserve the security defaults: loopback binding, default-deny scope, explicit private-upstream opt-in, mandatory upstream TLS verification, redaction, and terminal sanitization. Add tests for behavioral changes and run the quality gates before submitting. See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/development.md](docs/development.md).
 

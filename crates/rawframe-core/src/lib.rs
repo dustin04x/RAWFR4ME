@@ -19,6 +19,7 @@ pub mod decoder;
 pub mod events;
 pub mod filter;
 pub mod fixtures;
+pub mod h2;
 pub mod intruder;
 pub mod models;
 pub mod repeater;
@@ -35,6 +36,7 @@ pub use events::{
     Notice, NoticeLevel, ProxyState, TlsStatus,
 };
 pub use filter::{HistoryFilter, StatusFilter};
+pub use h2::{HTTP2_VERSION, is_http2_version, protocol_label};
 pub use intruder::{
     AttackPlan, DEFAULT_CONCURRENCY, DEFAULT_MAX_DURATION_SECS, DEFAULT_RATE_PER_SECOND,
     INTRUDER_ID_BASE, IntruderCommand, IntruderCommandSender, IntruderEvent, IntruderLaunch,
