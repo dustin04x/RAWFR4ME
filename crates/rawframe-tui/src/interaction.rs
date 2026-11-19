@@ -5,6 +5,7 @@
 
 use ratatui::layout::Rect;
 use rawframe_core::models::traffic::TrafficId;
+use rawframe_core::models::websocket::{WebSocketConnectionId, WebSocketFrameId};
 
 use crate::layout::DragTarget;
 
@@ -12,6 +13,7 @@ use crate::layout::DragTarget;
 pub enum NavSection {
     Proxy,
     History,
+    WebSocket,
     Repeater,
     Settings,
     Intruder,
@@ -20,9 +22,10 @@ pub enum NavSection {
 
 impl NavSection {
     /// Primary workspaces.
-    pub const PRIMARY: [Self; 6] = [
+    pub const PRIMARY: [Self; 7] = [
         Self::Proxy,
         Self::History,
+        Self::WebSocket,
         Self::Repeater,
         Self::Intruder,
         Self::Decoder,
@@ -30,9 +33,10 @@ impl NavSection {
     ];
 
     /// All sections including clearly planned modules.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Proxy,
         Self::History,
+        Self::WebSocket,
         Self::Repeater,
         Self::Settings,
         Self::Intruder,
@@ -43,6 +47,7 @@ impl NavSection {
         match self {
             Self::Proxy => "Proxy",
             Self::History => "HTTP History",
+            Self::WebSocket => "WebSocket",
             Self::Repeater => "Repeater",
             Self::Settings => "Settings",
             Self::Intruder => "Intruder",
@@ -54,6 +59,7 @@ impl NavSection {
         match self {
             Self::Proxy => "Proxy",
             Self::History => "History",
+            Self::WebSocket => "WebSocket",
             Self::Repeater => "Repeater",
             Self::Settings => "Settings",
             Self::Intruder => "Intruder",
@@ -65,6 +71,7 @@ impl NavSection {
         match self {
             Self::Proxy => "^1",
             Self::History => "^2",
+            Self::WebSocket => "^7",
             Self::Repeater => "^3",
             Self::Settings => "^4",
             Self::Intruder => "^5",
@@ -83,6 +90,7 @@ impl NavSection {
             self,
             Self::Proxy
                 | Self::History
+                | Self::WebSocket
                 | Self::Repeater
                 | Self::Intruder
                 | Self::Decoder
@@ -93,7 +101,8 @@ impl NavSection {
     pub const fn next(self) -> Self {
         match self {
             Self::Proxy => Self::History,
-            Self::History => Self::Repeater,
+            Self::History => Self::WebSocket,
+            Self::WebSocket => Self::Repeater,
             Self::Repeater => Self::Settings,
             Self::Settings => Self::Intruder,
             Self::Intruder => Self::Decoder,
@@ -105,7 +114,8 @@ impl NavSection {
         match self {
             Self::Proxy => Self::Decoder,
             Self::History => Self::Proxy,
-            Self::Repeater => Self::History,
+            Self::WebSocket => Self::History,
+            Self::Repeater => Self::WebSocket,
             Self::Settings => Self::Repeater,
             Self::Intruder => Self::Settings,
             Self::Decoder => Self::Intruder,
@@ -219,6 +229,11 @@ pub enum ActionId {
     IntruderBaseline,
     IntruderCycleSort,
     IntruderSendToRepeater,
+    WebSocketForward,
+    WebSocketDrop,
+    WebSocketModify,
+    WebSocketNextPaused,
+    WebSocketClear,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -373,6 +388,8 @@ pub enum HitTarget {
     IntruderPositionRow(usize),
     IntruderResultRow(usize),
     IntruderEditor,
+    WebSocketConnection(WebSocketConnectionId),
+    WebSocketFrame(WebSocketFrameId),
     InterceptionEditor,
     Setting(SettingId),
     SessionRow(usize),
@@ -408,6 +425,9 @@ pub enum ScrollRegion {
     DecoderPipeline,
     DecoderHistory,
     InterceptionEditor,
+    WebSocketConnections,
+    WebSocketFrames,
+    WebSocketInspector,
     Settings,
     Palette,
     Menu,
@@ -471,6 +491,9 @@ mod tests {
         assert_eq!(NavSection::Proxy.previous(), NavSection::Decoder);
         assert_eq!(NavSection::Settings.next(), NavSection::Intruder);
         assert_eq!(NavSection::Decoder.next(), NavSection::Proxy);
+        assert_eq!(NavSection::History.next(), NavSection::WebSocket);
+        assert_eq!(NavSection::WebSocket.previous(), NavSection::History);
+        assert_eq!(NavSection::WebSocket.shortcut(), "^7");
         assert!(NavSection::History.uses_context());
         assert!(!NavSection::Repeater.uses_context());
         assert!(!NavSection::Settings.uses_context());
@@ -480,6 +503,8 @@ mod tests {
         assert!(NavSection::Proxy.is_primary());
         assert!(NavSection::Decoder.is_primary());
         assert!(NavSection::Intruder.is_primary());
+        assert!(NavSection::WebSocket.is_primary());
+        assert!(!NavSection::WebSocket.uses_context());
         assert_eq!(NavSection::PRIMARY.len(), NavSection::ALL.len());
     }
 

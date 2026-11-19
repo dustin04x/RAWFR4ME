@@ -61,6 +61,18 @@ pub struct ProxyConfiguration {
     pub idle_timeout_secs: u64,
     pub intercept_timeout_secs: u64,
     pub intercept_queue_capacity: usize,
+    /// Largest single RFC 6455 frame the WebSocket relay accepts.
+    pub websocket_max_frame_bytes: usize,
+    /// Largest reassembled WebSocket message kept for inspection.
+    pub websocket_max_message_bytes: usize,
+    /// Independent ceiling on concurrently relayed WebSocket connections.
+    pub websocket_max_connections: usize,
+    /// Per-frame/per-message payload bytes copied into the event bus and store.
+    /// Larger payloads are still relayed; only capture is truncated.
+    pub websocket_capture_bytes: usize,
+    /// Idle ceiling for a WebSocket connection with no frames in either
+    /// direction.
+    pub websocket_idle_timeout_secs: u64,
     /// Lab deployments may target loopback/private upstreams. This is off by
     /// default so hostname scope cannot be rebound into a private network.
     pub allow_private_upstreams: bool,
@@ -86,6 +98,11 @@ impl Default for ProxyConfiguration {
             idle_timeout_secs: 60,
             intercept_timeout_secs: 120,
             intercept_queue_capacity: 32,
+            websocket_max_frame_bytes: 2 * 1024 * 1024,
+            websocket_max_message_bytes: 8 * 1024 * 1024,
+            websocket_max_connections: 64,
+            websocket_capture_bytes: 64 * 1024,
+            websocket_idle_timeout_secs: 300,
             allow_private_upstreams: false,
             scope: Scope::default(),
         }
@@ -147,10 +164,46 @@ impl ProxyConfiguration {
             || self.upstream_timeout_secs == 0
             || self.idle_timeout_secs == 0
             || self.intercept_timeout_secs == 0
+            || self.websocket_idle_timeout_secs == 0
         {
             return Err(ConfigError::InvalidTimeout {
                 connect: self.connect_timeout_secs,
                 intercept: self.intercept_timeout_secs,
+            });
+        }
+        if self.websocket_max_frame_bytes == 0
+            || self.websocket_max_frame_bytes > MAX_BODY_LIMIT_BYTES
+        {
+            return Err(ConfigError::InvalidWebSocketLimit {
+                field: "frame",
+                limit: self.websocket_max_frame_bytes,
+                max: MAX_BODY_LIMIT_BYTES,
+            });
+        }
+        if self.websocket_max_message_bytes == 0
+            || self.websocket_max_message_bytes > MAX_BODY_LIMIT_BYTES
+        {
+            return Err(ConfigError::InvalidWebSocketLimit {
+                field: "message",
+                limit: self.websocket_max_message_bytes,
+                max: MAX_BODY_LIMIT_BYTES,
+            });
+        }
+        if self.websocket_capture_bytes == 0 || self.websocket_capture_bytes > MAX_BODY_LIMIT_BYTES
+        {
+            return Err(ConfigError::InvalidWebSocketLimit {
+                field: "capture",
+                limit: self.websocket_capture_bytes,
+                max: MAX_BODY_LIMIT_BYTES,
+            });
+        }
+        if self.websocket_max_connections == 0
+            || self.websocket_max_connections > MAX_CONCURRENT_CONNECTIONS
+        {
+            return Err(ConfigError::InvalidWebSocketLimit {
+                field: "connection",
+                limit: self.websocket_max_connections,
+                max: MAX_CONCURRENT_CONNECTIONS,
             });
         }
         self.scope.validate()?;
@@ -523,6 +576,12 @@ pub enum ConfigError {
     InvalidConnectionLimit { limit: usize, max: usize },
     #[error("intercept queue capacity must be between 1 and {max}, got {limit}")]
     InvalidInterceptQueue { limit: usize, max: usize },
+    #[error("websocket {field} limit {limit} must be between 1 and {max}")]
+    InvalidWebSocketLimit {
+        field: &'static str,
+        limit: usize,
+        max: usize,
+    },
     #[error("timeouts must be greater than zero (connect={connect}s, intercept={intercept}s)")]
     InvalidTimeout { connect: u64, intercept: u64 },
     #[error("upstream TLS verification cannot be disabled")]

@@ -15,6 +15,7 @@ use std::time::Duration;
 use rawframe_core::events::{AppEvent, EventReceiver, EventSender};
 use rawframe_core::models::session::{Project, Session, SessionId};
 use rawframe_core::models::traffic::{TrafficEntry, TrafficSource};
+use rawframe_core::models::websocket::{WebSocketConnection, WebSocketFrame, WebSocketMessage};
 use rawframe_core::storage::{
     STORAGE_COMMAND_QUEUE, StorageCommand, StorageCommandReceiver, StorageCommandSender,
     StorageEvent, StoragePolicy, StorageStatus,
@@ -50,10 +51,20 @@ impl StorageOptions {
     }
 }
 
+/// One item handed to the storage worker. WebSocket recordings share the same
+/// bounded queue as HTTP traffic, so a burst of frames cannot bypass the write
+/// limit or grow memory without bound.
+enum Capture {
+    Traffic(Box<TrafficEntry>),
+    Connection(Box<WebSocketConnection>),
+    Frame(Box<WebSocketFrame>),
+    Message(Box<WebSocketMessage>),
+}
+
 /// Cheap, cloneable handle used by the capture pump and the interface.
 #[derive(Debug, Clone)]
 pub struct StorageHandle {
-    records: SyncSender<TrafficEntry>,
+    records: SyncSender<Capture>,
     commands: StorageCommandSender,
     dropped: Arc<AtomicU64>,
 }
@@ -61,7 +72,23 @@ pub struct StorageHandle {
 impl StorageHandle {
     /// Non-blocking capture submission. Never blocks the caller.
     pub fn try_record(&self, entry: TrafficEntry) -> bool {
-        match self.records.try_send(entry) {
+        self.offer(Capture::Traffic(Box::new(entry)))
+    }
+
+    pub fn try_record_connection(&self, connection: WebSocketConnection) -> bool {
+        self.offer(Capture::Connection(Box::new(connection)))
+    }
+
+    pub fn try_record_frame(&self, frame: WebSocketFrame) -> bool {
+        self.offer(Capture::Frame(Box::new(frame)))
+    }
+
+    pub fn try_record_message(&self, message: WebSocketMessage) -> bool {
+        self.offer(Capture::Message(Box::new(message)))
+    }
+
+    fn offer(&self, capture: Capture) -> bool {
+        match self.records.try_send(capture) {
             Ok(()) => true,
             Err(_) => {
                 self.dropped.fetch_add(1, Ordering::Relaxed);
@@ -218,6 +245,20 @@ pub fn spawn_capture_pump(
                             handle.try_record(*entry);
                         }
                     }
+                    AppEvent::WebSocketConnection(connection) => {
+                        if matches!(
+                            connection.source,
+                            TrafficSource::Intercepted | TrafficSource::Repeater
+                        ) {
+                            handle.try_record_connection(*connection);
+                        }
+                    }
+                    AppEvent::WebSocketFrame(frame) => {
+                        handle.try_record_frame(*frame);
+                    }
+                    AppEvent::WebSocketMessage(message) => {
+                        handle.try_record_message(*message);
+                    }
                     AppEvent::Shutdown => break,
                     _ => {}
                 }
@@ -227,7 +268,7 @@ pub fn spawn_capture_pump(
 
 fn run_worker(
     store: &mut Store,
-    records: Receiver<TrafficEntry>,
+    records: Receiver<Capture>,
     mut commands: StorageCommandReceiver,
     events: &EventSender,
     dropped: &AtomicU64,
@@ -279,9 +320,31 @@ fn run_worker(
                     }
                 }
                 let count = batch.len();
-                match store.write_batch(&batch) {
+                let mut traffic = Vec::new();
+                let mut connections = Vec::new();
+                let mut frames = Vec::new();
+                let mut messages = Vec::new();
+                for capture in batch {
+                    match capture {
+                        Capture::Traffic(entry) => traffic.push(*entry),
+                        Capture::Connection(connection) => connections.push(*connection),
+                        Capture::Frame(frame) => frames.push(*frame),
+                        Capture::Message(message) => messages.push(*message),
+                    }
+                }
+                let written = traffic.len() + connections.len() + frames.len() + messages.len();
+                let result = (|| -> Result<(), StoreError> {
+                    if !traffic.is_empty() {
+                        store.write_batch(&traffic)?;
+                    }
+                    if !connections.is_empty() || !frames.is_empty() || !messages.is_empty() {
+                        store.write_websocket(&connections, &frames, &messages)?;
+                    }
+                    Ok(())
+                })();
+                match result {
                     Ok(()) => {
-                        status.persisted += count as u64;
+                        status.persisted += written as u64;
                         status.dropped = dropped.load(Ordering::Relaxed);
                         let _ =
                             events.send(AppEvent::Storage(StorageEvent::Status(status.clone())));

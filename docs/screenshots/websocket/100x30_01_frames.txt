@@ -1,0 +1,30 @@
+ RAWFRAME  |  WebSocket              PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 1 allowlist rule
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││WEBSOCKET  HTTP/1.1 upgrade relay · frame-level capture        INTERCEPTION OFF
+ PRIMARY           ││ 1 connections · 3 frames · 2 messages · passive   ↑↓ frames · ←→ connections ·
+  Proxy         ^1 ││ Forward f    Drop d    Modify m    Next paused n    Clear c    Filter press /
+  History       ^2 ││╭ CONNECTIONS ───────╮╭ FRAMES · 3 frames ────────────────────────────────────╮
+▌ WebSocket     ^7 │││▸ 127.0.0.1:33483   ││▸  → text             4 B seed                         │
+  Repeater      ^3 │││                    ││   ← text             9 B echo:seed                    │
+  Intruder      ^5 │││                    ││   → close            2 B binary · 0000  03 e8  …      │
+  Decoder       ^6 │││                    ││                                                       │
+  Settings      ^4 │││                    ││                                                       │
+                   │││                    ││                                                       │
+                   │││                    ││                                                       │
+                   │││                    ││                                                       │
+                   │││                    ││                                                       │
+                   │││                    ││                                                       │
+                   │││                    ││                                                       │
+                   │││                    ││                                                       │
+                   ││╰────────────────────╯╰───────────────────────────────────────────────────────╯
+                   ││╭ INSPECTOR ──────────────────────────────────────────────────────────────────╮
+                   │││CONNECTION #1  LIVE                                                          │
+                   │││ws://127.0.0.1:33483/chat                                                    │
+                   │││state closed  subprotocol none                                               │
+ STATUS            │││frames 3  messages 2  bytes ↑ 6 B ↓ 9 B                                      │
+ Engine active     │││started 01:27:18  closed 01:27:18                                            │
+ Interception off  │││                                                                             │
+ No pending        │││FRAME #2  client → server  01:27:18.080                                      │
+                   ││╰─────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · WebSocket #1 127.0.0.1:33483/chat closed                   ^K commands  ? help  ^C quit

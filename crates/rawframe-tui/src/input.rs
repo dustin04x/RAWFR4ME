@@ -79,6 +79,10 @@ impl App {
                     self.search.active = false;
                 } else if self.interception.editing {
                     self.interception.editing = false;
+                } else if self.websocket.editing() {
+                    self.websocket.cancel_edit();
+                } else if self.websocket.searching {
+                    self.websocket.stop_search();
                 } else if self.repeater.editing {
                     self.repeater.editing = false;
                 } else if self.intruder.editing {
@@ -142,6 +146,17 @@ impl App {
             return;
         }
 
+        if self.nav == NavSection::WebSocket && self.focus == Focus::Content {
+            if self.websocket.editing() {
+                self.handle_websocket_editor_key(key);
+                return;
+            }
+            if self.websocket.searching {
+                self.handle_websocket_search_key(key);
+                return;
+            }
+        }
+
         if let Some(ch) = plain_char(&key) {
             match ch {
                 '?' => {
@@ -157,16 +172,18 @@ impl App {
                     return;
                 }
                 'i' => {
-                    // Proxy uses I for interception; Repeater, History, and
-                    // Decoder use it to send a request or payload to Intruder.
-                    let transfers = matches!(
+                    // Proxy and WebSocket use I for interception; Repeater,
+                    // History, and Decoder use it to send a request or payload
+                    // to Intruder. Other workspaces keep the inspector toggle.
+                    let workspace = matches!(
                         self.nav,
                         NavSection::Proxy
+                            | NavSection::WebSocket
                             | NavSection::History
                             | NavSection::Repeater
                             | NavSection::Decoder
-                    ) && self.focus == Focus::Content;
-                    if !transfers {
+                    );
+                    if !(workspace && self.focus == Focus::Content) {
                         self.toggle_inspector();
                         return;
                     }
@@ -255,6 +272,24 @@ impl App {
                 tab.refresh_parse();
                 tab.editor.ensure_visible(rows, cols);
             }
+            return;
+        }
+
+        if self.nav == NavSection::WebSocket && self.focus == Focus::Content {
+            if self.websocket.searching {
+                for ch in single_line(text).chars() {
+                    self.websocket.push_filter_char(ch);
+                }
+                return;
+            }
+            if self.websocket.editing() {
+                let rows = self.render.repeater_rows.max(1);
+                let cols = self.render.repeater_cols.max(1);
+                if let Some(editor) = self.websocket.editor_mut() {
+                    editor.insert_str(text);
+                    editor.ensure_visible(rows, cols);
+                }
+            }
         }
     }
 
@@ -328,6 +363,10 @@ impl App {
             }
             KeyCode::Char('6') => {
                 self.navigate(NavSection::Decoder);
+                true
+            }
+            KeyCode::Char('7') => {
+                self.navigate(NavSection::WebSocket);
                 true
             }
             KeyCode::Char('f') | KeyCode::Char('F') => {
@@ -420,7 +459,129 @@ impl App {
             NavSection::Repeater => self.handle_repeater_key(key),
             NavSection::Settings => self.handle_settings_key(key),
             NavSection::Decoder => self.handle_decoder_key(key),
+            NavSection::WebSocket => self.handle_websocket_key(key),
             NavSection::Intruder => {}
+        }
+    }
+
+    fn handle_websocket_key(&mut self, key: KeyEvent) {
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            return;
+        }
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => self.websocket.move_frame(-1),
+            KeyCode::Down | KeyCode::Char('j') => self.websocket.move_frame(1),
+            KeyCode::PageUp => self.websocket.move_frame(-8),
+            KeyCode::PageDown => self.websocket.move_frame(8),
+            KeyCode::Home => self.websocket.select_frame_edge(false),
+            KeyCode::End => self.websocket.select_frame_edge(true),
+            KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('[') => {
+                self.websocket.move_connection(-1)
+            }
+            KeyCode::Right | KeyCode::Char('l') | KeyCode::Char(']') => {
+                self.websocket.move_connection(1)
+            }
+            _ => match plain_char(&key) {
+                Some('/') => self.websocket.start_search(),
+                Some('f') => self.websocket_forward(),
+                Some('d') => self.websocket_drop(),
+                Some('m') => self.websocket_begin_edit(),
+                Some('i') => self.toggle_interception(),
+                Some('n') => self.websocket_next_paused(),
+                Some('c') => self.websocket_clear(),
+                Some('o') => self.websocket_open_repeater(),
+                Some('t') => self.websocket_compose(),
+                Some('s') => self.websocket_close_repeater(),
+                Some('x') => {
+                    self.websocket.clear_filter();
+                    self.notify_info("WebSocket filter cleared.");
+                }
+                _ => {}
+            },
+        }
+    }
+
+    fn handle_websocket_editor_key(&mut self, key: KeyEvent) {
+        let rows = self.render.repeater_rows.max(1);
+        let cols = self.render.repeater_cols.max(1);
+        match key.code {
+            KeyCode::Esc => {
+                self.websocket.cancel_edit();
+                return;
+            }
+            KeyCode::Enter if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if self.websocket.composing() {
+                    self.websocket_submit_compose();
+                } else {
+                    self.websocket_submit_edit();
+                }
+                return;
+            }
+            KeyCode::Tab => {
+                self.websocket.cancel_edit();
+                self.cycle_focus(false);
+                return;
+            }
+            _ => {}
+        }
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            || key.modifiers.contains(KeyModifiers::ALT)
+        {
+            return;
+        }
+        let Some(editor) = self.websocket.editor_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Enter => editor.newline(),
+            KeyCode::Backspace => editor.backspace(),
+            KeyCode::Delete => editor.delete(),
+            KeyCode::Left => editor.move_left(),
+            KeyCode::Right => editor.move_right(),
+            KeyCode::Up => editor.move_up(),
+            KeyCode::Down => editor.move_down(),
+            KeyCode::Home => editor.move_home(),
+            KeyCode::End => editor.move_end(),
+            KeyCode::PageUp => editor.page_up(rows),
+            KeyCode::PageDown => editor.page_down(rows),
+            KeyCode::Char(ch) => editor.insert_char(ch),
+            _ => return,
+        }
+        editor.ensure_visible(rows, cols);
+    }
+
+    fn handle_websocket_search_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Enter => {
+                self.websocket.stop_search();
+                return;
+            }
+            KeyCode::Up => {
+                self.websocket.move_frame(-1);
+                return;
+            }
+            KeyCode::Down => {
+                self.websocket.move_frame(1);
+                return;
+            }
+            KeyCode::Backspace => {
+                self.websocket.pop_filter_char();
+                return;
+            }
+            KeyCode::Char('u') | KeyCode::Char('U')
+                if key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                self.websocket.clear_filter();
+                return;
+            }
+            _ => {}
+        }
+        if let KeyCode::Char(ch) = key.code
+            && !key.modifiers.contains(KeyModifiers::CONTROL)
+            && !key.modifiers.contains(KeyModifiers::ALT)
+            && !ch.is_control()
+        {
+            self.websocket.push_filter_char(ch);
         }
     }
 
@@ -1175,6 +1336,14 @@ impl App {
                     self.inspect_selected();
                 }
             }
+            HitTarget::WebSocketConnection(id) => {
+                self.websocket.select_connection(id);
+                self.focus = Focus::Content;
+            }
+            HitTarget::WebSocketFrame(id) => {
+                self.websocket.select_frame(id);
+                self.focus = Focus::Content;
+            }
             HitTarget::Action(action) => self.dispatch_action(action),
             HitTarget::InspectorSide(side) => {
                 if self.nav != NavSection::Repeater {
@@ -1444,6 +1613,9 @@ impl App {
                 self.intruder.select_candidate(delta.signum());
             }
             ScrollRegion::IntruderInspector => {}
+            ScrollRegion::WebSocketConnections => self.websocket.move_connection(delta.signum()),
+            ScrollRegion::WebSocketFrames => self.websocket.move_frame(delta),
+            ScrollRegion::WebSocketInspector => self.websocket.scroll_inspector(delta),
             ScrollRegion::Settings => self.move_selection(delta),
             ScrollRegion::Palette => {
                 if self.palette.is_some() {

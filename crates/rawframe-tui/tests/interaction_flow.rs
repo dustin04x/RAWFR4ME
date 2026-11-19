@@ -256,3 +256,170 @@ fn scroll_wheel_moves_the_history_selection() {
     mouse(&mut app, MouseEventKind::ScrollDown, list.x, list.y);
     assert_ne!(app.history_selected_id(), first);
 }
+
+fn websocket_connection(
+    id: u64,
+    host: &str,
+) -> rawframe_core::models::websocket::WebSocketConnection {
+    use rawframe_core::models::traffic::TrafficSource;
+    use rawframe_core::models::websocket::WebSocketConnectionState;
+    rawframe_core::models::websocket::WebSocketConnection {
+        id: rawframe_core::models::websocket::WebSocketConnectionId(id),
+        source: TrafficSource::Intercepted,
+        host: host.into(),
+        port: 443,
+        path: "/socket".into(),
+        tls: true,
+        subprotocol: Some("chat".into()),
+        extensions: None,
+        state: WebSocketConnectionState::Open,
+        started_at: chrono::Utc::now(),
+        closed_at: None,
+        frames: 0,
+        messages: 0,
+        bytes_client_to_server: 0,
+        bytes_server_to_client: 0,
+        error: None,
+    }
+}
+
+fn websocket_text_frame(
+    id: u64,
+    connection: u64,
+    text: &str,
+) -> rawframe_core::models::websocket::WebSocketFrame {
+    use rawframe_core::models::websocket::{
+        WebSocketConnectionId, WebSocketDirection, WebSocketFrame, WebSocketFrameId,
+        WebSocketOpcode,
+    };
+    WebSocketFrame::new(
+        WebSocketFrameId(id),
+        WebSocketConnectionId(connection),
+        WebSocketDirection::ClientToServer,
+        WebSocketOpcode::Text,
+        true,
+        true,
+        text.as_bytes().to_vec(),
+        false,
+    )
+}
+
+#[test]
+fn websocket_shortcut_opens_the_workspace_and_paused_frames_are_decidable() {
+    let mut app = App::demo();
+    ctrl(&mut app, '7');
+    assert_eq!(app.nav(), NavSection::WebSocket);
+
+    app.handle_event(AppEvent::WebSocketConnection(Box::new(
+        websocket_connection(1, "chat.example.test"),
+    )));
+    let frame = websocket_text_frame(10, 1, "hello");
+    app.handle_event(AppEvent::WebSocketFrame(Box::new(frame.clone())));
+    assert_eq!(app.websocket().frame_total(), 1);
+
+    press(&mut app, KeyCode::Char('f'));
+    press(&mut app, KeyCode::Char('m'));
+    assert!(
+        !app.websocket().editing(),
+        "unpaused frames cannot be modified"
+    );
+
+    app.handle_event(AppEvent::WebSocketFramePaused(Box::new(frame)));
+    assert_eq!(app.websocket().pending_count(), 1);
+    assert!(app.websocket().selected_frame_paused());
+
+    press(&mut app, KeyCode::Char('m'));
+    assert!(app.websocket().editing());
+    press(&mut app, KeyCode::Esc);
+    assert!(!app.websocket().editing());
+
+    press(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "hello");
+    assert_eq!(app.websocket().filter(), "hello");
+    assert_eq!(app.websocket().visible_frames().len(), 1);
+    press(&mut app, KeyCode::Enter);
+    assert!(!app.websocket().searching);
+}
+
+#[test]
+fn websocket_workspace_renders_at_supported_sizes() {
+    let mut app = App::demo();
+    app.navigate(NavSection::WebSocket);
+    app.handle_event(AppEvent::WebSocketConnection(Box::new(
+        websocket_connection(1, "chat.example.test"),
+    )));
+    app.handle_event(AppEvent::WebSocketFrame(Box::new(websocket_text_frame(
+        10,
+        1,
+        "hello from the frame inspector",
+    ))));
+
+    for (width, height) in [(140, 40), (100, 30), (80, 24)] {
+        let buffer = testing::render_frame(&mut app, width, height);
+        let text = testing::text(&buffer);
+        assert!(text.contains("WebSocket"), "{width}x{height}");
+        assert!(text.contains("CONNECTIONS"), "{width}x{height}");
+        assert!(text.contains("FRAMES"), "{width}x{height}");
+    }
+}
+
+#[test]
+fn websocket_workspace_drives_a_repeater_session() {
+    use rawframe_core::websocket::WebSocketRepeaterCommand;
+
+    let mut app = App::demo();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+    app.attach_websocket_repeater_commands(tx);
+    app.navigate(NavSection::WebSocket);
+    app.handle_event(AppEvent::WebSocketConnection(Box::new(
+        websocket_connection(1, "chat.example.test"),
+    )));
+    testing::render_frame(&mut app, 120, 36);
+
+    press(&mut app, KeyCode::Char('o'));
+    match rx.try_recv().expect("open command") {
+        WebSocketRepeaterCommand::Open {
+            session,
+            host,
+            port,
+            path,
+            tls,
+            ..
+        } => {
+            assert_eq!(session, 1);
+            assert_eq!(host, "chat.example.test");
+            assert_eq!(port, 443);
+            assert_eq!(path, "/socket");
+            assert!(tls);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+    assert_eq!(app.websocket_repeater_session(), Some(1));
+
+    press(&mut app, KeyCode::Char('t'));
+    assert!(app.websocket().composing());
+    type_text(&mut app, "ping");
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL));
+    match rx.try_recv().expect("send command") {
+        WebSocketRepeaterCommand::Send {
+            session,
+            opcode,
+            payload,
+        } => {
+            assert_eq!(session, 1);
+            assert_eq!(
+                opcode,
+                rawframe_core::models::websocket::WebSocketOpcode::Text
+            );
+            assert_eq!(payload, b"ping");
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+    assert!(!app.websocket().composing());
+
+    press(&mut app, KeyCode::Char('s'));
+    assert!(matches!(
+        rx.try_recv().expect("close command"),
+        WebSocketRepeaterCommand::Close { session: 1 }
+    ));
+}

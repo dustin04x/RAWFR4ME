@@ -138,6 +138,33 @@ database libraries need deliberate review and version pinning.
 - Cross-protocol bridges keep both versions: an h2 client over an HTTP/1.1
   upstream (or the reverse) is displayed with the real protocol on each side.
 
+### WebSocket handling
+
+- A WebSocket upgrade is scope-checked and address-validated before any upstream
+  socket is opened, exactly like an HTTP request. The client only receives `101`
+  after the upstream handshake succeeds and its `Sec-WebSocket-Accept` is
+  verified, so a failed upgrade cannot look like an open connection.
+- The upstream handshake runs over the existing verified TCP/TLS path. There is
+  no second HTTP proxy, no second TLS stack, and no verification bypass.
+- `Sec-WebSocket-Extensions` is stripped upstream and compression is never
+  negotiated. RSV bits and extensions offered by the client are rejected rather
+  than forwarded, so a compressed frame is not misread as plain text.
+- Client frames must be masked and server frames must not be. Control frames
+  must be final and at most 125 bytes. Completed text messages must be valid
+  UTF-8. Violations close the connection with `1002`/`1007` instead of being
+  forwarded.
+- Frame interception is bounded in both directions. A full queue forwards the
+  frame unchanged and emits a warning; a timeout or proxy shutdown cancels the
+  decision and closes the WebSocket with `1001`. Close frames bypass
+  interception so the close handshake can finish.
+- Frames are capped at 2 MiB and reassembled messages at 8 MiB. Only 64 KiB per
+  frame is retained for display/persistence, with an explicit truncation flag.
+  The relay applies backpressure while forwarding a frame under the cap.
+- At most 64 WebSocket tunnels run concurrently, separately from HTTP
+  connections. An idle WebSocket is closed after 300 s.
+- RFC 8441 extended CONNECT, WebSocket over HTTP/2, HTTP/3 WebSocket, QUIC, and
+  `permessage-deflate` are not implemented.
+
 ### Opaque CONNECT handling
 
 - CONNECT destinations pass the same scope and address policy before the
@@ -165,6 +192,11 @@ database libraries need deliberate review and version pinning.
 | Event queue | 4096 events | bounded; async producers apply backpressure |
 | Command queue | 32 commands | bounded |
 | Read buffer | 64 KiB | Hyper server read buffer cap |
+| Concurrent WebSocket tunnels | 64 | excess upgrades are refused |
+| WebSocket frame | 2 MiB | connection closed with a protocol error |
+| WebSocket message | 8 MiB | connection closed with a protocol error |
+| WebSocket retained payload | 64 KiB | displayed/stored payload is truncated and flagged |
+| WebSocket idle timeout | 300 s | idle connection is closed |
 
 All values above are validated ranges: body limits 1 B–64 MiB, connections
 1–4096, and timeouts must be non-zero. Settings changes are session-only and
@@ -252,6 +284,21 @@ network limits apply after the proxy is restarted.
 - Completed Repeater entries are stored through the same redaction/body policy
   and carry `REPEATER` provenance plus an optional original-capture reference.
   Persistence failure is surfaced in the UI and never aborts an execution.
+
+### WebSocket Repeater
+
+- The WebSocket Repeater is a direct client, not a replay. It seeds only the
+  destination, port, path, TLS choice, and subprotocol from the selected
+  connection; captured cookies, `Origin`, authorization headers, and connection
+  state are never copied.
+- Scope, resolve-once address validation, private-upstream policy, and mandatory
+  upstream TLS verification are the same code paths as the HTTP Repeater. Scope
+  is checked before connecting.
+- Text composition is byte-oriented after UTF-8 validation. The service caps
+  sessions, frame/message size, capture size, and idle time, and emits a typed
+  `Failed { blocked }` outcome for local refusals.
+- Session connection IDs and frame IDs start at `WEBSOCKET_REPEATER_ID_BASE`
+  (3,000,000), so authored frames cannot overwrite captured rows.
 
 ### Intruder execution
 
@@ -405,13 +452,16 @@ database.
 
 | Gap | Consequence | Planned handling |
 |---|---|---|
-| HTTP/3, WebSocket, and pinned clients cannot be inspected | Some traffic stays opaque; plaintext h2c is unsupported | Keep opaque CONNECT available; further protocol coverage is future work |
+| HTTP/3, RFC 8441, and pinned clients cannot be inspected | HTTP/1.1 WebSocket is covered, but WebSocket over HTTP/2/3 and HTTP/3 itself stay opaque; plaintext h2c is unsupported | Keep opaque CONNECT available; further protocol coverage is future work |
 | Opaque CONNECT can reach any authorized TCP service | Scope authorizes host/port, not application-layer safety | Use narrow scope and private-upstream defaults; do not authorize broad wildcards casually |
 | No proxy authentication | A remote listener is usable by anyone who can reach it | Keep loopback; firewall remote binds; authentication is future work |
 | No per-client rate limit | One authorized client can use the global connection/body budget | Global semaphores and body caps; add quotas later if needed |
 | Connection-limit overflow closes the socket | Client sees a transport error, not an HTTP `503` | Documented behavior; revisit with later protocol work |
-| No HTTP/3 or WebSocket forwarding, no h2c | Plaintext HTTP stays HTTP/1.1 and `Upgrade` is stripped; HTTP/2 requires TLS | Future protocol work |
-| HTTP/2 server push, priority, and extended CONNECT are not exposed | Applications relying on those features see standard request/response behavior only | Deliberate scope: request/response framing and multiplexing only |
+| WebSocket is HTTP/1.1 upgrade only | RFC 8441 extended CONNECT, WebSocket-over-HTTP/2, HTTP/3, QUIC, and compression are unavailable; other `Upgrade` protocols are still stripped | Keep the HTTP/1.1 path truthful; further protocol work is future work |
+| HTTP/2 server push, priority, and extended CONNECT are not exposed | Applications relying on those features see standard request/response behavior only; RFC 8441 WebSocket cannot use the h2 path | Deliberate scope: request/response framing and multiplexing only |
+| WebSocket interception pauses frames, not whole messages | A fragmented message can be decided fragment by fragment, and a modified fragment keeps its original FIN/RSV state | Frame-level visibility is the design; message reassembly is displayed only for completed text |
+| Custom RFC 6455 codec | RAWFRAME owns masking, fragmentation, close, and UTF-8 validation, so codec bugs are security-relevant | Codec is unit-tested and integration-tested against a real local WebSocket server; fuzzing is future work |
+| Retained WebSocket payload is truncated at 64 KiB | The inspector and stored history may omit the end of a large frame even though it was relayed | Explicit `payload_omitted`/truncation flags; increase capture only with memory in mind |
 | Persisted metadata can be sensitive | Hostnames, paths, and non-sensitive headers remain on disk | Protect/delete the database; body and credential storage stay opt-in |
 | Stored bodies/credentials are plaintext when opted in | A local reader or backup can expose them | Owner-only permissions, warning, full-disk encryption; off by default |
 | No automatic retention limit | Long-running sessions grow until the 512 MiB ceiling | Manual session management/export; retention policy is future work |
@@ -430,13 +480,16 @@ database.
 | Clipboard copy uses OSC 52 only | Terminals that disable clipboard writes may ignore `Copy`; no shell helper is invoked | Treat copy as best effort; UI reports that the request was sent |
 
 TLS interception (HTTP/1.1 and HTTP/2), CA generation, live pause/edit/drop,
-SQLite persistence,
-redaction-on-write, export, crash recovery, live scope updates, Repeater,
-bounded in-process Decoder transformations, and bounded Intruder execution are
-covered by local tests and a real-binary PTY regression. Repeater tests use real local HTTP/HTTPS origins and
+SQLite persistence, redaction-on-write, export, crash recovery, live scope
+updates, Repeater, HTTP/1.1 WebSocket handshake/frame interception and the
+authored WebSocket Repeater, bounded in-process Decoder transformations, and
+bounded Intruder execution are covered by local tests and real-binary PTY
+regressions. Repeater tests use real local HTTP/HTTPS origins and
 verify scope,
 address policy, certificate validation, redirect credential stripping, limits,
-timeouts, and cancellation. Storage tests' assertions check the actual database
+timeouts, and cancellation. WebSocket tests use a local RFC 6455 echo server and
+assert real frame boundaries, masking, pause/drop/modify, truncation, and scope
+refusal before connect. Storage tests' assertions check the actual database
 rows, not an in-memory mock.
 
 ## 4. Certificate authority design (implemented)

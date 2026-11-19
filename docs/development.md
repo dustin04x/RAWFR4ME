@@ -41,10 +41,19 @@ silence a lint without fixing or documenting the underlying design issue.
 | `crates/rawframe-core/src/filter.rs` | History search/filter semantics |
 | `crates/rawframe-core/src/decoder.rs` | Byte-oriented transformations, pipeline execution, limits, and errors |
 | `crates/rawframe-core/src/intruder.rs` | Positions, payload sets, strategies, plans, results, filters |
+| `crates/rawframe-core/src/websocket.rs` | WebSocket Repeater commands/events, target, ID base |
+| `crates/rawframe-core/src/models/websocket.rs` | WebSocket connections, frames, messages, decisions, directions, limits |
+| `crates/rawframe-proxy/src/websocket/` | Upgrade handling, RFC 6455 codec, frame interception/relay, public client |
+| `crates/rawframe-proxy/tests/websocket.rs` | Local WebSocket proxy and frame matrix |
+| `crates/rawframe-repeater/src/websocket.rs` | Authored WebSocket session service and frame events |
+| `crates/rawframe-repeater/tests/websocket.rs` | Local echo server, scope refusal, authored send/receive |
+| `crates/rawframe-store/src/websocket.rs` | Schema-v4 WebSocket write/load/count/export |
 | `crates/rawframe-intruder/src/engine.rs` | Payload expansion, worker pool, rate gate, typed outcomes |
 | `crates/rawframe-intruder/src/service.rs` | Bounded Intruder command service and event emission |
 | `crates/rawframe-intruder/src/wordlist.rs` | Bounded, UTF-8-safe local wordlist import |
 | `crates/rawframe-intruder/tests/execution.rs` | Real local HTTP/HTTPS Intruder matrix |
+| `crates/rawframe-tui/src/websocket.rs` | WebSocket view state, paused queue, frame filter, payload editor |
+| `crates/rawframe-tui/src/screens/websocket.rs` | Responsive WebSocket workspace, inspector, editor, size tests |
 | `crates/rawframe-tui/src/intruder.rs` | Intruder view state, request candidates, prompts |
 | `crates/rawframe-tui/src/screens/intruder.rs` | Intruder layout, setup/results panels, size tests |
 | `crates/rawframe-core/src/fixtures.rs` | Labelled simulated traffic |
@@ -80,6 +89,7 @@ silence a lint without fixing or documenting the underlying design issue.
 | `scripts/capture_repeater_pty.py` | Real-binary PTY capture for Repeater screenshots |
 | `scripts/capture_decoder_pty.py` | Real-binary PTY capture for Decoder screenshots |
 | `scripts/capture_intruder_pty.py` | Real-binary PTY capture for Intruder screenshots (real local attack) |
+| `scripts/capture_websocket_pty.py` | Real-binary PTY capture for WebSocket frames and Repeater screenshots |
 | `crates/rawframe-cli/src/cli.rs` | Arguments, scope parsing, safety validation |
 | `crates/rawframe-cli/src/main.rs` | Composition root: runtime, proxy service, TUI |
 | `crates/rawframe-cli/src/logging.rs` | Local file logging |
@@ -136,6 +146,41 @@ silence a lint without fixing or documenting the underlying design issue.
 - If you change persistence, remember protocol metadata already lives in the
   existing `version`/`response_version` columns. Additive migrations only; never
   recreate a user database.
+
+### Working on WebSocket
+
+- Keep WebSocket on the HTTP/1.1 upgrade path. There is no RFC 8441, WebSocket
+  over HTTP/2, HTTP/3, QUIC, or second HTTP proxy. A handshake must never be
+  routed through the HTTP/2 conversion boundary.
+- Scope and resolve-once address validation happen before the upstream socket.
+  Do not call `TcpStream::connect("hostname:port")`; use the shared destination
+  and verified-TLS helpers.
+- Do not negotiate compression. Strip `Sec-WebSocket-Extensions` upstream and
+  reject RSV bits; otherwise a compressed frame is misread as plain payload.
+- The proxy must not send `101` before the upstream handshake succeeds and
+  `Sec-WebSocket-Accept` is verified. An upgrade failure is a real error, never a
+  half-open socket.
+- Preserve frame boundaries. Do not reframe, coalesce fragments, or replace the
+  custom codec with a message-oriented library: interception needs individual
+  frames. Masking direction, control-frame rules, close handshakes, and UTF-8
+  validation for completed text are protocol requirements, not cosmetic checks.
+- Keep all limits explicit and enforced before allocation: 64 tunnels, 2 MiB
+  frame, 8 MiB message, 64 KiB retained payload, 300 s idle, and the existing
+  bounded interception queue/timeout. A full queue forwards unchanged with a
+  warning; it must not grow.
+- Frame decisions resolve through `AppCommand::ResolveWebSocketFrame`. Never
+  reuse HTTP interception completion paths.
+- Persistence is additive schema v4. Never recreate a database. Store payloads
+  binary-safe, respect `persist_bodies`, and set `payload_omitted` when a payload
+  was intentionally withheld.
+- The WebSocket Repeater is a direct scoped client, not a replay. Do not copy
+  captured headers, cookies, or origin into `Open`; use only the destination
+  metadata and the shared verified TLS builder. Authored frame/connection IDs
+  start at 3,000,000.
+- PTY evidence must be real: `scripts/capture_websocket_pty.py` upgrades a real
+  client through the proxy to a local echo server, opens the Repeater, sends a
+  text frame, and asserts the echo at all three sizes. `--no-png` emits text
+  frames only.
 
 ### Working on the proxy
 
@@ -369,6 +414,25 @@ Repeater (real local HTTP/HTTPS servers, no mocks):
 
 ```bash
 cargo test -p rawframe-repeater -- --nocapture
+```
+
+WebSocket proxy (real local upgrade, frames, interception, limits):
+
+```bash
+cargo test -p rawframe-proxy --test websocket -- --nocapture
+```
+
+WebSocket Repeater (real local echo server, scope refusal, authored frames):
+
+```bash
+cargo test -p rawframe-repeater --test websocket -- --nocapture
+```
+
+WebSocket PTY evidence at 140x40, 100x30, and 80x24:
+
+```bash
+cargo build -p rawframe-cli
+python3 scripts/capture_websocket_pty.py --binary target/debug/rawframe --no-png
 ```
 
 Storage (real SQLite, isolated temp databases):

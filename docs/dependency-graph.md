@@ -19,6 +19,7 @@ rawframe-cli
 │   ├── bytes
 │   ├── tokio
 │   ├── tokio-util
+│   ├── tokio-tungstenite (handshake helpers only)
 │   ├── chrono
 │   ├── thiserror
 │   └── tracing
@@ -33,6 +34,7 @@ rawframe-cli
 │   ├── tokio-util
 │   ├── tokio-rustls
 │   ├── rustls
+│   ├── tokio-tungstenite (dev, local echo server)
 │   ├── chrono
 │   ├── thiserror
 │   └── tracing
@@ -79,7 +81,7 @@ engine commands without importing proxy or Repeater internals.
 |---|---|---|
 | `rawframe-core` | external domain libraries only | TUI, proxy, storage, CLI |
 | `rawframe-http` | `rawframe-core`, `httparse` | TUI, proxy, storage, CLI |
-| `rawframe-proxy` | `rawframe-core`, Hyper/Tokio networking libraries | TUI, storage, CLI, Repeater |
+| `rawframe-proxy` | `rawframe-core`, Hyper/Tokio networking libraries, WebSocket handshake/frame code | TUI, storage, CLI, Repeater |
 | `rawframe-repeater` | `rawframe-core`, public proxy destination/TLS helpers, Hyper/Tokio/Rustls | TUI, storage, CLI, proxy listener/CA/queue |
 | `rawframe-intruder` | `rawframe-core`, `rawframe-repeater` (execute only), Tokio | TUI, storage, proxy listener |
 | `rawframe-tui` | `rawframe-core`, `rawframe-http`, Ratatui, Chrono | proxy/repeater/intruder or storage internals, SQLite, sockets, Tokio runtime |
@@ -121,6 +123,8 @@ Versions are declared once in the workspace manifest and inherited by crates.
 | `sha2` | 0.10 | core | SHA-256, SHA-384, and SHA-512 digests |
 | `md-5` | 0.10 | core | legacy MD5 checksum only; never presented as secure |
 | `tempfile` | 3.27 (dev) | store | isolated temporary databases in tests |
+| `tokio-tungstenite` | 0.30 (`handshake`) | proxy (handshake helpers), proxy/repeater tests (local echo server) | RFC 6455 accept-key derivation/key generation. RAWFRAME owns frame parsing, masking, relay, and interception |
+| `futures-util` | 0.3 | proxy | async stream/sink helpers for the WebSocket client; also dev tests |
 
 Notes:
 
@@ -137,6 +141,10 @@ Notes:
   server, CA manager, or interception queue.
 - `tokio-util` is used only for task tracking; no runtime is embedded in a
   library crate.
+- WebSocket framing is RAWFRAME code (`rawframe-proxy/src/websocket/frame.rs`)
+  because interception operates on individual frames. `tokio-tungstenite` is
+  limited to handshake helpers in production and to a local echo server in
+  tests; it is not used to relay messages.
 - No HTTP/3/QUIC, UUID, OS clipboard helper, or network-logging dependency is
   present. HTTP/2 comes from Hyper plus `h2`, both already vetted in the Rust
   HTTP stack. Clipboard copy is encoded by the TUI and emitted as terminal
@@ -165,7 +173,7 @@ These are listed for design transparency only. They are not in `Cargo.lock`.
 
 | Milestone | Likely dependency | Purpose |
 |---|---|---|
-| later | protocol libraries | WebSocket/HTTP/3 support, only when implemented and tested |
+| later | HTTP/3/QUIC library | HTTP/3 and extended CONNECT, only when implemented and tested; WebSocket is already implemented over HTTP/1.1 |
 
 Every planned addition must preserve the rule that networking and storage are
 invisible to the presentation crate.

@@ -14,12 +14,16 @@ use ratatui::layout::{Position, Rect};
 use rawframe_core::models::config::ScopeRule;
 use rawframe_core::models::session::{SessionId, SessionSummary};
 use rawframe_core::models::traffic::{TrafficEntry, TrafficId, TrafficSource, TrafficState};
+use rawframe_core::models::websocket::{WebSocketFrameDecision, WebSocketOpcode};
 use rawframe_core::models::{AppConfig, Session};
 use rawframe_core::repeater::{
     RepeaterCommand, RepeaterCommandSender, RepeaterEvent, RepeaterExecutionPhase, validate_request,
 };
 use rawframe_core::storage::{
     StorageCommand, StorageCommandSender, StorageEvent, StoragePolicy, StorageStatus,
+};
+use rawframe_core::websocket::{
+    WebSocketRepeaterCommand, WebSocketRepeaterCommandSender, WebSocketRepeaterEvent,
 };
 use rawframe_core::{
     AppCommand, AppEvent, CommandSender, EventBus, EventSender, HistoryFilter, Notice, ProxyState,
@@ -42,6 +46,7 @@ use crate::state::{
 };
 use crate::text::TextBuffer;
 use crate::theme::Theme;
+use crate::websocket::WebSocketState;
 
 const TOAST_LIFETIME: Duration = Duration::from_secs(6);
 const MAX_TOASTS: usize = 4;
@@ -127,6 +132,10 @@ pub struct App {
     /// Session whose history was restored into the read-only History view.
     pub(crate) restored_session: Option<(SessionId, String)>,
     pub(crate) scope_editor: Option<ScopeEditorState>,
+    pub(crate) websocket: WebSocketState,
+    pub(crate) websocket_repeater_sender: Option<WebSocketRepeaterCommandSender>,
+    pub(crate) websocket_repeater_session: Option<u64>,
+    pub(crate) next_websocket_repeater_session: u64,
 }
 
 impl App {
@@ -184,6 +193,10 @@ impl App {
             sessions_loading: false,
             restored_session: None,
             scope_editor: None,
+            websocket: WebSocketState::default(),
+            websocket_repeater_sender: None,
+            websocket_repeater_session: None,
+            next_websocket_repeater_session: 1,
         };
         app.ensure_selections();
         app.notify(Notice::info(
@@ -233,6 +246,22 @@ impl App {
 
     pub fn theme(&self) -> Theme {
         self.theme
+    }
+
+    pub fn websocket(&self) -> &WebSocketState {
+        &self.websocket
+    }
+
+    pub fn websocket_interception(&self) -> bool {
+        self.config.proxy.interception_enabled
+    }
+
+    pub fn websocket_repeater_session(&self) -> Option<u64> {
+        self.websocket_repeater_session
+    }
+
+    pub fn attach_websocket_repeater_commands(&mut self, sender: WebSocketRepeaterCommandSender) {
+        self.websocket_repeater_sender = Some(sender);
     }
 
     pub fn config(&self) -> &AppConfig {
@@ -557,12 +586,70 @@ impl App {
             AppEvent::Intruder(event) => self.handle_intruder_event(event),
             AppEvent::Notice(notice) => self.notify(notice),
             AppEvent::Storage(event) => self.handle_storage_event(event),
-            AppEvent::WebSocketConnection(_)
-            | AppEvent::WebSocketFrame(_)
-            | AppEvent::WebSocketMessage(_)
-            | AppEvent::WebSocketFramePaused(_) => {
-                // WebSocket workspace state is implemented as part of M10.
+            AppEvent::WebSocketConnection(connection) => {
+                let connection = *connection;
+                let label = format!(
+                    "WebSocket #{} {}:{}{} {}",
+                    connection.id.0,
+                    connection.host,
+                    connection.port,
+                    connection.path,
+                    connection_state_label(connection.state)
+                );
+                self.websocket.upsert_connection(connection.clone());
+                if connection.source == rawframe_core::models::traffic::TrafficSource::Repeater {
+                    // Follow the authored session so its frames are immediately
+                    // visible in the frames pane and inspector.
+                    self.websocket.select_connection(connection.id);
+                }
+                self.notify_info(label);
             }
+            AppEvent::WebSocketFrame(frame) => self.websocket.push_frame(*frame),
+            AppEvent::WebSocketMessage(message) => self.websocket.push_message(*message),
+            AppEvent::WebSocketFramePaused(frame) => {
+                let frame = *frame;
+                let label = format!(
+                    "WebSocket frame #{} paused: {} {} B",
+                    frame.id.0,
+                    frame.opcode.label(),
+                    frame.payload_len
+                );
+                self.websocket.mark_paused(frame);
+                self.notify_warning(label);
+            }
+            AppEvent::WebSocketRepeater(event) => match event {
+                WebSocketRepeaterEvent::Opened {
+                    session,
+                    connection,
+                } => {
+                    self.notify_success(format!(
+                        "WebSocket Repeater session {session} connected to {}:{}",
+                        connection.host, connection.port
+                    ));
+                }
+                WebSocketRepeaterEvent::Closed { session, reason } => {
+                    if self.websocket_repeater_session == Some(session) {
+                        self.websocket_repeater_session = None;
+                    }
+                    self.notify_info(format!(
+                        "WebSocket Repeater session {session} closed: {reason}"
+                    ));
+                }
+                WebSocketRepeaterEvent::Failed {
+                    session,
+                    error,
+                    blocked,
+                } => {
+                    if self.websocket_repeater_session == Some(session) {
+                        self.websocket_repeater_session = None;
+                    }
+                    if blocked {
+                        self.notify_warning(format!("WebSocket Repeater refused: {error}"));
+                    } else {
+                        self.notify_error(format!("WebSocket Repeater failed: {error}"));
+                    }
+                }
+            },
             AppEvent::Shutdown => self.should_quit = true,
         }
     }
@@ -782,6 +869,8 @@ impl App {
         self.nav = section;
         self.focus = Focus::Content;
         self.search.active = false;
+        self.websocket.stop_search();
+        self.websocket.cancel_edit();
         self.settings.edit = None;
         self.repeater.editing = false;
         self.decoder.editing = false;
@@ -1359,7 +1448,161 @@ impl App {
             ActionId::SendRepeaterResponseToDecoder => {
                 self.send_repeater_response_body_to_decoder()
             }
+            ActionId::WebSocketForward => self.websocket_forward(),
+            ActionId::WebSocketDrop => self.websocket_drop(),
+            ActionId::WebSocketModify => self.websocket_begin_edit(),
+            ActionId::WebSocketNextPaused => self.websocket_next_paused(),
+            ActionId::WebSocketClear => self.websocket_clear(),
         }
+    }
+
+    pub(crate) fn websocket_open_repeater(&mut self) {
+        let Some(connection) = self.websocket.selected_connection().cloned() else {
+            self.notify_warning("Select a WebSocket connection to seed a Repeater session.");
+            return;
+        };
+        let Some(sender) = &self.websocket_repeater_sender else {
+            self.notify_warning("The WebSocket Repeater engine is not attached.");
+            return;
+        };
+        let session = self.next_websocket_repeater_session;
+        let command = WebSocketRepeaterCommand::Open {
+            session,
+            host: connection.host.clone(),
+            port: connection.port,
+            path: connection.path.clone(),
+            tls: connection.tls,
+            subprotocol: connection.subprotocol.clone(),
+        };
+        if sender.try_send(command).is_err() {
+            self.notify_warning("The WebSocket Repeater is busy; try again.");
+            return;
+        }
+        self.next_websocket_repeater_session = session.wrapping_add(1).max(1);
+        self.websocket_repeater_session = Some(session);
+        self.notify_info(format!(
+            "Opening WebSocket Repeater session {session} to {}:{} …",
+            connection.host, connection.port
+        ));
+    }
+
+    pub(crate) fn websocket_compose(&mut self) {
+        if self.websocket_repeater_session.is_none() {
+            self.notify_warning("Open a WebSocket Repeater session first (o).");
+            return;
+        }
+        self.websocket.begin_compose();
+        self.notify_info("Composing a text frame. Enter newline, Ctrl+Enter send, Esc cancel.");
+    }
+
+    pub(crate) fn websocket_submit_compose(&mut self) {
+        let Some(payload) = self.websocket.compose_payload() else {
+            return;
+        };
+        let Some(session) = self.websocket_repeater_session else {
+            self.websocket.cancel_edit();
+            return;
+        };
+        let Some(sender) = &self.websocket_repeater_sender else {
+            self.websocket.cancel_edit();
+            self.notify_warning("The WebSocket Repeater engine is not attached.");
+            return;
+        };
+        if sender
+            .try_send(WebSocketRepeaterCommand::Send {
+                session,
+                opcode: WebSocketOpcode::Text,
+                payload,
+            })
+            .is_err()
+        {
+            self.notify_warning("The WebSocket Repeater is busy; the frame was not queued.");
+            return;
+        }
+        self.websocket.cancel_edit();
+        self.notify_success("WebSocket frame queued for Repeater session.");
+    }
+
+    pub(crate) fn websocket_close_repeater(&mut self) {
+        let Some(session) = self.websocket_repeater_session.take() else {
+            self.notify_info("No WebSocket Repeater session is open.");
+            return;
+        };
+        if let Some(sender) = &self.websocket_repeater_sender {
+            let _ = sender.try_send(WebSocketRepeaterCommand::Close { session });
+        }
+    }
+
+    pub(crate) fn websocket_forward(&mut self) {
+        self.resolve_websocket_selected(WebSocketFrameDecision::Forward);
+    }
+
+    pub(crate) fn websocket_drop(&mut self) {
+        self.resolve_websocket_selected(WebSocketFrameDecision::Drop);
+    }
+
+    pub(crate) fn websocket_begin_edit(&mut self) {
+        match self.websocket.begin_edit() {
+            Ok(()) => {
+                self.notify_info("Editing the paused frame payload. Enter sends it, Esc cancels.")
+            }
+            Err(reason) => self.notify_warning(reason),
+        }
+    }
+
+    pub(crate) fn websocket_submit_edit(&mut self) {
+        let Some((frame_id, payload)) = self.websocket.edited_payload() else {
+            self.websocket.cancel_edit();
+            return;
+        };
+        let Some(frame) = self
+            .websocket
+            .frames()
+            .iter()
+            .find(|frame| frame.id == frame_id)
+        else {
+            self.websocket.cancel_edit();
+            self.notify_warning("That frame is no longer in the workspace.");
+            return;
+        };
+        let connection_id = frame.connection_id;
+        self.websocket.cancel_edit();
+        self.dispatch_command(AppCommand::ResolveWebSocketFrame {
+            connection_id,
+            frame_id,
+            decision: WebSocketFrameDecision::ForwardModified { payload },
+        });
+        self.notify_info(format!(
+            "Modified WebSocket frame #{frame_id:?} sent for forwarding."
+        ));
+    }
+
+    pub(crate) fn websocket_next_paused(&mut self) {
+        if !self.websocket.select_next_paused() {
+            self.notify_info("No WebSocket frames are waiting for a decision.");
+        }
+    }
+
+    pub(crate) fn websocket_clear(&mut self) {
+        self.websocket.clear();
+        self.notify_info("WebSocket workspace cleared.");
+    }
+
+    fn resolve_websocket_selected(&mut self, decision: WebSocketFrameDecision) {
+        let Some(frame) = self.websocket.selected_frame() else {
+            self.notify_warning("Select a WebSocket frame first.");
+            return;
+        };
+        let (connection_id, frame_id) = (frame.connection_id, frame.id);
+        if !self.websocket.is_paused(frame_id) {
+            self.notify_warning("That frame is not paused; only paused frames accept a decision.");
+            return;
+        }
+        self.dispatch_command(AppCommand::ResolveWebSocketFrame {
+            connection_id,
+            frame_id,
+            decision,
+        });
     }
 
     pub(crate) fn forward_selected_request(&mut self) {
@@ -3276,6 +3519,19 @@ fn step_selection(ids: &[TrafficId], current: Option<TrafficId>, delta: i32) -> 
 
 fn on_off(value: bool) -> String {
     if value { "ON" } else { "OFF" }.to_string()
+}
+
+fn connection_state_label(
+    state: rawframe_core::models::websocket::WebSocketConnectionState,
+) -> &'static str {
+    use rawframe_core::models::websocket::WebSocketConnectionState as State;
+    match state {
+        State::Handshaking => "handshaking",
+        State::Open => "open",
+        State::Closing => "closing",
+        State::Closed => "closed",
+        State::Failed => "failed",
+    }
 }
 
 #[cfg(test)]

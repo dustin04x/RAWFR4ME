@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 use rawframe_core::models::session::{Project, Session, SessionId, SessionSummary};
 use rawframe_core::models::traffic::{TrafficEntry, TunnelMetadata};
+use rawframe_core::models::websocket::{WebSocketConnection, WebSocketFrame, WebSocketMessage};
 use rawframe_core::storage::StoragePolicy;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use serde_json::json;
@@ -19,6 +20,7 @@ use serde_json::json;
 use crate::error::StoreError;
 use crate::record::{TrafficRecord, decode_row, now_stamp, restored_traffic_id};
 use crate::schema;
+use crate::websocket::{self, WebSocketRecording};
 
 /// Default ceiling for the database file. Reaching it stops persistence with an
 /// explicit error instead of filling the operator's disk.
@@ -100,6 +102,7 @@ pub struct ExportSummary {
     pub records: usize,
     pub redacted_headers: usize,
     pub bodies_omitted: usize,
+    pub websocket_connections: usize,
 }
 
 impl Store {
@@ -239,6 +242,14 @@ impl Store {
              WHERE incomplete = 0 AND state NOT IN ('completed','dropped','failed','timed_out','cancelled')",
             [],
         )?;
+        // A WebSocket left open by an interrupted run is not a live connection
+        // anymore; record that honestly instead of showing it as open.
+        self.conn.execute(
+            "UPDATE websocket_connections SET state = 'failed', \
+             error = COALESCE(error, 'unclean shutdown'), closed_at = ?1 \
+             WHERE closed_at IS NULL AND state IN ('handshaking','open','closing')",
+            rusqlite::params![now],
+        )?;
         Ok(stale)
     }
 
@@ -321,6 +332,52 @@ impl Store {
         tx.commit()
             .map_err(|error| map_write_error(error, max_bytes))?;
         Ok(())
+    }
+
+    /// Persists structured WebSocket connections, frames, and messages in one
+    /// synchronous transaction. Payloads follow the same body policy as HTTP:
+    /// when bodies are disabled the column is `NULL` and the omitted flag is set.
+    pub fn write_websocket(
+        &mut self,
+        connections: &[WebSocketConnection],
+        frames: &[WebSocketFrame],
+        messages: &[WebSocketMessage],
+    ) -> Result<(), StoreError> {
+        if connections.is_empty() && frames.is_empty() && messages.is_empty() {
+            return Ok(());
+        }
+        let max_bytes = self.max_bytes;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        websocket::write(
+            &tx,
+            &self.session.id,
+            connections,
+            frames,
+            messages,
+            self.policy,
+        )?;
+        tx.commit()
+            .map_err(|error| map_write_error(error, max_bytes))?;
+        Ok(())
+    }
+
+    /// Loads stored WebSocket recordings for a session, oldest first.
+    pub fn load_websocket(
+        &self,
+        session_id: &SessionId,
+        limit: usize,
+    ) -> Result<Vec<WebSocketRecording>, StoreError> {
+        if !self.session_exists(session_id)? {
+            return Err(StoreError::UnknownSession(session_id.0.clone()));
+        }
+        websocket::load(&self.conn, session_id, limit)
+    }
+
+    /// Number of stored WebSocket connections for a session.
+    pub fn count_websocket(&self, session_id: &SessionId) -> Result<usize, StoreError> {
+        websocket::count(&self.conn, session_id)
     }
 
     /// Sessions newest first, with record and incomplete counts.
@@ -438,6 +495,7 @@ impl Store {
             records: 0,
             redacted_headers: 0,
             bodies_omitted: 0,
+            websocket_connections: 0,
         };
 
         {
@@ -516,6 +574,19 @@ impl Store {
                     return Err(StoreError::Io(error));
                 }
                 summary.records += 1;
+            }
+
+            // WebSocket recordings are appended after HTTP traffic. Their
+            // payloads were already redacted/omitted on the write path; the
+            // export re-encodes them under the current policy for consistency.
+            for recording in websocket::load(&self.conn, session_id, 0)? {
+                let line = websocket::export_json(&recording, self.policy);
+                if let Err(error) = writeln!(writer, "{line}") {
+                    drop(writer);
+                    let _ = fs::remove_file(&temp_path);
+                    return Err(StoreError::Io(error));
+                }
+                summary.websocket_connections += 1;
             }
             writer.flush()?;
         }

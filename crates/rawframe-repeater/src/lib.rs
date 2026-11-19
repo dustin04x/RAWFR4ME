@@ -7,8 +7,10 @@
 
 mod engine;
 mod service;
+pub mod websocket;
 
 pub use engine::{
     ExecutionFailure, ExecutionOutcome, RepeaterConfig, RepeaterEngine, entry_from_outcome,
 };
 pub use service::run_service;
+pub use websocket::{WebSocketRepeaterConfig, run_websocket_service};

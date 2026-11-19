@@ -100,6 +100,7 @@ fn render_workspace(
     match app.nav {
         NavSection::Proxy => screens::proxy::render(frame, area, app, theme, output),
         NavSection::History => screens::history::render(frame, area, app, theme, output),
+        NavSection::WebSocket => screens::websocket::render(frame, area, app, theme, output),
         NavSection::Repeater => screens::repeater::render(frame, area, app, theme, output),
         NavSection::Settings => screens::settings::render(frame, area, app, theme, output),
         NavSection::Decoder => screens::decoder::render(frame, area, app, theme, output),
@@ -618,6 +619,19 @@ fn context_hints(app: &App) -> &'static str {
         }
         NavSection::History => {
             "↑↓ select  ·  Enter inspect  ·  / search  ·  M/S/H filters  ·  R replay  ·  B sessions"
+        }
+        NavSection::WebSocket => {
+            if app.websocket.editing() {
+                "Esc cancel  ·  Ctrl+Enter send modified  ·  Enter newline"
+            } else if app.websocket.searching {
+                "Type to filter  ·  ↑↓ frames  ·  Enter apply  ·  Esc stop typing"
+            } else if app.websocket.pending_count() > 0 {
+                "↑↓ frames  ·  F forward  ·  D drop  ·  M modify  ·  N next paused  ·  I interception"
+            } else if app.websocket_repeater_session().is_some() {
+                "T compose  ·  S close session  ·  O reopen  ·  ↑↓ frames  ·  / filter"
+            } else {
+                "↑↓ frames  ·  ←→ connections  ·  O open Repeater  ·  / filter  ·  I interception"
+            }
         }
         NavSection::Repeater => {
             if app.repeater.editing {

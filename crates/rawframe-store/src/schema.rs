@@ -10,7 +10,7 @@ use rusqlite::{Connection, TransactionBehavior};
 use crate::error::StoreError;
 
 /// Schema version understood by this build.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// Applies every migration the database is missing.
 pub fn migrate(conn: &mut Connection) -> Result<u32, StoreError> {
@@ -31,6 +31,7 @@ pub fn migrate(conn: &mut Connection) -> Result<u32, StoreError> {
             1 => tx.execute_batch(SCHEMA_V1)?,
             2 => tx.execute_batch(SCHEMA_V2)?,
             3 => tx.execute_batch(SCHEMA_V3)?,
+            4 => tx.execute_batch(SCHEMA_V4)?,
             other => {
                 return Err(StoreError::Unavailable(format!(
                     "missing migration for schema version {other}"
@@ -61,6 +62,77 @@ ALTER TABLE traffic ADD COLUMN repeater_origin INTEGER;
 const SCHEMA_V3: &str = r#"
 ALTER TABLE traffic ADD COLUMN intruder_origin INTEGER;
 ALTER TABLE traffic ADD COLUMN intruder_payloads TEXT;
+"#;
+
+/// M10: structured WebSocket recordings. Connections, individual frames, and
+/// reassembled messages live in their own tables so binary payloads keep their
+/// bytes and frame boundaries stay inspectable. Existing traffic history is
+/// untouched; the migration only adds tables and indexes.
+const SCHEMA_V4: &str = r#"
+CREATE TABLE IF NOT EXISTS websocket_connections (
+    row_id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id            TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    connection_id         INTEGER NOT NULL,
+    source                TEXT NOT NULL,
+    host                  TEXT NOT NULL,
+    port                  INTEGER NOT NULL,
+    path                  TEXT NOT NULL,
+    tls                   INTEGER NOT NULL,
+    subprotocol           TEXT,
+    extensions            TEXT,
+    state                 TEXT NOT NULL,
+    started_at            TEXT NOT NULL,
+    closed_at             TEXT,
+    frames                INTEGER NOT NULL DEFAULT 0,
+    messages              INTEGER NOT NULL DEFAULT 0,
+    bytes_client_to_server INTEGER NOT NULL DEFAULT 0,
+    bytes_server_to_client INTEGER NOT NULL DEFAULT 0,
+    error                 TEXT,
+    updated_at            TEXT NOT NULL,
+    UNIQUE(session_id, connection_id)
+);
+
+CREATE TABLE IF NOT EXISTS websocket_frames (
+    row_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id     TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    connection_id  INTEGER NOT NULL,
+    frame_id       INTEGER NOT NULL,
+    direction      TEXT NOT NULL,
+    opcode         TEXT NOT NULL,
+    fin            INTEGER NOT NULL,
+    rsv1           INTEGER NOT NULL,
+    masked         INTEGER NOT NULL,
+    payload        BLOB,
+    payload_len    INTEGER NOT NULL,
+    payload_omitted INTEGER NOT NULL DEFAULT 0,
+    truncated      INTEGER NOT NULL DEFAULT 0,
+    outcome        TEXT NOT NULL,
+    captured_at    TEXT NOT NULL,
+    UNIQUE(session_id, frame_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_websocket_frames_connection
+    ON websocket_frames(session_id, connection_id, frame_id);
+
+CREATE TABLE IF NOT EXISTS websocket_messages (
+    row_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id     TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    connection_id  INTEGER NOT NULL,
+    message_id     INTEGER NOT NULL,
+    direction      TEXT NOT NULL,
+    opcode         TEXT NOT NULL,
+    payload        BLOB,
+    payload_len    INTEGER NOT NULL,
+    payload_omitted INTEGER NOT NULL DEFAULT 0,
+    frame_ids      TEXT NOT NULL,
+    complete       INTEGER NOT NULL,
+    truncated      INTEGER NOT NULL DEFAULT 0,
+    captured_at    TEXT NOT NULL,
+    UNIQUE(session_id, message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_websocket_messages_connection
+    ON websocket_messages(session_id, connection_id, message_id);
 "#;
 
 const SCHEMA_V1: &str = r#"
@@ -355,6 +427,80 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM traffic", [], |row| row.get(0))
             .unwrap();
         assert_eq!(rows, 1);
+    }
+
+    #[test]
+    fn an_m9_database_gains_websocket_tables_without_losing_traffic() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("m9.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.execute_batch(SCHEMA_V2).unwrap();
+            conn.execute_batch(SCHEMA_V3).unwrap();
+            conn.pragma_update(None, "user_version", 3).unwrap();
+            for version in 1..=3 {
+                conn.execute(
+                    "INSERT INTO schema_migrations(version, applied_at) VALUES (?1, ?2)",
+                    rusqlite::params![version, "2026-01-01T00:00:00Z"],
+                )
+                .unwrap();
+            }
+            conn.execute(
+                "INSERT INTO projects(id, name, created_at) VALUES ('p', 'p', '2026-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO sessions(id, project_id, name, created_at) \
+                 VALUES ('s', 'p', 's', '2026-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO traffic(session_id, traffic_id, kind, source, state, method, \
+                 scheme, host, port, target, version, request_headers, started_at, updated_at) \
+                 VALUES ('s', 1, 'http', 'intercepted', 'completed', 'GET', 'https', 'a.test', \
+                 443, '/', 'HTTP/1.1', '[]', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        }
+
+        let mut conn = Connection::open(&path).unwrap();
+        assert_eq!(migrate(&mut conn).unwrap(), SCHEMA_VERSION);
+        for table in [
+            "websocket_connections",
+            "websocket_frames",
+            "websocket_messages",
+        ] {
+            let present: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(present, 1, "{table} is created by the v4 migration");
+            let rows: i64 = conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(rows, 0, "the migration only adds an empty table");
+        }
+        let traffic_rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM traffic", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(traffic_rows, 1, "existing traffic is untouched");
+        let applied_v4: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version = 4",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(applied_v4, 1, "the M10 migration is recorded exactly once");
     }
 
     #[test]

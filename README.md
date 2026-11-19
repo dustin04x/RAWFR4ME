@@ -2,9 +2,9 @@
 
 **Terminal-native HTTP interception and security testing workbench.**
 
-RAWFRAME is an open-source Rust workspace for authorized HTTP/1.1 and HTTP/2 testing from the terminal. It provides a local forward proxy, opaque HTTPS tunnelling, opt-in TLS interception, durable SQLite history with sessions and redacted export, and a live request workbench inside a keyboard-driven TUI. It is built for testers who want a compact terminal workflow with explicit scope and visible request lifecycle state.
+RAWFRAME is an open-source Rust workspace for authorized HTTP/1.1, HTTP/2, and HTTP/1.1 WebSocket testing from the terminal. It provides a local forward proxy, opaque HTTPS tunnelling, opt-in TLS interception, durable SQLite history with sessions and redacted export, and a live request workbench inside a keyboard-driven TUI. It is built for testers who want a compact terminal workflow with explicit scope and visible request lifecycle state.
 
-The current release is **0.2.0**. Milestones 1–9 are complete: core application, HTTP proxy, HTTP interception, HTTPS TLS interception, durable history/sessions/export, a functional Repeater with real HTTP/HTTPS execution, a binary-safe Decoder with chained transformations and Repeater body transfer, an Intruder that runs real, bounded, scope-checked payload attacks with four strategies, and genuine HTTP/2 over negotiated ALPN in the proxy, Repeater, and Intruder. Opaque `CONNECT` tunnelling is the default. HTTP/2 is used only when ALPN actually negotiates `h2`; plaintext HTTP stays HTTP/1.1 (no h2c), and HTTP/3 and WebSocket are not implemented.
+The current release is **0.2.0**. Milestones 1–10 are complete: core application, HTTP proxy, HTTP interception, HTTPS TLS interception, durable history/sessions/export, a functional Repeater with real HTTP/HTTPS execution, a binary-safe Decoder with chained transformations and Repeater body transfer, an Intruder that runs real, bounded, scope-checked payload attacks with four strategies, genuine HTTP/2 over negotiated ALPN in the proxy, Repeater, and Intruder, and HTTP/1.1 WebSocket interception with frame-level relay, pause/forward/drop/modify, a dedicated workspace, persistence, and an authored WebSocket Repeater. Opaque `CONNECT` tunnelling is the default. HTTP/2 is used only when ALPN actually negotiates `h2`; plaintext HTTP stays HTTP/1.1 (no h2c). WebSocket support is HTTP/1.1 upgrade only: there is no HTTP/3, RFC 8441 extended CONNECT, WebSocket compression, or QUIC.
 
 RAWFRAME is intended **only** for systems you own or are explicitly authorized to test.
 
@@ -34,6 +34,10 @@ Captured from real PTY sessions of the current TUI at 140×40. These are termina
 | --- | --- |
 | ![Intruder setup with a marked position and payload list](docs/screenshots/intruder/140x40_01_setup.png) | ![Intruder results with 200, 404, and 500 responses](docs/screenshots/intruder/140x40_04_results.png) |
 
+| Captured WebSocket frames and inspector | Authored WebSocket Repeater session |
+| --- | --- |
+| ![WebSocket frames captured through the proxy](docs/screenshots/websocket/140x40_01_frames.png) | ![WebSocket Repeater composing and receiving an echo](docs/screenshots/websocket/140x40_03_echo.png) |
+
 HTTP/2 evidence is captured from a real PTY at 140×40, 100×30, and 80×24
 under `docs/screenshots/http2/` (`*_01_proxy_http2.txt`,
 `*_02_inspector_http2.txt` where the inspector is visible, and
@@ -50,6 +54,14 @@ and [80×24](docs/screenshots/intruder/80x24_01_setup.png); each size also has t
 confirmation, in-flight progress, and results frames (`*_02_confirm`,
 `*_03_progress`, `*_04_results`) under `docs/screenshots/intruder/`.
 
+WebSocket evidence is captured from a real PTY at 140×40, 100×30, and 80×24
+under `docs/screenshots/websocket/`: captured frames (`*_01_frames.txt`), an
+authored Repeater session (`*_02_repeater.txt`), and a composed text frame with
+its echoed reply (`*_03_echo.txt`). `scripts/capture_websocket_pty.py` upgrades a
+real client through the proxy to a local RFC 6455 echo server, opens the
+Repeater, sends a text frame, and asserts the echo; the text frames are the
+mandatory evidence.
+
 ## Features
 
 ### Implemented
@@ -65,6 +77,18 @@ confirmation, in-flight progress, and results frames (`*_02_confirm`,
 - Default-deny scope by exact host, leading wildcard, scheme, and port.
 - Resolve-once DNS with address validation for loopback, private, link-local, metadata, and reserved ranges.
 - Body caps, connection limits, connect/response/idle timeouts, and bounded event and command queues.
+
+**WebSocket interception and Repeater**
+
+- HTTP/1.1 `Upgrade: websocket` handshakes are recognized, scope-checked, and relayed frame by frame instead of as an opaque byte stream.
+- The proxy performs the upstream handshake itself over the existing verified TCP/TLS path and only returns `101` to the client after upstream accepts, so a failed upgrade is never reported as success.
+- Frames keep their boundaries and masking state in both directions; binary payloads, fragmentation, ping/pong, unknown control frames, and close frames are preserved.
+- Interception is per frame in both directions: forward unchanged, drop, or modify text/binary payloads. A full interception queue forwards the frame unchanged and is surfaced as a warning; timeout or cancellation closes the WebSocket with `1001`.
+- Completed text messages are validated as UTF-8; protocol errors close with the appropriate `1002`/`1007` status rather than forwarding corrupt data.
+- A dedicated WebSocket workspace lists connections and frame history with direction, opcode, length, outcome, and a payload inspector; navigation, search/filter, mouse selection, and scrolling work at 140×40, 100×30, and 80×24.
+- Connections and frames are persisted in schema v4, binary-safe and under the same body/redaction policy as HTTP history. Restored frames that had no stored payload are marked omitted rather than shown as empty.
+- An authored WebSocket Repeater opens independent client sessions to scope-checked destinations with verified TLS, composes text frames, shows both directions, and never enters the proxy listener or interception queue.
+- Bounds: 64 concurrent WebSocket tunnels, 2 MiB frame, 8 MiB message, 64 KiB retained payload per frame, 300 s idle timeout, and the existing bounded interception queue/timeout. Compression is not negotiated; RSV bits and extensions are rejected or stripped.
 
 **HTTPS TLS interception**
 
@@ -131,7 +155,7 @@ confirmation, in-flight progress, and results frames (`*_02_confirm`,
 
 **Terminal interface**
 
-- Proxy, HTTP History, Repeater, Intruder, Decoder, and Settings workspaces.
+- Proxy, HTTP History, WebSocket, Repeater, Intruder, Decoder, and Settings workspaces.
 - Request/response inspector with raw, headers, and body views.
 - Keyboard navigation, mouse support, command palette, and resizable panes.
 - Live engine state, TLS state, queue state, and source provenance.
@@ -140,7 +164,7 @@ confirmation, in-flight progress, and results frames (`*_02_confirm`,
 ### Planned, not implemented
 
 - Advanced traffic analysis.
-- HTTP/3 and WebSocket interception; plaintext h2c; HTTP/2 server push and priority controls.
+- HTTP/3, RFC 8441 extended CONNECT, WebSocket compression, and QUIC; plaintext h2c; HTTP/2 server push and priority controls.
 - HTTP proxy authentication and per-client rate limits.
 
 ## Architecture
@@ -151,12 +175,12 @@ RAWFRAME is an eight-crate Cargo workspace. Dependency flow is one-way; the TUI 
 | --- | --- |
 | `rawframe-core` | Domain models, configuration, scope rules, lifecycle, filters, bounded event/command contracts, terminal-safety primitives, and labelled fixtures. No network or terminal I/O. |
 | `rawframe-http` | Authored HTTP/1.x document parser used by Repeater and tests. This is not the live proxy wire implementation. |
-| `rawframe-proxy` | Tokio/Hyper listener, HTTP forwarding, opaque `CONNECT` relay, TLS interception, destination policy, body guards, limits, and graceful shutdown. |
-| `rawframe-repeater` | Repeater execution engine: request validation handoff, independent HTTP/1.1 and HTTP/2 connections over verified HTTPS, redirects, bounded response capture, timeouts, cancellation, and the command service. Reuses proxy destination/TLS policy but not its listener, CA, or interception queue. |
+| `rawframe-proxy` | Tokio/Hyper listener, HTTP forwarding, opaque `CONNECT` relay, TLS interception, HTTP/1.1 WebSocket handshake and frame relay, destination policy, body guards, limits, and graceful shutdown. |
+| `rawframe-repeater` | Repeater execution engine: request validation handoff, independent HTTP/1.1 and HTTP/2 connections over verified HTTPS, redirects, bounded response capture, timeouts, cancellation, and the command service; also the authored WebSocket client sessions used by the WebSocket Repeater. Reuses proxy destination/TLS policy but not its listener, CA, or interception queue. |
 | `rawframe-intruder` | Intruder execution service: plan construction, payload expansion, bounded worker pool, rate gate, pause/resume/cancel, typed outcomes, and wordlist import. Executes through the Repeater engine instead of a second HTTP stack. |
 | `rawframe-store` | SQLite schema/migrations, a single writer thread, redaction-on-write, session queries, restore, and redacted export. No proxy or TUI dependency. |
 | `rawframe-tui` | Ratatui/Crossterm application, workspaces, inspector, editor, layouts, input handling, and terminal lifecycle. |
-| `rawframe-cli` | Composition root: CLI validation, logging, Tokio runtime, proxy worker, storage worker/capture pump, and TUI loop. |
+| `rawframe-cli` | Composition root: CLI validation, logging, Tokio runtime, proxy worker, HTTP Repeater service, WebSocket Repeater service, storage worker/capture pump, and TUI loop. |
 
 ```mermaid
 flowchart LR
@@ -202,6 +226,7 @@ TLS interception is security-sensitive. RAWFRAME keeps it explicit and bounded.
 - **No verification bypass.** Upstream certificate-chain and hostname verification cannot be disabled. `--tls-upstream-ca` replaces the trust roots for a lab; it does not weaken verification.
 - **Scope before connection.** Scope is checked before DNS resolution or any upstream socket is opened. A denial is recorded as blocked and never forwarded.
 - **Repeater is not a bypass.** Repeater opens its own scoped connections, uses the same resolve-once address policy, always verifies upstream TLS, and never enters the interception queue or trusts the local CA. Scope is re-checked before every redirect hop.
+- **WebSocket is still scoped traffic.** The upgrade destination is scope-checked and address-validated before any upstream socket opens. The upstream handshake is performed over verified TLS; extensions are stripped, compression is not negotiated, RSV bits are rejected, and the client only receives `101` after upstream accepts. Frame interception is bounded, and the authored WebSocket Repeater follows the same scope, address, and TLS rules as the HTTP Repeater.
 - **Safe redirects.** Following redirects is off by default. When enabled, RAWFRAME caps the chain at five hops, validates each destination against scope, and removes `Authorization`, `Proxy-Authorization`, `Cookie`, `X-Api-Key`, `X-Auth-Token`, and `X-Csrf-Token` on cross-origin hops.
 - **Resolve-once address policy.** Every resolved address is validated before connection. Loopback and private upstreams require `--allow-private-upstreams`; link-local, metadata, multicast, documentation, and reserved ranges remain blocked.
 - **Loopback by default.** Remote binding requires both a non-loopback `--bind` and `--allow-remote-bind`. There is no proxy authentication; protect any remote listener with host firewalls or a trusted network.
@@ -218,14 +243,18 @@ TLS interception is security-sensitive. RAWFRAME keeps it explicit and bounded.
 ### Limitations
 
 - Plaintext proxying is HTTP/1.1 only; h2c is not implemented. HTTP/2 requires TLS and an `h2` ALPN result.
-- HTTP/3 and WebSocket forwarding/interception are not supported.
+- WebSocket support is HTTP/1.1 upgrade only. RFC 8441 extended CONNECT, HTTP/2 WebSocket, HTTP/3, QUIC, compression (`permessage-deflate`), and subprotocol negotiation are not implemented. The upstream `Sec-WebSocket-Extensions` offer is stripped.
+- WebSocket interception is frame-level but not message-assembly-aware beyond completed-text UTF-8 validation: fragmented messages are shown and decided frame by frame, and a modified fragment is sent with its original FIN/RSV state.
 - HTTP/2 features beyond request/response framing (server push, priority, extended CONNECT) are not exposed. Header order is preserved where HTTP/2 permits it; pseudo-headers are represented as structured request fields rather than ordinary headers.
 - TLS interception does not bypass certificate pinning. Pinned clients fail the intercepted handshake by design.
 - Modified HTTPS requests cannot change the original `CONNECT` authority; changing host or port requires a new connection.
 - Opaque tunnels expose only destination, duration, byte counts, and outcome; payload and inner headers are not captured.
 - Captured history and sessions persist in SQLite. Settings, storage policy, and scope rules are runtime state: set them with CLI flags or in the UI for the current run. There is no configuration file.
 - Bodies and sensitive header values are absent from stored history unless explicitly enabled, and cannot be recovered later.
-- Repeater negotiates HTTP/2 automatically over verified TLS and falls back to HTTP/1.1. There is no manual protocol override and no h2c, WebSocket, client-certificate, or proxy-auth support.
+- Repeater negotiates HTTP/2 automatically over verified TLS and falls back to HTTP/1.1. There is no manual protocol override, h2c, client-certificate, or proxy-auth support.
+- WebSocket Repeater sessions are separate authored client connections, not replays of a captured socket. They seed only the destination, path, TLS choice, and subprotocol; captured cookies, headers, origin, and connection state are not copied. Text composition is supported; binary composition and per-frame editing in the Repeater are not.
+- WebSocket connections are capped separately at 64, with a 2 MiB frame cap, 8 MiB message cap, 64 KiB retained payload, and 300 s idle timeout. The retained payload is truncated with an explicit flag; the relay itself still forwards the full frame while under the frame limit.
+- WebSocket frame interception has no ordering barrier across connections: a paused frame holds only its own relay. Closing a paused connection or stopping the proxy cancels its pending frames.
 - Repeater requests are re-validated against destination and scope on every execution, including edits and HTTP/2 requests; a connection is never reused across destinations.
 - Repeater requests are direct; they do not traverse the local proxy listener or reuse a captured connection. A different client certificate, source address, or proxy path can produce a different result.
 - Intruder executes through the Repeater engine, so it inherits HTTP/2 negotiation and HTTP/1.1 fallback. It has no h2c, WebSocket, or raw socket payloads, and no response-matching rules or fuzzing engine.
@@ -409,6 +438,7 @@ Single-letter shortcuts are suppressed while typing in an editor, search field, 
 | `Ctrl+1` … `Ctrl+4` | Go to Proxy, HTTP History, Repeater, and Settings. |
 | `Ctrl+5` | Open the Intruder workspace. |
 | `Ctrl+6` | Open the Decoder workspace. |
+| `Ctrl+7` | Open the WebSocket workspace. |
 | `Ctrl+F` | Search HTTP History. |
 | `Ctrl+N` | Create a Repeater tab. |
 | `Ctrl+W` | Close the current Repeater tab. |
@@ -447,6 +477,25 @@ Single-letter shortcuts are suppressed while typing in an editor, search field, 
 | `1`, `2`, `3` | Show raw, headers, or body view. |
 | `X` | Toggle sensitive-header redaction in the inspector. |
 | `R` / `E` | Open the selected request in Repeater, view or edit mode. |
+
+### WebSocket
+
+| Shortcut | Action |
+| --- | --- |
+| `↑` / `↓` | Move through frames for the selected connection. |
+| `←` / `→` | Switch connections. |
+| `Home` / `End`, `PageUp` / `PageDown` | Jump to the first/last frame or move by a page. |
+| `Enter` | Inspect the selected frame. |
+| `I` | Toggle WebSocket frame interception. |
+| `F` / `D` | Forward or drop the selected paused frame. |
+| `M` | Edit the selected paused frame's payload; `Ctrl+Enter` sends it. |
+| `N` | Jump to the next paused frame. |
+| `/` | Filter frames by text, opcode, or direction. |
+| `C` | Clear the local frame view (the connection and relay are unaffected). |
+| `O` | Open a WebSocket Repeater session seeded from the selected connection. |
+| `T` | Compose a text frame for the active Repeater session. |
+| `S` | Close the active WebSocket Repeater session. |
+| Mouse | Click to select connections and frames; the wheel scrolls the focused pane. |
 
 ### Repeater and Settings
 
@@ -536,6 +585,7 @@ Milestone numbers follow [docs/roadmap.md](docs/roadmap.md).
 | M7 — Decoder and transformation workbench | Complete |
 | M8 — Intruder payload workbench | Complete |
 | M9 — HTTP/2 support | Complete |
+| M10 — WebSocket interception and Repeater | Complete |
 | Later — traffic analysis, protocol expansion, release hardening | Planned |
 
 Planned work is not available in this build. See [docs/roadmap.md](docs/roadmap.md) for scope, acceptance criteria, and known limitations.
@@ -552,9 +602,9 @@ cargo test --workspace
 
 Or run `./scripts/check.sh`.
 
-The latest verified M9 run reported:
+The latest verified M10 run reported:
 
-- **447 passing tests, 0 failed** across the workspace (M8 baseline: 427), including real local HTTP/HTTPS Repeater executions, binary bodies, duplicate headers, redirect loops and credential stripping, scope refusal, timeouts, cancellation, response limits, Repeater persistence/redaction, an end-to-end M5 schema-v1 upgrade fixture, a complete Decoder transformation/pipeline matrix with known hash vectors, malformed input, and size limits, Intruder planning/strategy counts, wordlist import, bounded execution against local HTTP and HTTPS servers, pause/resume/cancel, persistence, transfers, and TUI rendering at three terminal sizes, plus genuine HTTP/2 ALPN negotiation, multiplexed streams, per-stream interception including client-reset cancellation and shutdown, cross-protocol bridges, Repeater/intruder h2 execution, and protocol persistence round-trips.
+- **475 passing tests, 0 failed** across the workspace (M9 baseline: 447), including real local HTTP/HTTPS Repeater executions, binary bodies, duplicate headers, redirect loops and credential stripping, scope refusal, timeouts, cancellation, response limits, Repeater persistence/redaction, an end-to-end M5 schema-v1 upgrade fixture, a complete Decoder transformation/pipeline matrix with known hash vectors, malformed input, and size limits, Intruder planning/strategy counts, wordlist import, bounded execution against local HTTP and HTTPS servers, pause/resume/cancel, persistence, transfers, and TUI rendering at three terminal sizes, genuine HTTP/2 ALPN negotiation, multiplexed streams, per-stream interception including client-reset cancellation and shutdown, cross-protocol bridges, Repeater/Intruder h2 execution, protocol persistence round-trips, and real local WebSocket upgrades with frame boundaries, masking, fragmentation, UTF-8 validation, pause/forward/drop/modify, bounds, schema-v4 persistence, authored Repeater send/receive, scope refusal before connect, and TUI rendering at three sizes.
 - The existing PTY screenshot and TLS enable/disable regressions still pass.
 - Repeater tests use local HTTP/HTTPS servers and self-signed test certificates; storage tests use isolated temporary databases; proxy tests use local servers only.
 
@@ -562,7 +612,7 @@ The PTY test requires Python 3 with `cryptography`; without it, that test skips 
 
 ## Project status and contribution
 
-RAWFRAME is under active pre-1.0 development. The M1–M9 foundations are implemented and tested. Interfaces and terminal behavior may change.
+RAWFRAME is under active pre-1.0 development. The M1–M10 foundations are implemented and tested. Interfaces and terminal behavior may change.
 
 Contributions should preserve the security defaults: loopback binding, default-deny scope, explicit private-upstream opt-in, mandatory upstream TLS verification, redaction, and terminal sanitization. Add tests for behavioral changes and run the quality gates before submitting. See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/development.md](docs/development.md).
 

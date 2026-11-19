@@ -223,6 +223,8 @@ pub enum AppEvent {
     WebSocketMessage(Box<crate::models::websocket::WebSocketMessage>),
     /// A WebSocket frame is paused awaiting an operator decision.
     WebSocketFramePaused(Box<crate::models::websocket::WebSocketFrame>),
+    /// Authored WebSocket Repeater session lifecycle and frames.
+    WebSocketRepeater(crate::websocket::WebSocketRepeaterEvent),
     Notice(Notice),
     Shutdown,
 }

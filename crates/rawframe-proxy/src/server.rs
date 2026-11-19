@@ -32,6 +32,7 @@ pub struct ProxyHandle {
     shutdown: watch::Sender<bool>,
     task: tokio::task::JoinHandle<()>,
     interception: InterceptionManager,
+    websockets: crate::websocket::WebSocketInterceptor,
     tls: Arc<TlsController>,
     scope: Arc<RwLock<Scope>>,
 }
@@ -49,6 +50,16 @@ impl ProxyHandle {
         decision: InterceptDecision,
     ) {
         let _ = self.interception.resolve(id, decision).await;
+    }
+
+    /// Resolves a paused WebSocket frame. Used by embedding tests and the
+    /// command service; decisions are runtime-local.
+    pub async fn resolve_websocket_frame(
+        &self,
+        frame: rawframe_core::models::websocket::WebSocketFrameId,
+        decision: rawframe_core::models::websocket::WebSocketFrameDecision,
+    ) -> bool {
+        self.websockets.resolve(frame, decision).await
     }
 
     /// Replaces the live scope allowlist. Requests admitted after this call use
@@ -122,16 +133,26 @@ pub async fn start_proxy(
         rawframe_core::TlsStatus::disabled()
     };
     let live_scope = Arc::new(RwLock::new(config.proxy.scope.clone()));
+    let websockets = crate::websocket::WebSocketInterceptor::new(
+        config.proxy.interception_enabled,
+        config.proxy.intercept_timeout_secs,
+        config.proxy.intercept_queue_capacity,
+        events.clone(),
+        shutdown_rx.clone(),
+    );
     let context_tls = tls.clone();
     let context = ServiceContext {
         config: config.clone(),
         scope: live_scope.clone(),
         events,
         ids,
+        ws_ids: Arc::new(AtomicU64::new(1)),
         tracker: tracker.clone(),
         tunnels,
         shutdown: shutdown_rx.clone(),
         interception: interception.clone(),
+        websockets: websockets.clone(),
+        websocket_slots: Arc::new(Semaphore::new(config.proxy.websocket_max_connections)),
         tls,
     };
 
@@ -151,6 +172,7 @@ pub async fn start_proxy(
         shutdown,
         task,
         interception,
+        websockets,
         tls: context_tls,
         scope: live_scope,
     })
@@ -231,6 +253,7 @@ pub async fn run_service(mut commands: mpsc::Receiver<AppCommand>, events: Event
                         .send_async(AppEvent::ProxyStateChanged(ProxyState::Stopping))
                         .await;
                     let _ = started.interception.cancel_all("proxy stopped").await;
+                    started.websockets.cancel_all().await;
                     started.shutdown().await;
                     let _ = events
                         .send_async(AppEvent::ProxyStateChanged(ProxyState::Stopped))
@@ -243,11 +266,13 @@ pub async fn run_service(mut commands: mpsc::Receiver<AppCommand>, events: Event
             AppCommand::SetInterception { enabled } => {
                 if let Some(active) = handle.as_ref() {
                     active.interception.set_enabled(enabled);
+                    active.websockets.set_enabled(enabled);
                     if !enabled {
                         let _ = active
                             .interception
                             .cancel_all("interception disabled")
                             .await;
+                        active.websockets.cancel_all().await;
                     }
                 }
                 let _ = events
@@ -333,8 +358,19 @@ pub async fn run_service(mut commands: mpsc::Receiver<AppCommand>, events: Event
                         .await;
                 }
             }
-            AppCommand::ResolveWebSocketFrame { .. } => {
-                // WebSocket frame interception is handled by active connection tasks.
+            AppCommand::ResolveWebSocketFrame {
+                frame_id, decision, ..
+            } => {
+                if let Some(active) = handle.as_ref() {
+                    let resolved = active.websockets.resolve(frame_id, decision).await;
+                    if !resolved {
+                        let _ = events
+                            .send_async(AppEvent::Notice(Notice::warning(
+                                "That WebSocket frame is no longer paused.",
+                            )))
+                            .await;
+                    }
+                }
             }
         }
     }

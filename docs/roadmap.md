@@ -336,11 +336,49 @@ workspace suite is 447 passing tests.
 Explicitly not included: HTTP/3, WebSocket upgrades, h2c, server push, priority
 controls, QUIC, and any second networking stack.
 
+## Milestone 10 — WebSocket interception and Repeater (implemented)
+
+### M10 status (this workspace)
+
+- HTTP/1.1 `Upgrade: websocket` requests are recognized before normal
+  forwarding. The destination is scope-checked and address-validated, the
+  upstream handshake is performed over the existing verified TCP/TLS path, and
+  the client receives `101` only after upstream accepts and `Sec-WebSocket-Accept`
+  is verified.
+- Frames are relayed with a RAWFRAME-owned RFC 6455 codec rather than a
+  message-oriented library, so boundaries, FIN, RSV, opcode, masking, binary
+  payloads, fragmentation, ping/pong, unknown control frames, and close are
+  preserved in both directions.
+- Interception works per frame in both directions: forward unchanged, drop, or
+  modify text/binary payload. A full queue forwards unchanged with a warning;
+  timeout or cancellation closes with `1001`. Completed text messages are
+  UTF-8-validated; protocol errors close with `1002`/`1007`.
+- `Sec-WebSocket-Extensions` is stripped and compression is never negotiated;
+  RSV bits are rejected. Subprotocols are preserved and recorded.
+- A dedicated WebSocket workspace lists connections and frame history with
+  direction, opcode, length, outcome, filter, inspector, mouse support, and a
+  payload editor. It fits 140×40, 100×30, and 80×24.
+- Schema v4 adds connection/frame/message tables through an additive migration.
+  Captures are binary-safe and follow the storage body/redaction policy;
+  `payload_omitted` distinguishes withheld payloads from empty frames.
+- An authored WebSocket Repeater opens independent scoped sessions with verified
+  TLS, composes text frames, shows both directions, and is labelled
+  `TrafficSource::Repeater`. Frame/connection IDs start at 3,000,000.
+- Limits: 64 WebSocket tunnels, 2 MiB frame, 8 MiB message, 64 KiB retained
+  payload, 300 s idle timeout, and the bounded interception queue/timeout.
+- Explicitly not included: HTTP/3, QUIC, RFC 8441 extended CONNECT, WebSocket
+  over HTTP/2, `permessage-deflate`, and binary composition in the Repeater.
+- Real PTY evidence is under `docs/screenshots/websocket/` at all three sizes:
+  captured frames, an authored Repeater session, and a composed frame with its
+  echo. `scripts/capture_websocket_pty.py` drives a real client and echo server.
+
 ## Known limitations at 0.2.0
 
 - The plaintext listener is HTTP/1.1 only; h2c is not implemented. HTTP/2
-  requires TLS and an `h2` ALPN result. HTTP/3 and WebSocket upgrade forwarding
-  are not supported; `Upgrade` is stripped.
+  requires TLS and an `h2` ALPN result. HTTP/1.1 WebSocket upgrades are
+  supported, but RFC 8441 extended CONNECT, WebSocket over HTTP/2, HTTP/3,
+  QUIC, and WebSocket compression are not; other `Upgrade` protocols are
+  stripped.
 - HTTP/2 server push, priority, and extended CONNECT are not exposed. Pinned
   clients fail the intercepted handshake by design; RAWFRAME does not bypass
   certificate pinning.
@@ -361,6 +399,14 @@ controls, QUIC, and any second networking stack.
   It cannot reuse a captured connection, client certificate, or proxy-auth path;
   results may differ from the original capture. Drafts are session-only;
   completed executions are persisted.
+- WebSocket interception is frame-level. Fragmented messages are decided per
+  frame, and a modified fragment keeps its original FIN/RSV state. Retained
+  payloads are truncated at 64 KiB with an explicit flag; the relay forwards the
+  full frame while under the 2 MiB frame cap.
+- WebSocket Repeater sessions seed only the destination metadata and compose
+  text. They are not replays of the captured socket and do not copy headers,
+  cookies, or connection state. Binary composition and per-frame editing are not
+  available.
 - Decoder input/output is capped at 8 MiB and pipelines at 16 steps. Decoder
   content and history are session-only and never persisted. JWT inspection does
   not verify signatures, MD5 is legacy-only, and clipboard copy relies on
@@ -380,7 +426,7 @@ controls, QUIC, and any second networking stack.
 
 ## Recommended next step
 
-**Traffic analysis and remaining protocol coverage.** With M1–M9 implemented,
+**Traffic analysis and remaining protocol coverage.** With M1–M10 implemented,
 the next useful work is comparative traffic analysis over stored history and
-WebSocket/HTTP/3 coverage, followed by release hardening:
-dependency auditing, log rotation, and a persistent configuration file.
+HTTP/3 / RFC 8441 coverage, followed by release hardening: dependency auditing,
+log rotation, and a persistent configuration file.

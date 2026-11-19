@@ -1,0 +1,30 @@
+ RAWFRAME  |  WebSocket              PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 1 allowlist rule
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││WEBSOCKET  HTTP/1.1 upgrade relay · frame-level capture        INTERCEPTION OFF
+ PRIMARY           ││ 2 connections · 5 frames · 2 messages · passive   ↑↓ frames · ←→ connections ·
+  Proxy         ^1 ││ Forward f    Drop d    Modify m    Next paused n    Clear c    Filter press /
+  History       ^2 ││╭ CONNECTIONS ───────╮╭ FRAMES · 2 frames ────────────────────────────────────╮
+▌ WebSocket     ^7 │││  127.0.0.1:33483   ││▸  → text             4 B ping                         │
+  Repeater      ^3 │││▸ 127.0.0.1:33483   ││   ← text             9 B echo:ping                    │
+  Intruder      ^5 │││                    ││                                                       │
+  Decoder       ^6 │││                    ││                                                       │
+  Settings      ^4 │││                    ││                                                       │
+                   │││                    ││                                                       │
+                   │││                    ││                                                       │
+                   │││                    ││                                                       │
+                   │││                    ││                                                       │
+                   │││                    ││                                                       │
+                   │││                    ││                                                       │
+                   │││                    ││                                                       │
+                   ││╰────────────────────╯╰───────────────────────────────────────────────────────╯
+                   ││╭ INSPECTOR ──────────────────────────────────────────────────────────────────╮
+                   │││CONNECTION #3000001  REPEATER                                                │
+                   │││ws://127.0.0.1:33483/chat                                                    │
+                   │││state open  subprotocol none                                                 │
+ STATUS            │││frames 0  messages 0  bytes ↑ 0 B ↓ 0 B                                      │
+ Engine active     │││started 01:27:18  open                                                       │
+ Interception off  │││                                                                             │
+ No pending        │││FRAME #3000001  client → server  01:27:19.259                                │
+                   ││╰─────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ✓ WebSocket frame queued for Repeater session.               ^K commands  ? help  ^C quit

@@ -1,0 +1,24 @@
+ RAWFRAME  |  WebSocket                     PROXY LISTENING  |  INTERCEPTION OFF
+────────────────────────────────────────────────────────────────────────────────
+WEBSOCKET  HTTP/1.1 upgrade relay · frame-level capture         INTERCEPTION OFF
+ 1 connections · 3 frames · 2 messages · passive   ↑↓ frames · ←→ connections ·
+ Forward f    Drop d    Modify m    Next paused n    Clear c    Filter press / t
+╭ CONNECTIONS ───────╮╭ FRAMES · 3 frames ─────────────────────────────────────╮
+│▸ 127.0.0.1:35967   ││▸  → text             4 B seed                          │
+│                    ││   ← text             9 B echo:seed                     │
+│                    ││   → close            2 B binary · 0000  03 e8   …      │
+│                    ││                                                        │
+│                    ││                                                        │
+│                    ││                                                        │
+╰────────────────────╯╰────────────────────────────────────────────────────────╯
+╭ INSPECTOR ───────────────────────────────────────────────────────────────────╮
+│CONNECTION #1  LIVE                                                           │
+│ws://127.0.0.1:35967/chat                                                     │
+│state closed  subprotocol none                                                │
+│frames 3  messages 2  bytes ↑ 6 B ↓ 9 B                                       │
+│started 01:27:19  closed 01:27:20                                             │
+│                                                                              │
+│FRAME #2  client → server  01:27:19.937                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · WebSocket #1 127.0.0.1:35967/chat clo… ^K commands  ? help  ^C quit

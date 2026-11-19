@@ -1,10 +1,12 @@
 # RAWFRAME Architecture
 
-**Status:** Milestone 9 — HTTP/2 (0.2.0). HTTP/1.1 forwarding, opaque HTTPS
+**Status:** Milestone 10 — WebSocket (0.2.0). HTTP/1.1 forwarding, opaque HTTPS
 CONNECT tunnels, live pause/edit/forward/drop, opt-in TLS interception for
 HTTP/1.1 and HTTP/2 over negotiated ALPN, SQLite sessions/persistence, redacted
 export, live scope editing, real Repeater execution and comparison, a Decoder
-pipeline, an Intruder workbench, and multiplexed HTTP/2 streams are implemented.
+pipeline, an Intruder workbench, multiplexed HTTP/2 streams, and HTTP/1.1
+WebSocket handshake interception with frame-level relay, a dedicated workspace,
+schema-v4 persistence, and an authored WebSocket Repeater are implemented.
 
 ## 1. Design constraints
 
@@ -39,6 +41,8 @@ rawframe/
 │   │   ├── security.rs         terminal-safe display conversion
 │   │   ├── decoder.rs          byte-oriented transforms + pipeline engine
 │   │   ├── intruder.rs         positions, payload sets, strategies, plan, results
+│   │   ├── websocket.rs        WebSocket Repeater contracts + ID spacing
+│   │   ├── models/websocket.rs connections, frames, decisions, limits
 │   │   └── fixtures.rs         17 labelled simulated transactions
 │   ├── rawframe-proxy/         Tokio/Hyper forwarding + CONNECT engine
 │   │   ├── server.rs           listener, lifecycle commands, shutdown
@@ -46,10 +50,12 @@ rawframe/
 │   │   ├── destination.rs      authority parsing, scope, DNS/IP policy (shared)
 │   │   ├── body.rs             bounded streaming body with capture
 │   │   ├── tunnel.rs           opaque relay, half-close, idle timeout
+│   │   ├── websocket/          upgrade, RFC 6455 codec, frame relay, client
 │   │   └── tls/                CA, leaf issuance, verified upstream TLS
 │   ├── rawframe-repeater/      independent Repeater execution engine
 │   │   ├── engine.rs           connections, TLS, redirects, bounded capture
 │   │   ├── service.rs          bounded command service, cancellation, IDs
+│   │   ├── websocket.rs        authored WebSocket sessions + frame events
 │   │   └── tests/execution.rs  local HTTP/HTTPS integration matrix
 │   ├── rawframe-intruder/      bounded payload attack service (reuses Repeater)
 │   │   ├── engine.rs           payload expansion + worker pool + rate gate
@@ -69,7 +75,8 @@ rawframe/
 │   │   ├── ui.rs               shell composition
 │   │   ├── layout.rs           geometry and resize rules
 │   │   ├── interaction.rs      hit targets, scroll regions, render output
-│   │   ├── screens/            Proxy, History, Repeater, Intruder, Decoder, Settings
+│   │   ├── screens/            Proxy, History, WebSocket, Repeater, Intruder, Decoder, Settings
+│   │   ├── websocket.rs        WebSocket connections, frames, editor, filters
 │   │   ├── intruder.rs         Intruder view state, candidates, prompts
 │   │   ├── components/         panels, buttons, inspector, editor, overlays
 │   │   ├── state.rs            view-local state
@@ -129,6 +136,7 @@ events and bounded command senders defined in core (a dev-dependency on
  client ──▶ rawframe-proxy ──AppEvent──▶ bounded EventBus ──poll()──▶ App (TUI)
                                                      ▲
  Repeater tab ──RepeaterCommand──▶ rawframe-repeater┘ (Phase/Completed events)
+ WebSocket Repeater ──WebSocketRepeaterCommand──▶ rawframe-repeater┘ (Opened/Failed/Closed + frame events)
  Intruder plan ──IntruderCommand──▶ rawframe-intruder┘ (Progress/Completed events)
                                                      │
                                                      └──subscribe()──▶ capture pump
@@ -141,9 +149,10 @@ events and bounded command senders defined in core (a dev-dependency on
 
 `rawframe-cli` owns a multi-thread Tokio runtime. It spawns
 `rawframe_proxy::run_service(command_rx, event_sender)`,
-`rawframe_repeater::run_service(command_rx, config, event_sender, scope)`, and
-`rawframe_intruder::run_service(command_rx, config, event_sender, scope)`, starts
-the storage worker and capture pump, then runs the synchronous TUI. The engines
+`rawframe_repeater::run_service(command_rx, config, event_sender, scope)`,
+`rawframe_repeater::run_websocket_service(command_rx, config, event_sender, scope)`,
+and `rawframe_intruder::run_service(command_rx, config, event_sender, scope)`,
+starts the storage worker and capture pump, then runs the synchronous TUI. The engines
 have independent command channels and sockets, but share the scope model and
 event bus. The UI runtime is independent: input arrives on a Crossterm reader
 thread, events are polled, and frames redraw on input or at a 250 ms idle cadence.
@@ -172,6 +181,12 @@ Commands:
   separate bounded channel. `Execute` carries tab/execution IDs fixed by the UI
   and the exact request; the service assigns a Repeater traffic ID only when the
   execution completes.
+- `AppCommand::ResolveWebSocketFrame { frame, decision }` resolves a paused
+  WebSocket frame. It is separate from HTTP interception so a frame decision
+  cannot accidentally complete an HTTP entry.
+- `WebSocketRepeaterCommand::{Open, Send, Close, Shutdown}` are a separate
+  bounded channel. `Open` carries only the seeded destination metadata (host,
+  port, path, TLS, subprotocol), never captured headers or bodies.
 
 Events:
 
@@ -189,6 +204,11 @@ Events:
   `TrafficEntry` labelled `Intruder` (payload values and optional origin
   capture), `Finished` carries the typed summary and stop reason, `Failed`
   reports a refused launch, and `Wordlist` returns an import outcome.
+- `WebSocketConnection` / `WebSocketFrame` drive the WebSocket workspace.
+  `WebSocketFramePaused` marks a frame awaiting a decision.
+- `WebSocketRepeater(Opened|Failed|Closed)` drives the authored session; its
+  frames use the same `WebSocketFrame` event with ids above
+  `WEBSOCKET_REPEATER_ID_BASE` (3,000,000), so they never collide with captures.
 - `InterceptionPaused` / `InterceptionQueueChanged` drive the pending queue.
 - `TlsStateChanged` publishes TLS enabled/disabled state, the public CA path and
   fingerprint, or a non-secret enable error.
@@ -601,6 +621,80 @@ the negotiated protocol rather than the editor's version field.
 header list. Request/response body caps, timeouts, connection caps, and event
 queue bounds are the existing proxy limits.
 
+## 5.11 WebSocket interception and Repeater
+
+WebSocket is an HTTP/1.1 upgrade protocol, not an HTTP/2 or HTTP/3 feature. The
+proxy recognizes an upgrade request before normal forwarding, validates its
+destination, performs the upstream handshake itself over the existing verified
+TCP/TLS path, and only then returns `101` to the client. A failed upstream
+handshake is returned as a real failure; the client is never told the socket is
+open when it is not. RFC 8441 extended CONNECT is not implemented, and a
+WebSocket handshake is never routed through the HTTP/2 path.
+
+**Wire codec.** `rawframe_proxy::websocket::frame` is a small RFC 6455 codec
+owned by RAWFRAME rather than a message-oriented WebSocket library, because the
+workspace must observe, pause, modify, and drop individual frames. It preserves
+FIN, RSV, opcode, masking, and payload bytes, enforces control-frame rules
+(FIN required, ≤125 bytes), rejects RSV bits and negotiated extensions, and
+validates UTF-8 only when a text message is complete. Client-to-server frames
+are masked; server-to-client frames are not. The relay never re-frames a message
+or coalesces fragments.
+
+**Handshake policy.** `Sec-WebSocket-Extensions` is stripped upstream, so
+compression is never negotiated and RSV1 can be rejected safely. The client
+`Sec-WebSocket-Key` is used for the upstream handshake, and the upstream
+`Sec-WebSocket-Accept` is verified before `101` is sent. Subprotocols are
+preserved and recorded; the Repeater seeds its own requested subprotocol but
+does not replay captured headers. TLS verification, scope, resolve-once DNS, and
+private-address policy are the same as HTTP.
+
+**Frame interception.** Both directions pass through the same bounded
+interception table. A frame pauses only its own relay; other connections and the
+other direction continue. The decision is `Forward`, `ForwardModified`, or
+`Drop`. A full queue forwards unchanged and emits a warning rather than growing
+memory; an interception timeout or shutdown cancels the table and closes the
+WebSocket with `1001`. Payload modification is byte-oriented, so binary frames
+keep their bytes; a modified text frame is revalidated as UTF-8 before send.
+Close frames are relayed without interception so the close handshake completes.
+
+**Bounds.** 64 concurrent WebSocket tunnels (a separate semaphore), 2 MiB frame,
+8 MiB reassembled message, 64 KiB retained capture payload per frame (the frame
+is still relayed whole while under the frame limit), the existing bounded
+interception queue/timeout, and a 300 s idle timeout. Capture truncation is
+explicit, and the relay applies backpressure rather than buffering without
+limit.
+
+**Workspace.** The TUI has a dedicated `NavSection::WebSocket` (`Ctrl+7`) after
+History. It owns `WebSocketState`: connections, frames, selection, filter,
+paused queue, payload editor, and Repeater session reference. At ≥108 columns it
+shows connections, frames, and inspector side by side; narrower layouts stack
+connections above frames and drop the inspector. Rendering never relays or
+decides; it records hit targets and scroll zones, and input dispatches
+`AppCommand::ResolveWebSocketFrame` or Repeater commands.
+
+**Persistence.** Schema v4 adds `websocket_connections`, `websocket_frames`, and
+`websocket_messages` tables through an additive migration. `WebSocketFrame` and
+`WebSocketMessage` carry `payload_omitted`, so a row restored under a
+no-bodies policy is distinguishable from a genuinely empty payload. Frames are
+stored binary-safe, a capture frame is written before the outcome event, and
+restored recordings are read-only like HTTP history. Connections labelled
+`Repeater` are persisted through the same path.
+
+**WebSocket Repeater.** The HTTP Repeater's engine is request/response oriented,
+so authored WebSocket sessions live in `rawframe_repeater::websocket` and use the
+public client in `rawframe_proxy::websocket::client`. The client reuses the
+destination/TLS builder and the RFC 6455 codec, opens one scoped connection per
+session, and splits into a reader and writer. The service owns a bounded session
+map and emits `Opened`, `Failed` (with a local `blocked` flag), and `Closed`;
+frames flow through `AppEvent::WebSocketFrame` with ids starting at
+`WEBSOCKET_REPEATER_ID_BASE`. Sessions are labelled `TrafficSource::Repeater`.
+The TUI composes text frames only; it does not edit individual frames in this
+workspace.
+
+**Explicit non-goals.** No HTTP/3, QUIC, WebSocket-over-HTTP/2, RFC 8441,
+`permessage-deflate`, message reassembly for display, or a second HTTP proxy
+path. The WebSocket Repeater is a direct client, like the HTTP Repeater.
+
 ## 6. Scope and destination address policy
 
 Scope uses the existing `rawframe_core` model:
@@ -673,7 +767,9 @@ Input never references literal screen positions. Tests render through
 `App` owns navigation, focus, selections, filters, inspector state, Repeater
 tabs, the Intruder state, the Decoder state, Settings editing, overlays,
 notifications, proxy lifecycle state, storage status, the stored-session list,
-the live scope editor, and the bounded command senders. `IntruderState` owns the
+the live scope editor, the WebSocket view state, the WebSocket Repeater session,
+and the bounded command senders. `WebSocketState` owns connections, frames,
+selection, filter, the paused set, and the payload editor. `IntruderState` owns the
 template components, marked positions, payload lists and the active set index,
 strategy and limit settings, view mode, the plan and its validation status,
 results and their filters/sort/baseline, inspector view, prompts, and the run
@@ -713,11 +809,11 @@ There is no decorative “saved” indicator.
 5. Scope editor / stored-session browser.
 6. Help overlay.
 7. Inline settings edit.
-8. Global control shortcuts (`Ctrl+K`, `Ctrl+1`…`6`, `Ctrl+F`, `Ctrl+N`,
+8. Global control shortcuts (`Ctrl+K`, `Ctrl+1`…`7`, `Ctrl+F`, `Ctrl+N`,
    `Ctrl+W`, `Ctrl+Enter`, `Ctrl+U`).
 9. `Esc` / `Tab`.
 10. Search text entry.
-11. Repeater, Intruder, or Decoder document editing.
+11. Repeater, Intruder, Decoder, or WebSocket payload editing.
 12. Global single-letter shortcuts (`?`, `Q`, `I`, `P`, `B` for stored sessions).
 13. Focus-specific navigation.
 
@@ -773,6 +869,11 @@ duration. Errors and notes are sanitized before terminal rendering.
 | interception timeout | 120 s |
 | allow private upstreams | off |
 | scope | empty allowlist, default deny |
+| WebSocket max frame | 2 MiB |
+| WebSocket max message | 8 MiB |
+| WebSocket max connections | 64 |
+| WebSocket capture payload | 64 KiB |
+| WebSocket idle timeout | 300 s |
 | persistence | on; SQLite under the platform data directory |
 | stored bodies | off (SQL `NULL`) |
 | stored sensitive headers | off (`<redacted>` placeholder) |
@@ -895,6 +996,10 @@ and local TLS servers.
 | Decoder engine in `rawframe-core`, no new crate | Reusable and testable without the TUI; core gains data-format dependencies (`flate2`, `sha2`, `md-5`, `base64`, `serde_json`) but remains I/O-free |
 | Decoder execution on a background thread per run | Keeps decompression and hashing off the render path; costs one thread per active run and requires run-ID matching |
 | Decoder state is session-only | No secrets or decoded payloads reach SQLite; history disappears on exit |
+| Custom frame codec instead of a message-oriented WebSocket library | Frames stay individually observable, pausable, modifiable, and droppable; RAWFRAME must own masking, fragmentation, close, and UTF-8 validation |
+| WebSocket interception only on HTTP/1.1 upgrades | One handshake path and no second protocol stack; RFC 8441, HTTP/2, and HTTP/3 WebSocket are unavailable |
+| WebSocket Repeater sessions in `rawframe-repeater` using a public proxy client | Same scope/address/TLS policy and verified client frames; one more service and ID space to keep distinct |
+| Schema v4 additive tables with `payload_omitted` | Existing databases upgrade in place and empty/omitted payloads are distinguishable; no message reassembly is persisted |
 
 ## 13. Extension path
 
@@ -932,6 +1037,11 @@ payload provenance.
 TLS and the Repeater, shared pseudo-header/URI conversion in `rawframe-core`,
 multiplexed streams with per-stream interception, truthful protocol display in
 the inspector and history, and real h2 integration tests and PTY evidence.
-Next: traffic analysis, HTTP/3 and WebSocket coverage, and release hardening.
+
+**Milestone 10 (implemented).** HTTP/1.1 WebSocket upgrade interception with a
+frame-level RFC 6455 codec, bidirectional pause/forward/drop/modify, a dedicated
+workspace and inspector, schema-v4 binary-safe persistence, bounded resources,
+and an authored WebSocket Repeater over the shared scope/address/TLS policy.
+Next: traffic analysis, HTTP/3, RFC 8441, and release hardening.
 
 See [roadmap.md](roadmap.md) for acceptance criteria.

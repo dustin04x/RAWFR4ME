@@ -25,6 +25,7 @@ pub mod models;
 pub mod repeater;
 pub mod security;
 pub mod storage;
+pub mod websocket;
 
 pub use decoder::{
     DECODER_DEFAULT_MAX_INPUT, DECODER_DEFAULT_MAX_OUTPUT, Direction, OutputFormat,

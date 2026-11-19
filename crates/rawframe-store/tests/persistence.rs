@@ -936,7 +936,7 @@ fn http2_protocol_metadata_round_trips_without_a_migration() {
     );
     assert_eq!(
         rawframe_store::schema::SCHEMA_VERSION,
-        3,
-        "protocol metadata reuses the existing columns; no migration is needed"
+        4,
+        "protocol metadata still reuses existing columns; v4 only adds WebSocket tables"
     );
 }

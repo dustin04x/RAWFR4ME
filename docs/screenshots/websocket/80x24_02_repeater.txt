@@ -1,0 +1,24 @@
+ RAWFRAME  |  WebSocket                     PROXY LISTENING  |  INTERCEPTION OFF
+────────────────────────────────────────────────────────────────────────────────
+WEBSOCKET  HTTP/1.1 upgrade relay · frame-level capture         INTERCEPTION OFF
+ 2 connections · 3 frames · 2 messages · passive   ↑↓ frames · ←→ connections ·
+ Forward f    Drop d    Modify m    Next paused n    Clear c    Filter press / t
+╭ CONNECTIONS ───────╮╭ FRAMES · 0 frames ─────────────────────────────────────╮
+│  127.0.0.1:35967   ││This connection has no captured frames yet.             │
+│▸ 127.0.0.1:35967   ││                                                        │
+│                    ││                                                        │
+│                    ││                                                        │
+│                    ││                                                        │
+│                    ││                                                        │
+╰────────────────────╯╰────────────────────────────────────────────────────────╯
+╭ INSPECTOR ───────────────────────────────────────────────────────────────────╮
+│CONNECTION #3000001  REPEATER                                                 │
+│ws://127.0.0.1:35967/chat                                                     │
+│state open  subprotocol none                                                  │
+│frames 0  messages 0  bytes ↑ 0 B ↓ 0 B                                       │
+│started 01:27:20  open                                                        │
+│                                                                              │
+│Interception is off: frames are forwarded unchanged. Press i to arm it.       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ✓ WebSocket Repeater session 1 connecte… ^K commands  ? help  ^C quit

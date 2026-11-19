@@ -54,6 +54,11 @@ pub(crate) struct ServiceContext {
     pub shutdown: watch::Receiver<bool>,
     pub interception: InterceptionManager,
     pub tls: Arc<TlsController>,
+    /// Monotonic ids for WebSocket connections, frames, and messages.
+    pub ws_ids: Arc<AtomicU64>,
+    pub websockets: crate::websocket::WebSocketInterceptor,
+    /// Independent ceiling on concurrently relayed WebSocket connections.
+    pub websocket_slots: Arc<Semaphore>,
 }
 
 /// An upstream HTTP connection in either protocol. HTTP/2 senders are cloned per

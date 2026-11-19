@@ -6,6 +6,7 @@ pub mod intruder;
 pub mod proxy;
 pub mod repeater;
 pub mod settings;
+pub mod websocket;
 
 use ratatui::Frame;
 use ratatui::layout::Rect;

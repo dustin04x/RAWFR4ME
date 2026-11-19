@@ -150,6 +150,8 @@ fn main() -> Result<()> {
     let persistence_enabled = cli.persistence_enabled();
     let database_path = config.storage.database_path.clone();
     let repeater_config = rawframe_repeater::RepeaterConfig::from_proxy(&config.proxy);
+    let websocket_repeater_config =
+        rawframe_repeater::WebSocketRepeaterConfig::from_proxy(&config.proxy);
     let repeater_scope = Arc::new(RwLock::new(config.proxy.scope.clone()));
     let mut app = rawframe_tui::App::new(config);
     let events = app.event_sender();
@@ -203,6 +205,17 @@ fn main() -> Result<()> {
     ));
     app.attach_repeater_commands(repeater_tx);
 
+    // WebSocket Repeater sessions share scope and verified TLS with the proxy
+    // and the HTTP Repeater, but own their connections and frame ids.
+    let (websocket_tx, websocket_rx) = tokio::sync::mpsc::channel(16);
+    let websocket_service = runtime.spawn(rawframe_repeater::run_websocket_service(
+        websocket_rx,
+        websocket_repeater_config,
+        events.clone(),
+        repeater_scope.clone(),
+    ));
+    app.attach_websocket_repeater_commands(websocket_tx);
+
     // Intruder reuses the Repeater execution engine (same scope, DNS, TLS, and
     // validation), so it only needs the same configuration plus a channel.
     let (intruder_tx, intruder_rx) = tokio::sync::mpsc::channel(16);
@@ -221,6 +234,9 @@ fn main() -> Result<()> {
         }
         if let Err(error) = repeater_service.await {
             tracing::error!(%error, "Repeater service task failed");
+        }
+        if let Err(error) = websocket_service.await {
+            tracing::error!(%error, "WebSocket Repeater service task failed");
         }
         if let Err(error) = intruder_service.await {
             tracing::error!(%error, "Intruder service task failed");

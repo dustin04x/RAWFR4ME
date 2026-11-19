@@ -1,0 +1,40 @@
+ RAWFRAME  |  WebSocket                                                      PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 1 allowlist rule
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││WEBSOCKET  HTTP/1.1 upgrade relay · frame-level capture                                                INTERCEPTION OFF
+ PRIMARY           ││ 2 connections · 3 frames · 2 messages · passive   ↑↓ frames · ←→ connections · m modify · n next paused
+  Proxy         ^1 ││ Forward f    Drop d    Modify m    Next paused n    Clear c    Filter press / to filter frames
+  History       ^2 ││╭ CONNECTIONS ───────────────╮╭ FRAMES · 0 frames ─────────────────────────────╮╭ INSPECTOR ──────────────────────────╮
+▌ WebSocket     ^7 │││  127.0.0.1:42339           ││This connection has no captured frames yet.     ││CONNECTION #3000001  REPEATER        │
+  Repeater      ^3 │││▸ 127.0.0.1:42339           ││                                                ││ws://127.0.0.1:42339/chat            │
+  Intruder      ^5 │││                            ││                                                ││state open  subprotocol none         │
+  Decoder       ^6 │││                            ││                                                ││frames 0  messages 0  bytes ↑ 0 B ↓ 0│
+  Settings      ^4 │││                            ││                                                ││B                                    │
+                   │││                            ││                                                ││started 01:27:16  open               │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││Interception is off: frames are      │
+                   │││                            ││                                                ││forwarded unchanged. Press i to arm  │
+                   │││                            ││                                                ││it.                                  │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││                                     │
+                   │││                            ││                                                ││                                     │
+ STATUS            │││                            ││                                                ││                                     │
+ Engine active     │││                            ││                                                ││                                     │
+ Interception off  │││                            ││                                                ││                                     │
+ No pending        │││                            ││                                                ││                                     │
+                   ││╰────────────────────────────╯╰────────────────────────────────────────────────╯╰─────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ✓ WebSocket Repeater session 1 connected to 127.0.0.1:42339                                          ^K commands  ? help  ^C quit
