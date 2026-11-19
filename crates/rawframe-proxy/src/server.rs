@@ -333,6 +333,9 @@ pub async fn run_service(mut commands: mpsc::Receiver<AppCommand>, events: Event
                         .await;
                 }
             }
+            AppCommand::ResolveWebSocketFrame { .. } => {
+                // WebSocket frame interception is handled by active connection tasks.
+            }
         }
     }
 

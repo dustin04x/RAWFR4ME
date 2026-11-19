@@ -557,6 +557,12 @@ impl App {
             AppEvent::Intruder(event) => self.handle_intruder_event(event),
             AppEvent::Notice(notice) => self.notify(notice),
             AppEvent::Storage(event) => self.handle_storage_event(event),
+            AppEvent::WebSocketConnection(_)
+            | AppEvent::WebSocketFrame(_)
+            | AppEvent::WebSocketMessage(_)
+            | AppEvent::WebSocketFramePaused(_) => {
+                // WebSocket workspace state is implemented as part of M10.
+            }
             AppEvent::Shutdown => self.should_quit = true,
         }
     }
@@ -1064,6 +1070,13 @@ impl App {
                     self.notify_warning(format!(
                         "Request #{id} is not a live paused interception."
                     ));
+                }
+            }
+            cmd @ AppCommand::ResolveWebSocketFrame { .. } => {
+                if let Some(sender) = &self.proxy_sender {
+                    let _ = sender.try_send(cmd);
+                } else {
+                    self.notify_warning("Proxy worker is not attached.");
                 }
             }
         }

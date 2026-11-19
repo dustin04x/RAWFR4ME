@@ -6,6 +6,7 @@ pub mod headers;
 pub mod message;
 pub mod session;
 pub mod traffic;
+pub mod websocket;
 
 pub use certificate::CertificateMetadata;
 pub use config::{
@@ -21,4 +22,9 @@ pub use session::{
 pub use traffic::{
     EditableHttpRequest, InterceptionMetadata, TrafficEntry, TrafficId, TrafficKind, TrafficSource,
     TrafficState, TrafficTimings, TransitionError, TunnelMetadata, TunnelOutcome,
+};
+pub use websocket::{
+    WebSocketConnection, WebSocketConnectionId, WebSocketConnectionState, WebSocketDirection,
+    WebSocketFrame, WebSocketFrameDecision, WebSocketFrameId, WebSocketInterceptionOutcome,
+    WebSocketMessage, WebSocketMessageId, WebSocketOpcode,
 };

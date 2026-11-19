@@ -215,6 +215,14 @@ pub enum AppEvent {
     Repeater(crate::repeater::RepeaterEvent),
     /// Intruder run progress, generated results, and wordlist outcomes.
     Intruder(crate::intruder::IntruderEvent),
+    /// A WebSocket connection was established or its metadata changed.
+    WebSocketConnection(Box<crate::models::websocket::WebSocketConnection>),
+    /// A WebSocket frame was captured or its interception outcome changed.
+    WebSocketFrame(Box<crate::models::websocket::WebSocketFrame>),
+    /// A complete WebSocket message was reassembled.
+    WebSocketMessage(Box<crate::models::websocket::WebSocketMessage>),
+    /// A WebSocket frame is paused awaiting an operator decision.
+    WebSocketFramePaused(Box<crate::models::websocket::WebSocketFrame>),
     Notice(Notice),
     Shutdown,
 }
@@ -244,6 +252,12 @@ pub enum AppCommand {
     /// sessions use the updated rules immediately; established connections keep
     /// the rules they were admitted under.
     UpdateScope(Scope),
+    /// Resolve a paused WebSocket frame.
+    ResolveWebSocketFrame {
+        connection_id: crate::models::websocket::WebSocketConnectionId,
+        frame_id: crate::models::websocket::WebSocketFrameId,
+        decision: crate::models::websocket::WebSocketFrameDecision,
+    },
 }
 
 /// Event bus retained by the application shell. The shell owns the primary
