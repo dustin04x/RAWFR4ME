@@ -10,6 +10,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
+use rawframe_analysis::{Category, Confidence, Finding, FindingStatus, Severity, parse_status};
 use rawframe_core::models::session::{Project, Session, SessionId, SessionSummary};
 use rawframe_core::models::traffic::{TrafficEntry, TunnelMetadata};
 use rawframe_core::models::websocket::{WebSocketConnection, WebSocketFrame, WebSocketMessage};
@@ -18,6 +19,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use serde_json::json;
 
 use crate::error::StoreError;
+
 use crate::record::{TrafficRecord, decode_row, now_stamp, restored_traffic_id};
 use crate::schema;
 use crate::websocket::{self, WebSocketRecording};
@@ -105,6 +107,29 @@ pub struct ExportSummary {
     pub websocket_connections: usize,
 }
 
+
+/// Convert a stored severity string to a Severity enum.
+fn parse_severity(value: &str) -> Severity {
+    match value {
+        "informational" => Severity::Informational,
+        "low" => Severity::Low,
+        "medium" => Severity::Medium,
+        "high" => Severity::High,
+        "critical" => Severity::Critical,
+        _ => Severity::Informational,
+    }
+}
+
+/// Convert a stored confidence string to a Confidence enum.
+fn parse_confidence(value: &str) -> Confidence {
+    match value {
+        "low" => Confidence::Low,
+        "medium" => Confidence::Medium,
+        "high" => Confidence::High,
+        "confirmed" => Confidence::Confirmed,
+        _ => Confidence::Low,
+    }
+}
 impl Store {
     /// Opens (or creates) the database and registers the current session.
     ///
@@ -468,6 +493,152 @@ impl Store {
     /// The file is built in a sibling temporary file and renamed into place, so
     /// an interrupted export never leaves a half-written history that looks
     /// complete. Files are owner-only on Unix.
+    pub fn export_findings(
+        &self,
+        session_id: &SessionId,
+        path: &Path,
+        _format: rawframe_core::storage::FindingExportFormat,
+        fingerprints: Option<&[String]>,
+    ) -> Result<Vec<Finding>, StoreError> {
+        if !self.session_exists(session_id)? {
+            return Err(StoreError::UnknownSession(session_id.0.clone()));
+        }
+        create_parent(path)?;
+
+        let fingerprint_filter = match fingerprints {
+            Some(fps) => {
+                let fp = &fps[0];
+                format!(" AND fingerprint = '{fp}'")
+            }
+            None => String::new(),
+        };
+
+        let sql = format!(
+            "SELECT finding_id, rule_id, rule_version, severity, confidence, status, \
+             first_observed, last_observed, occurrence_count, finding_json \
+             FROM findings WHERE session_id = ?1 {fingerprint_filter} \
+             ORDER BY first_observed ASC"
+        );
+        let mut statement = self.conn.prepare(&sql)?;
+        let rows = statement.query_row(
+            rusqlite::params![session_id.0],
+            |row| {
+                let finding_id: String = row.get(0)?;
+                let rule_id: String = row.get(1)?;
+                let rule_version: String = row.get(2)?;
+                let severity: String = row.get(3)?;
+                let confidence: String = row.get(4)?;
+                let status: String = row.get(5)?;
+                let first_observed: String = row.get(6)?;
+                let last_observed: String = row.get(7)?;
+                let occurrence_count: i64 = row.get(8)?;
+                let finding_json: String = row.get(9)?;
+
+                let finding = Finding {
+                    id: finding_id,
+                    rule_id,
+                    rule_version,
+                    category: Category::Transport, // default; could be enhanced
+                    severity: parse_severity(&severity),
+                    confidence: parse_confidence(&confidence),
+                    title: "Rule finding".to_string(),
+                    description: finding_json.clone(),
+                    technical_explanation: String::new(),
+                    impact: String::new(),
+                    remediation: String::new(),
+                    evidence: Vec::new(),
+                    origin: session_id.0.clone(),
+                    resource: String::new(),
+                    related_traffic: Vec::new(),
+                    first_observed: chrono::DateTime::parse_from_rfc3339(&first_observed)
+                        .unwrap_or_default()
+                        .into(),
+                    last_observed: chrono::DateTime::parse_from_rfc3339(&last_observed)
+                        .unwrap_or_default()
+                        .into(),
+                    occurrence_count: occurrence_count as u64,
+                    status: parse_status(&status).unwrap_or(FindingStatus::New),
+                    fingerprint: fingerprint_filter,
+                    session_id: Some(rawframe_core::SessionId(session_id.0.clone())),
+                };
+                Ok(finding)
+            },
+        )?;
+        Ok(vec![rows])
+    }
+
+    pub fn export_project_findings(
+        &self,
+        project_id: &rawframe_core::models::session::ProjectId,
+        path: &Path,
+        _format: rawframe_core::storage::FindingExportFormat,
+        selected: Option<&[(SessionId, String)]>,
+    ) -> Result<Vec<Finding>, StoreError> {
+        create_parent(path)?;
+
+        let selected_filter = match selected {
+            Some(pairs) if !pairs.is_empty() => {
+                let (_, fid) = &pairs[0];
+                format!(" AND finding_id = '{fid}'")
+            }
+            _ => String::new(),
+        };
+
+        let sql = format!(
+            "SELECT finding_id, rule_id, rule_version, severity, confidence, status, \
+             first_observed, last_observed, occurrence_count, finding_json \
+             FROM findings fs JOIN sessions s ON fs.session_id = s.id \
+             WHERE s.project_id = ?1 {selected_filter} ORDER BY first_observed ASC"
+        );
+        let mut statement = self.conn.prepare(&sql)?;
+        let mut findings = Vec::new();
+        let mut rows = statement.query_map(rusqlite::params![project_id.0], |row| {
+            let finding_id: String = row.get(0)?;
+            let rule_id: String = row.get(1)?;
+            let rule_version: String = row.get(2)?;
+            let severity: String = row.get(3)?;
+            let confidence: String = row.get(4)?;
+            let status: String = row.get(5)?;
+            let first_observed: String = row.get(6)?;
+            let last_observed: String = row.get(7)?;
+            let occurrence_count: i64 = row.get(8)?;
+            let finding_json: String = row.get(9)?;
+
+            let finding = Finding {
+                id: finding_id,
+                rule_id,
+                rule_version,
+                category: Category::Transport,
+                severity: parse_severity(&severity),
+                confidence: parse_confidence(&confidence),
+                title: "Rule finding".to_string(),
+                description: finding_json.clone(),
+                technical_explanation: String::new(),
+                impact: String::new(),
+                remediation: String::new(),
+                evidence: Vec::new(),
+                origin: String::new(),
+                resource: String::new(),
+                related_traffic: Vec::new(),
+                first_observed: chrono::DateTime::parse_from_rfc3339(&first_observed)
+                    .unwrap_or_default()
+                    .into(),
+                last_observed: chrono::DateTime::parse_from_rfc3339(&last_observed)
+                    .unwrap_or_default()
+                    .into(),
+                occurrence_count: occurrence_count as u64,
+                status: parse_status(&status).unwrap_or(FindingStatus::New),
+                fingerprint: String::new(),
+                session_id: None,
+            };
+            Ok(finding)
+        })?;
+        while let Some(finding) = rows.next() {
+            findings.push(finding?);
+        }
+        Ok(findings)
+    }
+
     pub fn export_session(
         &self,
         session_id: &SessionId,

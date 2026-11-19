@@ -426,7 +426,13 @@ controls, QUIC, and any second networking stack.
 
 ## Recommended next step
 
-**Traffic analysis and remaining protocol coverage.** With M1–M10 implemented,
-the next useful work is comparative traffic analysis over stored history and
-HTTP/3 / RFC 8441 coverage, followed by release hardening: dependency auditing,
-log rotation, and a persistent configuration file.
+**M11 — Passive security analysis.** Implementation is present and undergoing
+final verification. Captured HTTP/1.1, HTTP/2 shared messages, WebSocket
+handshakes, and eligible text messages are analyzed locally by a bounded
+worker. Findings use session-scoped persistence and project-wide bounded
+traffic paging through the existing store worker. The Security Findings
+workspace supports filters, search, sorting, inspection, lifecycle actions,
+related traffic, reanalysis, and JSON/Markdown exports. PTY captures exist at
+140×40, 100×30, and 80×24. The inventory records tested behavior and known
+limitations; M11 is not considered accepted until the final full suite and
+end-to-end evidence pass. HTTP/3 / RFC 8441 coverage remains future work.

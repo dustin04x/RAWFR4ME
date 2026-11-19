@@ -183,8 +183,8 @@ fn render_actions(
                     plan_ready && !active && app.intruder_engine_available(),
                 )
                 .primary()
-                .key("^↵"),
-                ButtonSpec::new("Edit req", ActionId::IntruderEditRequest, true).key("↵"),
+                .key("^⏎"),
+                ButtonSpec::new("Edit req", ActionId::IntruderEditRequest, true).key("⏎"),
                 ButtonSpec::new("Mark", ActionId::IntruderMarkPosition, true).key("M"),
                 ButtonSpec::new("Strategy", ActionId::IntruderStrategy, true).key("S"),
                 ButtonSpec::new("List", ActionId::IntruderAddList, true).key("A"),
@@ -653,7 +653,7 @@ fn render_payloads(
         .unwrap_or_default();
     if payloads.is_empty() {
         lines.push(Line::from(Span::styled(
-            "empty list · press ↵ on this panel to type payloads",
+            "empty list · press ⏎ on this panel to type payloads",
             theme.warning(),
         )));
     } else {
@@ -1075,7 +1075,7 @@ fn render_table(
         header.push(Span::styled("  PAYLOADS", theme.label()));
     }
     frame.render_widget(
-        Paragraph::new(Line::from(header)).style(Style::new().bg(theme.palette.surface)),
+        Paragraph::new(Line::from(header)).style(theme.table_header()),
         Rect::new(inner.x, inner.y, inner.width, 1),
     );
 
@@ -1109,9 +1109,9 @@ fn render_table(
         };
         let selected = offset == app.intruder.result_selection;
         let base_style = if selected {
-            Style::new().bg(theme.palette.selection)
+            theme.selected_row()
         } else {
-            Style::new()
+            theme.row(offset, false)
         };
         let status = result
             .status()

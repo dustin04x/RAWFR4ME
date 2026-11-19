@@ -1,0 +1,5 @@
+font=/usr/share/fonts/TTF/JetBrainsMonoNerdFontMono-Regular.ttf
+size=14
+cell=8.41x19
+dims=140x40
+renderer=Pillow (scripts/tui_tls_pty.py)

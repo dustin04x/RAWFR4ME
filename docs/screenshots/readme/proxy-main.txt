@@ -1,0 +1,40 @@
+ RAWFRAME  |  Proxy                127.0.0.1:45561   demo session               ● LISTENING  │  INTERCEPTION OFF  │  SCOPE 1 allowlist rule
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES      ││╭ TRAFFIC · 12 live capture(s) ─────────────────────────────────────────────────╮│╭ INSPECTOR ──────────────────────────╮
+ PRIMARY         │││ Stop proxy P    Interception off I    Inspect Enter    Replay R               │││ Request   Response                × │
+▌ ◆ Proxy    ^1  │││ID    METHOD  HOST            PATH                 STATUS          DUR     SRC │││ Raw  Headers  Body        REDACTED  │
+    History  ^2  │││▌1011 GET     127.0.0.1       h1 /v1/orders?page=4 200             0ms     LIVE│││#1011  GET  HTTP/1.1  …=4            │
+    WebSocket^7  │││ 1010 GET     127.0.0.1       h1 /health           200             1ms     LIVE│││Response 200  LIVE                   │
+    Repeater ^3  │││ 1009 POST    127.0.0.1       h1 /v1/session       201             0ms     LIVE│││─────────────────────────────────────│
+    Intruder ^5  │││ 1008 GET     127.0.0.1       h1 /v1/admin         403             0ms     LIVE│││GET /v1/orders?page=4 HTTP/1.1       │
+    Decoder  ^6  │││ 1007 GET     127.0.0.1       h1 /api/search?q=de… 200             0ms     LIVE│││accept-encoding: identity            │
+    Settings ^4  │││ 1006 GET     127.0.0.1       h1 /v1/orders?page=3 200             0ms     LIVE│││accept: application/json             │
+    Findings ^8  │││ 1005 DELETE  127.0.0.1       h1 /v1/orders/41     204             0ms     LIVE│││content-type: application/json       │
+                 │││ 1004 GET     127.0.0.1       h1 /v1/admin         403             0ms     LIVE│││connection: close                    │
+                 │││ 1003 GET     127.0.0.1       h1 /api/search?q=la… 200             0ms     LIVE│││Host: 127.0.0.1:48017                │
+                 │││ 1002 POST    127.0.0.1       h1 /v1/session       201             0ms     LIVE│││                                     │
+                 │││ 1001 GET     127.0.0.1       h1 /health           200             0ms     LIVE│││                                     │
+                 │││ 1000 GET     127.0.0.1       h1 /v1/orders?page=2 200             0ms     LIVE│││                                     │
+                 │││                                                                               │││                                     │
+                 │││                                                                               │││                                     │
+                 │││                                                                               │││                                     │
+                 │││                                                                               │││                                     │
+                 │││                                                                               │││                                     │
+                 │││                                                                               │││                                     │
+                 │││                                                                               │││                                     │
+                 │││                                                                               │││                                     │
+                 │││                                                                               │││                                     │
+                 │││                                                                               │││                                     │
+                 │││                                                                               │││                                     │
+                 │││                                                                               │││                                     │
+                 │││                                                                               │││                                     │
+                 │││                                                                               │││                                     │
+                 │││                                                                               │││                                     │
+                 │││                                                                               │││                                     │
+ STATUS          │││                                                                               │││                                     │
+ Engine active   │││                                                                               │││                                     │
+ Interception off│││                                                                               │││                                     │
+ No pending      │││                                                                               │││                                     │
+                 ││╰───────────────────────────────────────────────────────────────────────────────╯│╰─────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · Captured GET /v1/orders?page=4 from 127.0.0.1                                                    ^K commands   ? help   ^C quit

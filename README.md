@@ -4,39 +4,100 @@
 
 RAWFRAME is an open-source Rust workspace for authorized HTTP/1.1, HTTP/2, and HTTP/1.1 WebSocket testing from the terminal. It provides a local forward proxy, opaque HTTPS tunnelling, opt-in TLS interception, durable SQLite history with sessions and redacted export, and a live request workbench inside a keyboard-driven TUI. It is built for testers who want a compact terminal workflow with explicit scope and visible request lifecycle state.
 
-The current release is **0.2.0**. Milestones 1–10 are complete: core application, HTTP proxy, HTTP interception, HTTPS TLS interception, durable history/sessions/export, a functional Repeater with real HTTP/HTTPS execution, a binary-safe Decoder with chained transformations and Repeater body transfer, an Intruder that runs real, bounded, scope-checked payload attacks with four strategies, genuine HTTP/2 over negotiated ALPN in the proxy, Repeater, and Intruder, and HTTP/1.1 WebSocket interception with frame-level relay, pause/forward/drop/modify, a dedicated workspace, persistence, and an authored WebSocket Repeater. Opaque `CONNECT` tunnelling is the default. HTTP/2 is used only when ALPN actually negotiates `h2`; plaintext HTTP stays HTTP/1.1 (no h2c). WebSocket support is HTTP/1.1 upgrade only: there is no HTTP/3, RFC 8441 extended CONNECT, WebSocket compression, or QUIC.
+The current release is **0.2.0**. Milestones 1–11 are complete: core application, HTTP proxy, HTTP interception, HTTPS TLS interception, durable history/sessions/export, a functional Repeater with real HTTP/HTTPS execution, a binary-safe Decoder with chained transformations and Repeater body transfer, an Intruder that runs real, bounded, scope-checked payload attacks with four strategies, genuine HTTP/2 over negotiated ALPN in the proxy, Repeater, and Intruder, HTTP/1.1 WebSocket interception with frame-level relay, pause/forward/drop/modify, a dedicated workspace, persistence, and an authored WebSocket Repeater, and passive security analysis over captured traffic with a Security Findings workspace. Opaque `CONNECT` tunnelling is the default. HTTP/2 is used only when ALPN actually negotiates `h2`; plaintext HTTP stays HTTP/1.1 (no h2c). WebSocket support is HTTP/1.1 upgrade only: there is no HTTP/3, RFC 8441 extended CONNECT, WebSocket compression, or QUIC.
+
+M11 passive analysis is an evidence-driven, local observation engine. It analyzes
+captured HTTP/1.1, HTTP/2 shared messages, and captured WebSocket
+handshakes/text messages using bounded scheduling, project/session scoping, and
+the existing single-writer store. The Security Findings workspace supports
+search, severity/status filtering, sorting, inspection, lifecycle actions,
+related traffic, reanalysis, and redacted JSON/Markdown reports. See the
+[rule inventory](docs/analysis-rules.md) for exact applicability, test coverage,
+and limitations.
 
 RAWFRAME is intended **only** for systems you own or are explicitly authorized to test.
 
-![RAWFRAME Proxy workspace while listening](docs/screenshots/140x40_02_listening.png)
+![RAWFRAME Proxy workspace capturing live HTTP traffic](docs/screenshots/readme/proxy-main.png)
 
-## Screenshots
+## Interface
 
-Captured from real PTY sessions of the current TUI at 140×40. These are terminal captures, not mockups.
+Every image below is a real RAWFRAME render, captured by
+`scripts/capture_readme_screenshots.py` from the current binary inside a
+140×40 PTY and rasterised from the ANSI cell grid. The application itself emits
+the colours; nothing is repainted or mocked up afterwards. Font, size, hashes,
+and per-image colour counts are recorded in
+[`docs/screenshots/readme/manifest.json`](docs/screenshots/readme/manifest.json).
 
-| Live interception paused for review | Modified and unchanged requests forwarded |
-| --- | --- |
-| ![Paused request in the interception workbench](docs/screenshots/140x40_04_live_paused.png) | ![Modified and forwarded requests](docs/screenshots/140x40_08_modified.png) |
+### Proxy
 
-| Decrypted HTTPS request | TLS settings and local CA fingerprint |
-| --- | --- |
-| ![Decrypted HTTPS traffic in the Proxy workspace](docs/screenshots/tls/140x40_07_decrypted_https.png) | ![HTTPS TLS interception settings and CA fingerprint](docs/screenshots/tls/140x40_06_ca_path_and_fingerprint.png) |
+![RAWFRAME Proxy workspace](docs/screenshots/readme/proxy-main.png)
 
-| Scope-blocked request with explanation | Repeater workspace with independent tabs |
-| --- | --- |
-| ![Request blocked by scope policy](docs/screenshots/140x40_13_scope_blocked_inspector.png) | ![Repeater editor and response panel](docs/screenshots/repeater/140x40_01_workspace.png) |
+Start the listener, watch live captures arrive, and open any request in the
+protocol inspector. The header always states engine state, interception state,
+and the active scope rule count.
 
-| Decoder pipeline with intermediate results | Decoder at a narrow terminal |
-| --- | --- |
-| ![Decoder workspace with a Base64 decode pipeline](docs/screenshots/decoder/140x40_01_workspace.png) | ![Decoder workspace at 80×24](docs/screenshots/decoder/80x24_01_workspace.png) |
+### HTTP History
 
-| Intruder setup with a marked query payload position | Real Intruder results from a local origin |
-| --- | --- |
-| ![Intruder setup with a marked position and payload list](docs/screenshots/intruder/140x40_01_setup.png) | ![Intruder results with 200, 404, and 500 responses](docs/screenshots/intruder/140x40_04_results.png) |
+![RAWFRAME HTTP History with the inspector open](docs/screenshots/readme/history-inspector.png)
 
-| Captured WebSocket frames and inspector | Authored WebSocket Repeater session |
-| --- | --- |
-| ![WebSocket frames captured through the proxy](docs/screenshots/websocket/140x40_01_frames.png) | ![WebSocket Repeater composing and receiving an echo](docs/screenshots/websocket/140x40_03_echo.png) |
+Search, filter, and inspect persisted traffic. Stored sessions restore
+read-only and stay visibly labelled as restored rather than live.
+
+### Repeater
+
+![RAWFRAME Repeater workspace](docs/screenshots/readme/repeater.png)
+
+Author a request, send it over a verified connection, and compare the response
+in Raw, Headers, Body, Pretty JSON, Hex, or Compare views.
+
+### Intruder
+
+![RAWFRAME Intruder results](docs/screenshots/readme/intruder.png)
+
+Mark payload positions, choose one of four strategies, confirm the exact
+request count, and watch real responses stream in. Status, size, and timing
+differences are reported as observations, never as vulnerability claims.
+
+### Decoder
+
+![RAWFRAME Decoder pipeline](docs/screenshots/readme/decoder.png)
+
+Chain binary-safe transformations, inspect any intermediate step, and move the
+result into a Repeater body or an Intruder payload list explicitly.
+
+### WebSocket
+
+![RAWFRAME WebSocket frames and Repeater](docs/screenshots/readme/websocket.png)
+
+Intercepted HTTP/1.1 upgrades are relayed frame by frame with direction,
+opcode, length, and outcome, and can be paused, forwarded, dropped, or modified
+per frame.
+
+### Security Findings
+
+![RAWFRAME Security Findings](docs/screenshots/readme/security-findings.png)
+
+Passive, evidence-backed observations over captured traffic with severity,
+status, rule, impact, remediation, related traffic, and redacted JSON/Markdown
+export. RAWFRAME reports what it observed and why; it does not assign a verdict.
+
+## Screenshot evidence
+
+The gallery above is the presentation set. Regression evidence is kept
+separately and is never regenerated as part of a documentation change.
+
+- Live interception, modified forwarding, scope refusal, and TLS screenshots at
+  140×40: `docs/screenshots/`.
+- HTTPS interception lifecycle, including CA fingerprint and upstream
+  verification failure: `docs/screenshots/tls/`.
+- Repeater and Decoder at 140×40, 100×30, and 80×24: `docs/screenshots/repeater/`
+  and `docs/screenshots/decoder/`.
+- Intruder setup, confirmation, progress, and results at all three sizes:
+  `docs/screenshots/intruder/`.
+- WebSocket frames, authored Repeater session, and echo at all three sizes:
+  `docs/screenshots/websocket/`.
+- Security Findings filters, lifecycle, related traffic, and export:
+  `docs/screenshots/analysis/`.
 
 HTTP/2 evidence is captured from a real PTY at 140×40, 100×30, and 80×24
 under `docs/screenshots/http2/` (`*_01_proxy_http2.txt`,
@@ -44,15 +105,6 @@ under `docs/screenshots/http2/` (`*_01_proxy_http2.txt`,
 `*_03_history_http2.txt`). The capture script drives `curl --http2` through the
 proxy against a local TLS origin that only offers `h2` and asserts
 `%{http_version} = 2`; the text frames are the mandatory evidence.
-
-The Repeater workspace is also captured from a real PTY at
-[100×30](docs/screenshots/repeater/100x30_01_workspace.png) and
-[80×24](docs/screenshots/repeater/80x24_01_workspace.png). The Decoder is
-captured at [100×30](docs/screenshots/decoder/100x30_01_workspace.png) as well.
-The Intruder is captured at [100×30](docs/screenshots/intruder/100x30_01_setup.png)
-and [80×24](docs/screenshots/intruder/80x24_01_setup.png); each size also has the
-confirmation, in-flight progress, and results frames (`*_02_confirm`,
-`*_03_progress`, `*_04_results`) under `docs/screenshots/intruder/`.
 
 WebSocket evidence is captured from a real PTY at 140×40, 100×30, and 80×24
 under `docs/screenshots/websocket/`: captured frames (`*_01_frames.txt`), an
@@ -153,9 +205,19 @@ mandatory evidence.
 - Explicit transfers: History, Repeater, and Decoder requests to the Intruder (the original capture is never mutated), and a chosen result back to Repeater without silent overwrite.
 - No evasion features: no proxy rotation, throttling bypass, CAPTCHA or rate-limit circumvention, or distributed scanning. Status, size, and timing differences are reported as observations, never as vulnerability claims.
 
+**Security Findings (passive analysis)**
+
+- Rules evaluate immutable captured HTTP/1.1, HTTP/2 shared messages, and WebSocket handshakes or complete text messages. They perform no network, DNS, Repeater, or Intruder operation.
+- Seventeen stable rule IDs with an explicit ruleset version; each finding carries severity, confidence, the triggering field or fixed marker, impact, remediation, and the traffic it came from.
+- Captured credential values, cookie values, and complete response or message bodies are never copied into a finding. Redacted, truncated, binary, and omitted payloads are never reconstructed.
+- Analysis runs on a bounded local worker with backpressure and cancellation; project-wide analysis pages traffic through the existing store worker instead of loading the database into memory.
+- The workspace supports search, severity and status filters, sorting, inspection, lifecycle actions (acknowledge, dismiss, resolve, reopen), reanalysis of one finding or the whole project, related-traffic navigation, and redacted JSON/Markdown export.
+- Findings are session-scoped records in the existing SQLite store, written transactionally under the same policy as history. A storage failure is reported and disables that write instead of losing data silently.
+- No verdicts: status codes, sizes, and timing are never presented as proof of a vulnerability, and every rule documents its known false positives.
+
 **Terminal interface**
 
-- Proxy, HTTP History, WebSocket, Repeater, Intruder, Decoder, and Settings workspaces.
+- Proxy, HTTP History, WebSocket, Repeater, Intruder, Decoder, Findings, and Settings workspaces.
 - Request/response inspector with raw, headers, and body views.
 - Keyboard navigation, mouse support, command palette, and resizable panes.
 - Live engine state, TLS state, queue state, and source provenance.
@@ -163,13 +225,13 @@ mandatory evidence.
 
 ### Planned, not implemented
 
-- Advanced traffic analysis.
+- Active or comparative analysis beyond the passive rule inventory: no scanning, fuzzing, or automated exploitation.
 - HTTP/3, RFC 8441 extended CONNECT, WebSocket compression, and QUIC; plaintext h2c; HTTP/2 server push and priority controls.
 - HTTP proxy authentication and per-client rate limits.
 
 ## Architecture
 
-RAWFRAME is an eight-crate Cargo workspace. Dependency flow is one-way; the TUI never opens sockets or SQLite, and the proxy never depends on the TUI.
+RAWFRAME is a nine-crate Cargo workspace. Dependency flow is one-way; the TUI never opens sockets or SQLite, and the proxy never depends on the TUI.
 
 | Crate | Responsibility |
 | --- | --- |
@@ -178,6 +240,7 @@ RAWFRAME is an eight-crate Cargo workspace. Dependency flow is one-way; the TUI 
 | `rawframe-proxy` | Tokio/Hyper listener, HTTP forwarding, opaque `CONNECT` relay, TLS interception, HTTP/1.1 WebSocket handshake and frame relay, destination policy, body guards, limits, and graceful shutdown. |
 | `rawframe-repeater` | Repeater execution engine: request validation handoff, independent HTTP/1.1 and HTTP/2 connections over verified HTTPS, redirects, bounded response capture, timeouts, cancellation, and the command service; also the authored WebSocket client sessions used by the WebSocket Repeater. Reuses proxy destination/TLS policy but not its listener, CA, or interception queue. |
 | `rawframe-intruder` | Intruder execution service: plan construction, payload expansion, bounded worker pool, rate gate, pause/resume/cancel, typed outcomes, and wordlist import. Executes through the Repeater engine instead of a second HTTP stack. |
+| `rawframe-analysis` | Passive analysis engine: bounded rule evaluation over captured HTTP and WebSocket traffic, finding construction, severity/status lifecycle, and deterministic evidence formatting. No network, terminal, or storage dependency. |
 | `rawframe-store` | SQLite schema/migrations, a single writer thread, redaction-on-write, session queries, restore, and redacted export. No proxy or TUI dependency. |
 | `rawframe-tui` | Ratatui/Crossterm application, workspaces, inspector, editor, layouts, input handling, and terminal lifecycle. |
 | `rawframe-cli` | Composition root: CLI validation, logging, Tokio runtime, proxy worker, HTTP Repeater service, WebSocket Repeater service, storage worker/capture pump, and TUI loop. |
@@ -190,14 +253,17 @@ flowchart LR
     cli --> store[rawframe-store]
     cli --> repeater[rawframe-repeater]
     cli --> intruder[rawframe-intruder]
+    cli --> analysis[rawframe-analysis]
     repeater --> proxy
     intruder --> repeater
+    tui --> analysis
     tui --> http[rawframe-http]
     tui --> core[rawframe-core]
     proxy --> core
     store --> core
     repeater --> core
     http --> core
+    analysis --> core
     proxy -. events .-> store
     repeater -. events .-> store
     intruder -. events .-> store
@@ -239,6 +305,7 @@ TLS interception is security-sensitive. RAWFRAME keeps it explicit and bounded.
 - **Intruder is confirmed and bounded.** Nothing is sent until the operator confirms a dialog that shows the target, strategy, request count, concurrency, rate, and scope. Every request is re-validated against scope and address policy, TLS verification stays mandatory, redirects are off by default and re-checked per hop, and there are no silent retries. Concurrency, rate, duration, payload size, position count, and the total request count are capped before execution, and stop/cancel aborts the pool instead of draining it.
 - **No intrusion automation beyond request replay.** Intruder has no proxy rotation, evasion, CAPTCHA or rate-limit bypass, or distributed scanning. It does not classify responses as vulnerabilities; it reports observed status, size, timing, and body differences for the operator to interpret.
 - **Decoder is local and inert.** Transformations run in-process on bounded byte buffers, never invoke a shell or external service, and are not persisted. JWT decoding never verifies a signature, and MD5 is labelled cryptographically broken. Repeater-to-Decoder transfer is explicit; it does not mutate stored captures.
+- **Passive analysis observes, it does not attack.** Analysis reads immutable captured snapshots and performs no network, DNS, Repeater, or Intruder operation. Findings carry the triggering field name or a fixed marker; credential, cookie, and body values are never copied, and redacted, truncated, binary, or omitted payloads are not reconstructed. Rules are versioned and each documents its false positives. Findings are stored in the existing SQLite store under the same transactional and redaction policy as history, and export is explicit and redacted.
 
 ### Limitations
 
@@ -385,7 +452,7 @@ Intruder reuses Repeater's execution path, so the same scope and TLS rules apply
 2. Capture or open a request in HTTP History, then press `I` (or `Ctrl+5` for an empty workspace before loading). `I` in Repeater sends the active document; `I` on the Decoder sends its output to a payload list.
 3. In Setup, move over the request components and press `M` to wrap a value in `§…§`. `Enter` edits the request head or body, and `Space` enables or disables a marked position.
 4. Manage payload lists with `A` (create), `L` (rename), `N`/`B` (cycle), `X` (delete), and `W` (import a wordlist); press `Enter` on the payload panel to type values. Choose a strategy with `S`. The header shows the exact request count, and the preview shows the first expanded requests.
-5. Press `Ctrl+Enter` to review the confirmation, then confirm with `↵`/`Y`. Results stream in as they complete; `P` pauses and resumes, `X` cancels.
+5. Press `Ctrl+Enter` to review the confirmation, then confirm with `⏎`/`Y`. Results stream in as they complete; `P` pauses and resumes, `X` cancels.
 6. In Results, `↑`/`↓` selects a row, `V` cycles Raw, Headers, Body, Payloads, and Compare, `/` searches payload values, `F`/`O` filter by status and outcome, `S` sorts, `B` picks a baseline, and `T` sends the selected result to Repeater.
 
 Intruder runs write real results into History with `INTRUDER` provenance, the payload values used, and the originating capture when there was one. Payload lists themselves are session-only.
@@ -439,6 +506,7 @@ Single-letter shortcuts are suppressed while typing in an editor, search field, 
 | `Ctrl+5` | Open the Intruder workspace. |
 | `Ctrl+6` | Open the Decoder workspace. |
 | `Ctrl+7` | Open the WebSocket workspace. |
+| `Ctrl+8` | Open the Security Findings workspace. |
 | `Ctrl+F` | Search HTTP History. |
 | `Ctrl+N` | Create a Repeater tab. |
 | `Ctrl+W` | Close the current Repeater tab. |
@@ -496,6 +564,23 @@ Single-letter shortcuts are suppressed while typing in an editor, search field, 
 | `T` | Compose a text frame for the active Repeater session. |
 | `S` | Close the active WebSocket Repeater session. |
 | Mouse | Click to select connections and frames; the wheel scrolls the focused pane. |
+
+### Security Findings
+
+| Shortcut | Action |
+| --- | --- |
+| `↑` / `↓`, `J` / `K` | Move through findings. |
+| `Home` / `End`, `PageUp` / `PageDown` | Jump to the first/last finding or move by a page. |
+| `/` | Search findings; `Esc` or `Enter` leaves the search field. |
+| `S` / `T` | Cycle the severity filter / the status filter. |
+| `o` | Cycle the sort order. |
+| `A` / `D` / `X` | Acknowledge / dismiss / resolve the selected finding. |
+| `O` | Reopen the selected finding. |
+| `r` / `R` | Reanalyze the selected finding / reanalyze the loaded traffic. |
+| `P` / `C` | Run project-wide analysis / cancel a running analysis. |
+| `V` | Open the traffic that produced the selected finding. |
+| `e` / `E` | Export the selected finding / all findings as redacted JSON. |
+| `m` / `M` | Export the selected finding / all findings as redacted Markdown. |
 
 ### Repeater and Settings
 
@@ -586,7 +671,8 @@ Milestone numbers follow [docs/roadmap.md](docs/roadmap.md).
 | M8 — Intruder payload workbench | Complete |
 | M9 — HTTP/2 support | Complete |
 | M10 — WebSocket interception and Repeater | Complete |
-| Later — traffic analysis, protocol expansion, release hardening | Planned |
+| M11 — Passive security analysis and Findings workspace | Complete |
+| Later — protocol expansion and release hardening | Planned |
 
 Planned work is not available in this build. See [docs/roadmap.md](docs/roadmap.md) for scope, acceptance criteria, and known limitations.
 
@@ -602,17 +688,22 @@ cargo test --workspace
 
 Or run `./scripts/check.sh`.
 
-The latest verified M10 run reported:
+The latest verified M11 run reported:
 
-- **475 passing tests, 0 failed** across the workspace (M9 baseline: 447), including real local HTTP/HTTPS Repeater executions, binary bodies, duplicate headers, redirect loops and credential stripping, scope refusal, timeouts, cancellation, response limits, Repeater persistence/redaction, an end-to-end M5 schema-v1 upgrade fixture, a complete Decoder transformation/pipeline matrix with known hash vectors, malformed input, and size limits, Intruder planning/strategy counts, wordlist import, bounded execution against local HTTP and HTTPS servers, pause/resume/cancel, persistence, transfers, and TUI rendering at three terminal sizes, genuine HTTP/2 ALPN negotiation, multiplexed streams, per-stream interception including client-reset cancellation and shutdown, cross-protocol bridges, Repeater/Intruder h2 execution, protocol persistence round-trips, and real local WebSocket upgrades with frame boundaries, masking, fragmentation, UTF-8 validation, pause/forward/drop/modify, bounds, schema-v4 persistence, authored Repeater send/receive, scope refusal before connect, and TUI rendering at three sizes.
-- The existing PTY screenshot and TLS enable/disable regressions still pass.
+- **512 passing tests, 0 failed, 0 ignored** across the workspace (M10 baseline: 475), including everything from M1–M10 plus the M11 analysis matrix: per-rule detection and applicability boundaries, redaction assertions that credential and body values never reach findings or exports, repeated-evidence stability, HTTP/2 shared-message evaluation, WebSocket handshake and text-message rules with binary/truncated/omitted negatives, scheduler backpressure, cancellation and bounds, session persistence and restart, project-wide paging, and Security Findings rendering at three terminal sizes.
+- The existing PTY screenshot, TLS enable/disable, and WebSocket regressions still pass.
 - Repeater tests use local HTTP/HTTPS servers and self-signed test certificates; storage tests use isolated temporary databases; proxy tests use local servers only.
 
 The PTY test requires Python 3 with `cryptography`; without it, that test skips while the remaining proxy-level HTTP/HTTPS tests still run. Test suites use local servers and self-contained test CAs; no test contacts an external website. These are milestone results, not a guarantee for every future commit.
 
+Two environment notes for reproducing the suite:
+
+- The TUI interception end-to-end test shells out to `curl`, and passes `--noproxy ""` so a developer `NO_PROXY=127.0.0.1` cannot silently bypass the proxy under test.
+- `scripts/capture_readme_screenshots.py` regenerates the README gallery and needs Pillow plus a monospace font with box-drawing coverage (see [docs/development.md](docs/development.md)).
+
 ## Project status and contribution
 
-RAWFRAME is under active pre-1.0 development. The M1–M10 foundations are implemented and tested. Interfaces and terminal behavior may change.
+RAWFRAME is under active pre-1.0 development. The M1–M11 foundations are implemented and tested. Interfaces and terminal behavior may change.
 
 Contributions should preserve the security defaults: loopback binding, default-deny scope, explicit private-upstream opt-in, mandatory upstream TLS verification, redaction, and terminal sanitization. Add tests for behavioral changes and run the quality gates before submitting. See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/development.md](docs/development.md).
 

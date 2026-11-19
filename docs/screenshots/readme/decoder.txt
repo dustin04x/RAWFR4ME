@@ -1,0 +1,40 @@
+ RAWFRAME  |  Decoder          127.0.0.1:8080   demo session         ○ STOPPED  │  INTERCEPTION OFF  │  SCOPE deny all (no allowlist rules)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES      ││◆ DECODER   decode · transform · chain                                                                       8 MiB BOUND
+ PRIMARY         ││ Run ^⏎    Add Step A    Remove   Move ↑   Move ↓   Swap S    Clear C    Copy Y    To Repeater   History H
+    Proxy    ^1  ││ ‹ › TRANSFORM  JSON pretty print  Inspect  ADD
+    History  ^2  ││╭ INPUT · MANUAL INPUT · 268 B · TEXT ──────────────────────╮╭ OUTPUT · JSON · 318 B ───────────────────────────────────╮
+    WebSocket^7  │││ 1 │ lcmF0b3IiOiJkZW1vIiwid2FyZWhvdXNlIjoiZXUtd2VzdC0xIn0= ││{                                                         │
+    Repeater ^3  │││                                                           ││  "operator": "demo",                                     │
+    Intruder ^5  │││                                                           ││  "orders": [                                             │
+▌ ◆ Decoder  ^6  │││                                                           ││    {                                                     │
+    Settings ^4  │││                                                           ││      "quantity": 1,                                      │
+    Findings ^8  │││                                                           ││      "sku": "LAMP-01",                                   │
+                 │││                                                           ││      "state": "packed"                                   │
+                 │││                                                           ││    },                                                    │
+                 │││                                                           ││    {                                                     │
+                 │││                                                           ││      "quantity": 2,                                      │
+                 │││                                                           ││      "sku": "DESK-04",                                   │
+                 │││                                                           ││      "state": "queued"                                   │
+                 │││                                                           ││    },                                                    │
+                 │││                                                           ││    {                                                     │
+                 │││                                                           ││      "quantity": 1,                                      │
+                 │││                                                           ││      "sku": "CHAIR-09",                                  │
+                 │││                                                           ││      "state": "shipped"                                  │
+                 │││                                                           ││    }                                                     │
+                 │││                                                           ││  ],                                                      │
+                 │││                                                           ││  "warehouse": "eu-west-1"                                │
+                 │││                                                           ││}                                                         │
+                 │││                                                           ││                                                          │
+                 │││                                                           ││                                                          │
+                 │││                                                           ││                                                          │
+                 │││                                                           ││                                                          │
+                 ││╰───────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────╯
+                 ││╭ PIPELINE ─────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+ STATUS          │││  1. Base64 decode  268→200 B · JSON                                                                                   │
+ Engine stopped  │││▸ 2. JSON pretty print  200→318 B · JSON                                                                               │
+ Interception off│││                                                                                                                       │
+ No pending      ││╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+                 ││ IN 268 B   OUT 318 B   COMPLETE      H history
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ✓ Decoder completed: 268 bytes → 318 bytes                                                         ^K commands   ? help   ^C quit
