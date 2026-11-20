@@ -453,7 +453,7 @@ removed before 1.0.0 because it was not reachable, not compiled, and not
 testable: the screen was never registered in the TUI module tree, its app state
 did not exist, and the store export queried a table that no migration created.
 Shipping it would have meant advertising a workflow that could not run. The
-removed code remains in the history of commit `7a0d1db`.
+removed code remains in the history of commit `5783513`.
 
 **To finish M11:** add a `findings` schema migration and store API, start the
 scheduler from the CLI event pump, add TUI app state plus a registered Findings
