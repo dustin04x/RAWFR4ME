@@ -18,8 +18,6 @@ version = "0.2.0"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT"
-authors = ["RAWFRAME contributors"]
-description = "Terminal-native HTTP interception and security testing workbench"
 
 [workspace.dependencies]
 rawframe-analysis = { path = "crates/rawframe-analysis" }
