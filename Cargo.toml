@@ -7,6 +7,7 @@ members = [
     "crates/rawframe-store",
     "crates/rawframe-repeater",
     "crates/rawframe-intruder",
+    "crates/rawframe-analysis",
     "crates/rawframe-tui",
     "crates/rawframe-cli",
 ]
@@ -21,6 +22,7 @@ authors = ["RAWFRAME contributors"]
 description = "Terminal-native HTTP interception and security testing workbench"
 
 [workspace.dependencies]
+rawframe-analysis = { path = "crates/rawframe-analysis" }
 rawframe-core = { path = "crates/rawframe-core" }
 rawframe-http = { path = "crates/rawframe-http" }
 rawframe-proxy = { path = "crates/rawframe-proxy" }

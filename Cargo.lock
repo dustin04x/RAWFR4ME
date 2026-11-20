@@ -1721,6 +1721,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rawframe-analysis"
+version = "0.2.0"
+dependencies = [
+ "chrono",
+ "rawframe-core",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "rawframe-cli"
 version = "0.2.0"
 dependencies = [
@@ -1841,6 +1852,7 @@ version = "0.2.0"
 dependencies = [
  "base64",
  "chrono",
+ "rawframe-analysis",
  "rawframe-core",
  "rusqlite",
  "serde",

@@ -9,6 +9,7 @@ description = "SQLite persistence for RAWFRAME sessions and captured history"
 [dependencies]
 base64.workspace = true
 chrono.workspace = true
+rawframe-analysis.workspace = true
 rawframe-core.workspace = true
 rusqlite.workspace = true
 serde.workspace = true

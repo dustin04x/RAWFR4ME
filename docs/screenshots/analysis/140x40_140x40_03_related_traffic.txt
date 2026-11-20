@@ -1,0 +1,40 @@
+ RAWFRAME  |  History                                                        PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 1 allowlist rule
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││ Search method, host, path, status…  (/ or ^F)                              │╭ INSPECTOR ─────────────────────────────╮
+ PRIMARY           ││ Method: all M    Status: all status S    Host: any H                       ││ Request   Response                   × │
+  Proxy         ^1 ││ 25 shown / 25 total · 2 live · 17 simulated · 6 restored   Live, simulated ││ Raw  Headers  Body           REDACTED  │
+▌ History       ^2 ││╭ HTTP HISTORY ────────────────────────────────────────────────────────────╮││#1000010  GET  unknown  http:/…         │
+  WebSocket     ^7 │││ID    METHOD  HOST                           STATUS           AGE    SRC  │││Response 101  RESTORED                  │
+  Repeater      ^3 │││ 1000 GET     ?? localhost                   101              5s     RESTO│││────────────────────────────────────────│
+  Intruder      ^5 │││ 1000 GET     h1 localhost                   200              5s     RESTO│││GET /chat WebSocket                     │
+  Decoder       ^6 │││▌1000 GET     ?? localhost                   101              11s    RESTO│││upgrade: websocket                      │
+  Settings      ^4 │││ 1000 GET     h1 localhost                   500              11s    RESTO│││connection: Upgrade                     │
+  Findings      ^8 │││ 1000 POST    h1 localhost                   200              11s    RESTO│││sec-websocket-key: MDEyMzQ1Njc4OWFiY2RlZ│
+                   │││ 1000 GET     h1 localhost                   200              11s    RESTO│││sec-websocket-version: 13               │
+                   │││ 1001 GET     ?? localhost                   101              5s     LIVE │││origin: http://example.invalid          │
+                   │││ 1000 GET     h1 localhost                   200              5s     LIVE │││Host: localhost:43851                   │
+                   │││ 0017 GET     h1 api.rawframe.test           FORWARDED        6s     SIM  │││                                        │
+                   │││ 0016 GET     h1 api.rawframe.test           CAPTURED         8s     SIM  │││                                        │
+                   │││ 0015 DELETE  h1 api.rawframe.test           PAUSED           13s    SIM  │││                                        │
+                   │││ 0014 POST    h1 api.rawframe.test           PAUSED           17s    SIM  │││                                        │
+                   │││ 0013 GET     h1 internal.rawframe.test      DROPPED (USER)   19s    SIM  │││                                        │
+                   │││ 0012 GET     h1 expired.rawframe.test       FAILED           22s    SIM  │││                                        │
+                   │││ 0011 GET     h1 probe.rawframe.test         200              27s    SIM  │││                                        │
+                   │││ 0010 OPTIONS h1 api.rawframe.test           204              33s    SIM  │││                                        │
+                   │││ 0009 GET     h1 cdn.rawframe.test           304              40s    SIM  │││                                        │
+                   │││ 0008 GET     h1 api.rawframe.test           500              53s    SIM  │││                                        │
+                   │││ 0007 DELETE  h1 legacy.rawframe.test        403              1m     SIM  │││                                        │
+                   │││ 0006 PUT     h1 api.rawframe.test           200              1m     SIM  │││                                        │
+                   │││ 0005 POST    h1 shop.rawframe.test          302              1m     SIM  │││                                        │
+                   │││ 0004 GET     h1 shop.rawframe.test          200              1m     SIM  │││                                        │
+                   │││ 0003 POST    h1 auth.rawframe.test          401              2m     SIM  │││                                        │
+                   │││ 0002 GET     h1 api.rawframe.test           404              2m     SIM  │││                                        │
+                   │││ 0001 GET     h1 api.rawframe.test           200              3m     SIM  │││                                        │
+                   │││                                                                          │││                                        │
+ STATUS            │││                                                                          │││                                        │
+ Engine active     │││                                                                          │││                                        │
+ Interception off  │││                                                                          │││                                        │
+ No pending        │││                                                                          │││                                        │
+                   ││╰──────────────────────────────────────────────────────────────────────────╯│╰────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · Saving finding status…                                                                             ^K commands  ? help  ^C quit

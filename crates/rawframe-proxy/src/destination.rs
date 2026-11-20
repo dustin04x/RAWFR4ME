@@ -350,7 +350,7 @@ fn is_public_v4(address: std::net::Ipv4Addr) -> bool {
     let first = octets[0];
     let second = octets[1];
     let third = octets[2];
-    if first == 0
+    !(first == 0
         || first == 10
         || first == 127
         || first >= 224
@@ -361,11 +361,7 @@ fn is_public_v4(address: std::net::Ipv4Addr) -> bool {
         || (first == 192 && second == 0 && matches!(third, 0 | 2))
         || (first == 198 && matches!(second, 18 | 19))
         || (first == 198 && second == 51 && third == 100)
-        || (first == 203 && second == 0 && third == 113)
-    {
-        return false;
-    }
-    true
+        || (first == 203 && second == 0 && third == 113))
 }
 
 pub async fn connect_upstream(

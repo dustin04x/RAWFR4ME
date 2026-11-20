@@ -1,0 +1,24 @@
+ RAWFRAME  |  Findings                      PROXY LISTENING  |  INTERCEPTION OFF
+────────────────────────────────────────────────────────────────────────────────
+ SECURITY FINDINGS  PASSIVE · NO REQUESTS SENT
+
+ 5 total  C:0  H:0  M:0  L:2  I:3  New/Open:4  Ack:1  Dismissed:0  Resolved:0
+
+╭ FINDINGS ────────────────────────────────────────────────────────────────────╮
+│╭  ──────────────────────────────────────────────────────────────────────────╮│
+││SEV   CONF   RULE          TARGET / RESOURCE · FIRST                        ││
+││LOW   HIGH   http.cookie_m http://localhost:39797 path-sha256:260eb6dbcd152e││
+││LOW   HIGH   http.cookie_m http://localhost:39797 path-sha256:260eb6dbcd152e││
+│╰────────────────────────────────────────────────────────────────────────────╯│
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭ FINDING INSPECTOR ───────────────────────────────────────────────────────────╮
+│Cookie session lacks HttpOnly                                                 │
+│Low severity · High confidence · Acknowledged                                 │
+│Rule http.cookie_missing_httponly v1 · 1 occurrence(s)                        │
+│First 2026-11-19 12:37:27 UTC · Last 2026-11-19 12:37:27 UTC                  │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ Acknowledge A    Dismiss D    Resolve X    Reopen O    Reanalyze R    Export se
+
+────────────────────────────────────────────────────────────────────────────────
+ NORMAL   · Saving finding status…                 ^K commands  ? help  ^C quit

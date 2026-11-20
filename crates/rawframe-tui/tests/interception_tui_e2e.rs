@@ -9,10 +9,13 @@ use std::time::{Duration, Instant};
 
 use rawframe_core::models::ScopeRule;
 use rawframe_core::models::traffic::TrafficState;
-use rawframe_core::{AppCommand, AppConfig, EventBus, Scope};
+use rawframe_core::{AppCommand, AppConfig, EventBus, ProxyState, Scope};
 use rawframe_tui::App;
 use tokio::sync::mpsc;
 
+/// Reserve an ephemeral local port and immediately release it so the proxy can
+/// bind it. There is a small race window, but it is the same approach the rest
+/// of the suite uses.
 fn reserve_local_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
         .expect("reserve local port")
@@ -21,118 +24,127 @@ fn reserve_local_port() -> u16 {
         .port()
 }
 
+/// A minimal, self-contained upstream echo server for the e2e harness.
+///
+/// Binds `127.0.0.1:0`, accepts one request, reads the full HTTP request body
+/// (it consumes until the end of the headers, then up to `content-length`
+/// bytes), records the `X-Rf` header value, echoes `ok:<val>` back, and closes.
+/// Since the proxy buffers the request body before pausing for interception, the
+/// echo server only needs to hold the connection open long enough for the proxy
+/// to finish buffering and reach its `InterceptionPaused` decision.
 #[allow(clippy::type_complexity)]
-fn start_upstream_echo(
-    extra_header_name: &'static str,
-) -> (
-    String,
+fn start_echo_server() -> (
+    std::net::SocketAddr,
     Arc<Mutex<Vec<String>>>,
     Arc<AtomicUsize>,
     thread::JoinHandle<()>,
 ) {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind upstream");
-    listener
-        .set_nonblocking(true)
-        .expect("nonblocking upstream");
-    let addr = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind echo listener");
+    let addr = listener.local_addr().expect("echo local addr");
     let seen = Arc::new(Mutex::new(Vec::<String>::new()));
     let hits = Arc::new(AtomicUsize::new(0));
     let seen_t = Arc::clone(&seen);
     let hits_t = Arc::clone(&hits);
+
     let handle = thread::spawn(move || {
+        let _ = listener.set_nonblocking(true);
         let deadline = Instant::now() + Duration::from_secs(25);
         while Instant::now() < deadline {
-            match listener.accept() {
-                Ok((mut stream, _)) => {
-                    stream.set_nonblocking(false).ok();
-                    stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
-                    let mut buf = Vec::new();
-                    let mut tmp = [0u8; 4096];
-                    let header_end;
-                    loop {
-                        match stream.read(&mut tmp) {
-                            Ok(0) => {
-                                header_end = None;
-                                break;
-                            }
-                            Ok(n) => {
-                                buf.extend_from_slice(&tmp[..n]);
-                                if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-                                    header_end = Some(pos + 4);
-                                    break;
-                                }
-                                if buf.len() > 64 * 1024 {
-                                    header_end = None;
-                                    break;
-                                }
-                            }
-                            Err(_) => {
-                                header_end = None;
-                                break;
-                            }
-                        }
-                    }
-                    let Some(end) = header_end else {
-                        continue;
-                    };
-                    let headers_text = String::from_utf8_lossy(&buf[..end]).to_string();
-                    let content_len = headers_text
-                        .lines()
-                        .find_map(|line| {
-                            let (k, v) = line.split_once(':')?;
-                            if k.eq_ignore_ascii_case("content-length") {
-                                v.trim().parse::<usize>().ok()
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap_or(0);
-                    while buf.len() < end + content_len {
-                        match stream.read(&mut tmp) {
-                            Ok(0) => break,
-                            Ok(n) => buf.extend_from_slice(&tmp[..n]),
-                            Err(_) => break,
-                        }
-                    }
-                    let body = if buf.len() >= end + content_len {
-                        &buf[end..end + content_len]
-                    } else {
-                        &buf[end..]
-                    };
-                    let val = headers_text
-                        .lines()
-                        .find_map(|line| {
-                            let (k, v) = line.split_once(':')?;
-                            if k.trim().eq_ignore_ascii_case(extra_header_name) {
-                                Some(v.trim().to_string())
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap_or_default();
-                    if headers_text
-                        .to_ascii_lowercase()
-                        .contains(&format!("{}:", extra_header_name.to_ascii_lowercase()))
-                    {
-                        seen_t.lock().unwrap().push(val);
-                    }
-                    hits_t.fetch_add(1, Ordering::SeqCst);
-                    let resp_body = format!("ok:{}", String::from_utf8_lossy(body));
-                    let resp = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                        resp_body.len(),
-                        resp_body
-                    );
-                    let _ = stream.write_all(resp.as_bytes());
-                    let _ = stream.flush();
-                }
+            let mut stream = match listener.accept() {
+                Ok((stream, _)) => stream,
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     thread::sleep(Duration::from_millis(20));
+                    continue;
                 }
                 Err(_) => break,
+            };
+            let _ = stream.set_nonblocking(false);
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+
+            // Read until the end of the request headers, exactly as a real
+            // incoming request would do before the proxy registers the pause.
+            let mut buf = Vec::new();
+            let mut tmp = [0u8; 4096];
+            let mut header_end = None;
+            loop {
+                let mut read = [0u8; 4096];
+                match stream.read(&mut read) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        buf.extend_from_slice(&read[..n]);
+                        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                            header_end = Some(pos + 4);
+                            break;
+                        }
+                        if buf.len() > 64 * 1024 {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
             }
+
+            let Some(end) = header_end else {
+                continue;
+            };
+
+            let headers_text = String::from_utf8_lossy(&buf[..end]).to_string();
+            let content_len = headers_text
+                .lines()
+                .find_map(|line| {
+                    let (k, v) = line.split_once(':')?;
+                    if k.eq_ignore_ascii_case("content-length") {
+                        v.trim().parse::<usize>().ok()
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(0);
+
+            // Consume the body so the byte count and the `ok:` payload line up.
+            while buf.len() < end + content_len {
+                match stream.read(&mut tmp) {
+                    Ok(0) => break,
+                    Ok(n) => buf.extend_from_slice(&tmp[..n]),
+                    Err(_) => break,
+                }
+            }
+
+            let body = if buf.len() >= end + content_len {
+                &buf[end..end + content_len]
+            } else {
+                &buf[end..]
+            };
+
+            let val = headers_text
+                .lines()
+                .find_map(|line| {
+                    let (k, v) = line.split_once(':')?;
+                    if k.trim().eq_ignore_ascii_case("x-rf") {
+                        Some(v.trim().to_string())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
+
+            let lower = headers_text.to_ascii_lowercase();
+            if lower.contains("x-rf:") {
+                seen_t.lock().unwrap().push(val);
+            }
+            hits_t.fetch_add(1, Ordering::SeqCst);
+
+            let resp_body = format!("ok:{}", String::from_utf8_lossy(body));
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                resp_body.len(),
+                resp_body
+            );
+            let _ = stream.write_all(resp.as_bytes());
+            let _ = stream.flush();
         }
     });
+
     (addr, seen, hits, handle)
 }
 
@@ -151,13 +163,18 @@ fn pump_app_until(app: &mut App, timeout: Duration, mut pred: impl FnMut(&App) -
 
 #[test]
 fn tui_drop_via_action_path_never_reaches_upstream() {
-    let (upstream_addr, _seen, hits, upstream_thread) = start_upstream_echo("X-Rf");
+    let (upstream_addr, _seen, hits, _upstream_thread) = start_echo_server();
     let proxy_port = reserve_local_port();
-    let mut config = AppConfig::default();
-    config.proxy.port = proxy_port;
-    config.proxy.scope = Scope::allow(ScopeRule::host("127.0.0.1"));
-    config.proxy.allow_private_upstreams = true;
-    config.proxy.interception_enabled = true; // armed; no rules => catch-all
+    let config = AppConfig {
+        proxy: rawframe_core::models::config::ProxyConfiguration {
+            port: proxy_port,
+            scope: Scope::allow(ScopeRule::host("127.0.0.1")),
+            allow_private_upstreams: true,
+            interception_enabled: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<AppCommand>(64);
     let events = EventBus::new();
@@ -171,7 +188,7 @@ fn tui_drop_via_action_path_never_reaches_upstream() {
     app.dispatch_app_command(AppCommand::StartProxy(Box::new(config.clone())));
     assert!(
         pump_app_until(&mut app, Duration::from_secs(8), |a| {
-            a.proxy_state() == rawframe_core::ProxyState::Listening
+            a.proxy_state() == ProxyState::Listening
         }),
         "proxy did not reach listening state"
     );
@@ -185,6 +202,9 @@ fn tui_drop_via_action_path_never_reaches_upstream() {
             .expect("curl")
     });
 
+    // The pending interception is only visible after `InterceptionPaused` has
+    // been drained into the UI, so wait for that event rather than trusting a
+    // single poll.
     assert!(
         pump_app_until(&mut app, Duration::from_secs(8), |a| {
             a.interception_pending_count() > 0
@@ -223,27 +243,28 @@ fn tui_drop_via_action_path_never_reaches_upstream() {
 
     app.dispatch_app_command(AppCommand::StopProxy);
     let _ = pump_app_until(&mut app, Duration::from_secs(5), |a| {
-        matches!(
-            a.proxy_state(),
-            rawframe_core::ProxyState::Stopped | rawframe_core::ProxyState::Failed
-        )
+        matches!(a.proxy_state(), ProxyState::Stopped | ProxyState::Failed)
     });
     drop(app);
     rt.block_on(async {
         let _ = svc.await;
     });
-    let _ = upstream_thread.join();
 }
 
 #[test]
 fn tui_forward_modified_via_editor_path_reaches_upstream_with_modified_header() {
-    let (upstream_addr, seen, hits, upstream_thread) = start_upstream_echo("X-Rf");
+    let (upstream_addr, seen, hits, _upstream_thread) = start_echo_server();
     let proxy_port = reserve_local_port();
-    let mut config = AppConfig::default();
-    config.proxy.port = proxy_port;
-    config.proxy.scope = Scope::allow(ScopeRule::host("127.0.0.1"));
-    config.proxy.allow_private_upstreams = true;
-    config.proxy.interception_enabled = true;
+    let config = AppConfig {
+        proxy: rawframe_core::models::config::ProxyConfiguration {
+            port: proxy_port,
+            scope: Scope::allow(ScopeRule::host("127.0.0.1")),
+            allow_private_upstreams: true,
+            interception_enabled: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<AppCommand>(64);
     let events = EventBus::new();
@@ -256,7 +277,7 @@ fn tui_forward_modified_via_editor_path_reaches_upstream_with_modified_header() 
 
     app.dispatch_app_command(AppCommand::StartProxy(Box::new(config.clone())));
     assert!(pump_app_until(&mut app, Duration::from_secs(8), |a| {
-        a.proxy_state() == rawframe_core::ProxyState::Listening
+        a.proxy_state() == ProxyState::Listening
     }));
 
     let url = format!("http://{upstream_addr}/modify");
@@ -277,6 +298,10 @@ fn tui_forward_modified_via_editor_path_reaches_upstream_with_modified_header() 
             .expect("curl")
     });
 
+    // Derivation of the modified request is driven by the UI state, so we first
+    // wait for the pending interception (the editor is only populated after
+    // that event arrives), then edit the selected request and forward the
+    // modified version.
     assert!(
         pump_app_until(&mut app, Duration::from_secs(8), |a| {
             a.interception_pending_count() > 0
@@ -347,27 +372,28 @@ fn tui_forward_modified_via_editor_path_reaches_upstream_with_modified_header() 
 
     app.dispatch_app_command(AppCommand::StopProxy);
     let _ = pump_app_until(&mut app, Duration::from_secs(5), |a| {
-        matches!(
-            a.proxy_state(),
-            rawframe_core::ProxyState::Stopped | rawframe_core::ProxyState::Failed
-        )
+        matches!(a.proxy_state(), ProxyState::Stopped | ProxyState::Failed)
     });
     drop(app);
     rt.block_on(async {
         let _ = svc.await;
     });
-    let _ = upstream_thread.join();
 }
 
 #[test]
 fn tui_forward_unchanged_via_action_path_reaches_upstream() {
-    let (upstream_addr, _seen, hits, upstream_thread) = start_upstream_echo("X-Rf");
+    let (upstream_addr, _seen, hits, _upstream_thread) = start_echo_server();
     let proxy_port = reserve_local_port();
-    let mut config = AppConfig::default();
-    config.proxy.port = proxy_port;
-    config.proxy.scope = Scope::allow(ScopeRule::host("127.0.0.1"));
-    config.proxy.allow_private_upstreams = true;
-    config.proxy.interception_enabled = true;
+    let config = AppConfig {
+        proxy: rawframe_core::models::config::ProxyConfiguration {
+            port: proxy_port,
+            scope: Scope::allow(ScopeRule::host("127.0.0.1")),
+            allow_private_upstreams: true,
+            interception_enabled: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<AppCommand>(64);
     let events = EventBus::new();
@@ -380,7 +406,7 @@ fn tui_forward_unchanged_via_action_path_reaches_upstream() {
 
     app.dispatch_app_command(AppCommand::StartProxy(Box::new(config.clone())));
     assert!(pump_app_until(&mut app, Duration::from_secs(8), |a| {
-        a.proxy_state() == rawframe_core::ProxyState::Listening
+        a.proxy_state() == ProxyState::Listening
     }));
 
     let url = format!("http://{upstream_addr}/inspect");
@@ -414,14 +440,10 @@ fn tui_forward_unchanged_via_action_path_reaches_upstream() {
 
     app.dispatch_app_command(AppCommand::StopProxy);
     let _ = pump_app_until(&mut app, Duration::from_secs(5), |a| {
-        matches!(
-            a.proxy_state(),
-            rawframe_core::ProxyState::Stopped | rawframe_core::ProxyState::Failed
-        )
+        matches!(a.proxy_state(), ProxyState::Stopped | ProxyState::Failed)
     });
     drop(app);
     rt.block_on(async {
         let _ = svc.await;
     });
-    let _ = upstream_thread.join();
 }

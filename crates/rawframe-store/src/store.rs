@@ -107,7 +107,6 @@ pub struct ExportSummary {
     pub websocket_connections: usize,
 }
 
-
 /// Convert a stored severity string to a Severity enum.
 fn parse_severity(value: &str) -> Severity {
     match value {
@@ -520,50 +519,47 @@ impl Store {
              ORDER BY first_observed ASC"
         );
         let mut statement = self.conn.prepare(&sql)?;
-        let rows = statement.query_row(
-            rusqlite::params![session_id.0],
-            |row| {
-                let finding_id: String = row.get(0)?;
-                let rule_id: String = row.get(1)?;
-                let rule_version: String = row.get(2)?;
-                let severity: String = row.get(3)?;
-                let confidence: String = row.get(4)?;
-                let status: String = row.get(5)?;
-                let first_observed: String = row.get(6)?;
-                let last_observed: String = row.get(7)?;
-                let occurrence_count: i64 = row.get(8)?;
-                let finding_json: String = row.get(9)?;
+        let rows = statement.query_row(rusqlite::params![session_id.0], |row| {
+            let finding_id: String = row.get(0)?;
+            let rule_id: String = row.get(1)?;
+            let rule_version: String = row.get(2)?;
+            let severity: String = row.get(3)?;
+            let confidence: String = row.get(4)?;
+            let status: String = row.get(5)?;
+            let first_observed: String = row.get(6)?;
+            let last_observed: String = row.get(7)?;
+            let occurrence_count: i64 = row.get(8)?;
+            let finding_json: String = row.get(9)?;
 
-                let finding = Finding {
-                    id: finding_id,
-                    rule_id,
-                    rule_version,
-                    category: Category::Transport, // default; could be enhanced
-                    severity: parse_severity(&severity),
-                    confidence: parse_confidence(&confidence),
-                    title: "Rule finding".to_string(),
-                    description: finding_json.clone(),
-                    technical_explanation: String::new(),
-                    impact: String::new(),
-                    remediation: String::new(),
-                    evidence: Vec::new(),
-                    origin: session_id.0.clone(),
-                    resource: String::new(),
-                    related_traffic: Vec::new(),
-                    first_observed: chrono::DateTime::parse_from_rfc3339(&first_observed)
-                        .unwrap_or_default()
-                        .into(),
-                    last_observed: chrono::DateTime::parse_from_rfc3339(&last_observed)
-                        .unwrap_or_default()
-                        .into(),
-                    occurrence_count: occurrence_count as u64,
-                    status: parse_status(&status).unwrap_or(FindingStatus::New),
-                    fingerprint: fingerprint_filter,
-                    session_id: Some(rawframe_core::SessionId(session_id.0.clone())),
-                };
-                Ok(finding)
-            },
-        )?;
+            let finding = Finding {
+                id: finding_id,
+                rule_id,
+                rule_version,
+                category: Category::Transport, // default; could be enhanced
+                severity: parse_severity(&severity),
+                confidence: parse_confidence(&confidence),
+                title: "Rule finding".to_string(),
+                description: finding_json.clone(),
+                technical_explanation: String::new(),
+                impact: String::new(),
+                remediation: String::new(),
+                evidence: Vec::new(),
+                origin: session_id.0.clone(),
+                resource: String::new(),
+                related_traffic: Vec::new(),
+                first_observed: chrono::DateTime::parse_from_rfc3339(&first_observed)
+                    .unwrap_or_default()
+                    .into(),
+                last_observed: chrono::DateTime::parse_from_rfc3339(&last_observed)
+                    .unwrap_or_default()
+                    .into(),
+                occurrence_count: occurrence_count as u64,
+                status: parse_status(&status).unwrap_or(FindingStatus::New),
+                fingerprint: fingerprint_filter,
+                session_id: Some(rawframe_core::SessionId(session_id.0.clone())),
+            };
+            Ok(finding)
+        })?;
         Ok(vec![rows])
     }
 
@@ -592,7 +588,7 @@ impl Store {
         );
         let mut statement = self.conn.prepare(&sql)?;
         let mut findings = Vec::new();
-        let mut rows = statement.query_map(rusqlite::params![project_id.0], |row| {
+        let rows = statement.query_map(rusqlite::params![project_id.0], |row| {
             let finding_id: String = row.get(0)?;
             let rule_id: String = row.get(1)?;
             let rule_version: String = row.get(2)?;
@@ -633,7 +629,7 @@ impl Store {
             };
             Ok(finding)
         })?;
-        while let Some(finding) = rows.next() {
+        for finding in rows {
             findings.push(finding?);
         }
         Ok(findings)

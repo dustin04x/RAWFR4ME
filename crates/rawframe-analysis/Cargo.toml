@@ -1,0 +1,14 @@
+[package]
+name = "rawframe-analysis"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Passive, deterministic security analysis of captured RAWFRAME traffic"
+
+[dependencies]
+chrono.workspace = true
+rawframe-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

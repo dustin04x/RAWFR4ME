@@ -154,6 +154,16 @@ pub enum StorageEvent {
 pub type StorageCommandSender = mpsc::Sender<StorageCommand>;
 pub type StorageCommandReceiver = mpsc::Receiver<StorageCommand>;
 
+/// Format specifier for exporting findings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FindingExportFormat {
+    /// Default JSON format with full metadata.
+    Json,
+    /// Compact format for transmission.
+    Compact,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

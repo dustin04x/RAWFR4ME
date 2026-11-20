@@ -1,0 +1,40 @@
+ RAWFRAME  |  Findings                                                       PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 1 allowlist rule
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ WORKSPACES        ││ SECURITY FINDINGS  PASSIVE · NO REQUESTS SENT
+ PRIMARY           ││
+  Proxy         ^1 ││ 5 total  C:0  H:0  M:0  L:2  I:3  New/Open:4  Ack:1  Dismissed:0  Resolved:0
+  History       ^2 ││
+  WebSocket     ^7 ││╭ FINDINGS ───────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  Repeater      ^3 │││╭  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮│
+  Intruder      ^5 ││││SEV     CONF   RULE                TARGET / RESOURCE                                      STATUS     FIRST OBSERVED││
+  Decoder       ^6 ││││LOW     HIGH   http.cookie_missing http://localhost:41381 path-sha256:260eb6dbcd152e8d1d4 ACK        11-19 12:37   ││
+  Settings      ^4 ││││LOW     HIGH   http.cookie_missing http://localhost:41381 path-sha256:260eb6dbcd152e8d1d4 NEW        11-19 12:37   ││
+▌ Findings      ^8 ││││INFO    HIGH   http.cookie_missing http://localhost:41381 path-sha256:260eb6dbcd152e8d1d4 NEW        11-19 12:37   ││
+                   ││││INFO    HIGH   http.missing_referr http://localhost:41381 path-sha256:260eb6dbcd152e8d1d4 NEW        11-19 12:37   ││
+                   ││││INFO    HIGH   http.missing_nosnif http://localhost:41381 path-sha256:260eb6dbcd152e8d1d4 NEW        11-19 12:37   ││
+                   ││││                                                                                                                   ││
+                   ││││                                                                                                                   ││
+                   ││││                                                                                                                   ││
+                   ││││                                                                                                                   ││
+                   │││╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯│
+                   ││╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+                   ││╭ FINDING INSPECTOR ──────────────────────────────────────────────────────────────────────────────────────────────────╮
+                   │││Cookie session lacks HttpOnly                                                                                        │
+                   │││Low severity · High confidence · Acknowledged                                                                        │
+                   │││Rule http.cookie_missing_httponly v1 · 1 occurrence(s)                                                               │
+                   │││First 2026-11-19 12:37:13 UTC · Last 2026-11-19 12:37:13 UTC                                                         │
+                   │││                                                                                                                     │
+                   │││A captured Set-Cookie field did not include HttpOnly.                                                                │
+                   │││Only cookie name and attribute state are retained.                                                                   │
+                   │││Impact                                                                                                               │
+                   │││Client-side scripts may be able to read this cookie; impact depends on its purpose and application behavior.         │
+                   │││Remediation                                                                                                          │
+                   │││Add HttpOnly to cookies that do not need JavaScript access.                                                          │
+                   │││Evidence                                                                                                             │
+ STATUS            │││Traffic 1001 · Response · Set-Cookie attributes = session                                                            │
+ Engine active     │││Only cookie name and attribute state are retained.                                                                   │
+ Interception off  ││╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ No pending        ││ Acknowledge A    Dismiss D    Resolve X    Reopen O    Reanalyze R    Export selected JSON e    Export all JSON E
+                   ││
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NORMAL   ✓ Exported 5 findings to /tmp/rawframe-analysis-pty-zvlklzu7/rawframe-findings-sess-18e972830c8525b… ^K commands  ? help  ^C quit
