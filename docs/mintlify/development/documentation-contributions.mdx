@@ -1,0 +1,48 @@
+---
+title: "Documentation contributions"
+description: "How to contribute documentation to RAWFRAME"
+---
+
+## Documentation contributions
+
+## Adding a new page
+
+1. Create a new `.mdx` file in the appropriate section of the docs directory.
+2. Add frontmatter with at least `title` and `description`.
+3. Add the page to `navigation` in `docs.json` under the correct group and path.
+4. Write the body with `##` headings and Mintlify components.
+5. Run `mint validate` and fix every error.
+6. Run `mint broken-links` and fix every error.
+7. Run `mint dev --no-open` and confirm the page appears in the sidebar.
+
+## Rewriting existing content
+
+1. Edit the smallest region needed. Do not delete or reorder sections you were
+   not asked to change.
+2. Match the existing style: voice, heading case, frontmatter fields, component
+   choices, file naming.
+3. Run `mint format` to canonicalize the MDX file in place.
+4. Commit the diff; review the changes.
+
+## Page hidden from sidebar
+
+To hide a page from the sidebar without deleting it, add `hidden: true` to the
+frontmatter. The page URL remains live and accessible, but it is excluded from
+the sidebar, search, sitemap, and AI context. To unhide, delete the `hidden`
+field (do not set `hidden: false`).
+
+## Linking to other pages
+
+Use root-relative links: `[Setup](/guides/setup)`. Do not use `./` or `../`
+relative paths inside snippets—they resolve against the importing page.
+
+## Image paths
+
+Place images in `/images/` and use root-relative paths:
+`![Alt text](/images/screenshot.png)`. Files must be under 20 MB.
+
+## Reusable snippets
+
+Put reusable snippets in `/snippets/` (files there never render as pages). Import
+with `import Prereqs from "/snippets/prereqs.mdx"` and use the prop as `{product}`.
+

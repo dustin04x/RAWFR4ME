@@ -1,0 +1,113 @@
+---
+title: "Proxy architecture"
+description: "How the proxy engine works, from listener to upstream forwarding"
+---
+
+## Proxy architecture
+
+## Listener and lifecycle
+
+`server::start_proxy` validates configuration, binds a `TcpListener`, creates a
+Hyper HTTP/1 server with HTTP/1 keep-alive, a 64 KiB read buffer cap, and a
+header read timeout, then starts an accept loop.
+
+- Connection concurrency is bounded by a Tokio `Semaphore` (`max_connections`).
+  Excess sockets are closed.
+- A separate tunnel semaphore bounds CONNECT relays that outlive the upgraded
+  client connection.
+- `ProxyHandle::shutdown` signals a watch channel, waits for the listener and
+  tracked connection tasks (up to 5 s), then aborts remaining tasks. Service
+  shutdown waits up to 8 s total.
+- The listener sends an explicit warning when it starts with an empty
+  default-deny scope.
+
+## HTTP/1.1 forwarding
+
+For every request Hyper has already parsed:
+
+1. Parse an **absolute-form** URI. `https://` on the forward path is rejected
+   because it requires CONNECT. Unsupported schemes and origin-form targets are
+   rejected with `400`.
+2. Normalize the authority (lowercase host, strip IPv6 brackets and one trailing
+   dot), default the port from the scheme, reject port 0 and unsafe characters,
+   and require the destination to be path-origin-form.
+3. Require a single `Host` header when present, and require it to match the
+   absolute-form host and port. A missing `Host` is accepted because the
+   absolute-form target already identifies the destination.
+4. Check scope. A denial is recorded as a failed capture with `403` before any
+   DNS lookup or connection.
+5. Reject a declared request body over `max_body_bytes` with `413`.
+6. Resolve and validate upstream addresses (see §6), connect, and perform an
+   HTTP/1 client handshake under `connect_timeout_secs`.
+7. Copy method, version, filtered headers, origin-form target, and a streaming
+   guarded body upstream. The `Host` header is normalized to the destination.
+8. Wait for response headers under `upstream_timeout_secs`; preflight a declared
+   response body over `max_response_bytes`; then stream the response through a
+   second guarded body. A per-frame idle timer aborts stalled bodies, and
+   exceeding the cap terminates the downstream response.
+9. Emit capture events on request capture, response headers, and terminal body
+   completion/failure. A response is never reported completed unless the body
+   ended normally. Hyper regenerates framing; the proxy removes
+   `Transfer-Encoding` and stale response `Content-Length` while forwarding.
+
+End-to-end headers keep order and duplicates. Both directions remove
+`Connection` and the fields named by its tokens plus `Proxy-Authorization`,
+`Proxy-Authenticate`, `TE`, `Trailer`, `Transfer-Encoding`, and `Upgrade`. The
+response path also removes `Content-Length` so Hyper can frame the filtered body
+correctly. No request or response is fully buffered for forwarding; only bounded
+copies are retained for capture (subject to display truncation).
+
+The client connection is per request (`Connection: close` upstream); the
+listener still accepts keep-alive client connections, but this milestone does
+not pool upstream connections.
+
+## Opaque CONNECT
+
+1. Parse authority-form `CONNECT host:port` (with the same normalization and
+   default HTTPS port 443).
+2. Check scope as HTTPS before resolution. Denied tunnels produce a recorded
+   `403` failure.
+3. Resolve and validate addresses, connect under the connect timeout, then
+   return `200`.
+4. Upgrade the client connection and run two independent copy pumps with 16 KiB
+   buffers. EOF on one side calls `shutdown` on the corresponding write half;
+   the other direction may continue (half-close preserved).
+5. Activity-based idle timeout terminates a silent tunnel. Proxy shutdown also
+   terminates it. Either way, byte counters, duration, and outcome are published
+   in `TunnelMetadata`; a short non-sensitive summary is stored in the entry note.
+6. No bytes are parsed, logged, or exposed as HTTP content, and no TLS
+   certificate is generated or inspected.
+
+## HTTPS TLS interception (opt-in)
+
+1. `CONNECT` parsing, scope, resolve-once address policy, and upstream TCP
+   connection happen before any certificate is issued.
+2. A per-host leaf certificate is issued from the local CA (DNS or IP SAN,
+   serverAuth EKU, bounded deduplicated cache). The leaf key is generated in a
+   blocking task, never on a Tokio worker.
+3. A separate upstream TLS session is established with mandatory chain and
+   hostname verification against trusted roots. ALPN offers `h2` then
+   `http/1.1`; the result is read back from the completed handshake and never
+   assumed. Upstream verification completes before the `200` CONNECT response,
+   so an untrusted chain or hostname mismatch fails closed without forwarding.
+4. The client-facing TLS acceptor presents the leaf. SNI, when sent, must match
+   the CONNECT authority; the certificate resolver returns no certificate on a
+   mismatch, failing the handshake.
+5. The client-facing ALPN result selects the server protocol: `h2` runs a Hyper
+   HTTP/2 server, anything else keeps the HTTP/1.1 server. The two legs negotiate
+   independently, so an HTTP/2 client can be bridged to an HTTP/1.1 upstream and
+   the reverse. Each side's real protocol is recorded on the captured request and
+   response.
+6. Decrypted requests run through the existing interception manager, body guards,
+   history, lifecycle, and event pipeline. HTTP/1.1 upstream requests are
+   serialized by a per-session mutex. HTTP/2 uses a cloned multiplexed sender, so
+   concurrent streams do not hold a lock across the response wait and are bounded
+   at 128 streams per client connection and a 64 KiB header list.
+7. Modified requests must remain `https` and within the intercepted session
+   authority, and are revalidated against scope before forwarding. Dropped
+   requests never reach upstream.
+
+The CA private key stays in memory and on local disk with restrictive Unix
+permissions; only the public certificate path/fingerprint is published through
+events and the TUI.
+

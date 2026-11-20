@@ -1,0 +1,30 @@
+---
+title: "Destination validation"
+description: "Destination validation in RAWFRAME"
+---
+
+## Destination validation
+
+## Scope-based validation
+
+Every destination connection is validated against the scope allowlist before the
+upstream socket is opened. The scope is set at startup via `--scope <url>` and
+applies default-deny: only explicitly allowed destinations receive traffic.
+
+## Verified TLS
+
+When TLS is used, the hostname in the scope is verified against the presented
+certificate. Certificate pinning is not bypassed; pinned clients fail by design.
+
+## Resolve-once DNS
+
+The hostname is resolved once at connection time via the shared destination helper.
+DNS results are cached for the duration of the connection. Changes to DNS after
+connection establishment do not affect the connection.
+
+## Private upstreams
+
+Private IP upstreams (127.0.0.0/8, 10.0.0.0/8, 192.168.0.0/16, 172.16.0.0/12)
+require the `--allow-private-upstreams` flag. Without this flag, connections to
+private upstreams are rejected.
+

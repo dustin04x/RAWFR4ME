@@ -1,0 +1,55 @@
+---
+title: "Decoder"
+description: "Binary-safe transformations, chained pipelines, and body transfer"
+---
+
+## Decoder
+
+## Transformations
+
+The Decoder engine supports 22 binary-safe transformations:
+
+| Transformation | Direction | Description |
+| --- | --- | --- |
+| **Base64** | Encode/Decode | Standard and URL-safe variants |
+| **Hex** | Encode/Decode | Hexadecimal encoding |
+| **URL percent** | Encode/Decode | URL percent-encoding and decoding |
+| **HTML entities** | Encode/Decode | HTML entity encoding and decoding |
+| **Unicode escapes** | Encode/Decode | Unicode escape sequences |
+| **JSON** | Pretty/Minify/Validate | JSON formatting and validation |
+| **JWT inspection** | Inspect | Decodes header and payload; signature is not verified |
+| **Gzip compress/decompress** | Encode/Decode | Gzip compression with bomb protection (output limit) |
+| **SHA-256/384/512** | Compute | Cryptographic hash checksums |
+| **MD5** | Compute | Legacy checksum (clearly labelled) |
+
+### Direction labels
+
+- `Encode` — transform from raw bytes to a text representation.
+- `Decode` — transform from a text representation to raw bytes.
+- `Inspect` — display information without transformation (e.g., JWT inspection).
+
+## Pipeline engine
+
+`execute_pipeline` applies steps in order over a single byte buffer and records
+every intermediate `PipelineStep` with its format, byte length, and note.
+
+- **First failure** — the first failure returns the completed steps plus
+  `PipelineFailure { step_index, transform, message }`; later steps never run and
+  no empty output is substituted on the first failure.
+- **Limits** — 8 MiB input, 8 MiB output, and 16 steps enforced before and
+  during execution.
+- **Gzip decompression** — uses a `flate2` decoder wrapped in a bounded reader,
+  so a compression bomb stops at the output limit rather than expanding into memory.
+
+## Pipeline limits
+
+- Maximum 16 steps per pipeline.
+- 8 MiB maximum input size.
+- 8 MiB maximum output size.
+
+## Repeater transfer
+
+The controller explicitly copies the active request or response body into
+`DecoderState::load_input`, and insertion calls `RepeaterTab::replace_body`,
+which rewrites framing headers and preserves the original capture separately.
+

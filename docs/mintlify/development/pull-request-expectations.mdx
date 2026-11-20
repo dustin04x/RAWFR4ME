@@ -1,0 +1,39 @@
+---
+title: "Pull request expectations"
+description: "What to expect when submitting a PR for RAWFRAME docs"
+---
+
+## Pull request expectations
+
+## Documentation PRs
+
+- Topic sentences must be factual and verifiable from the codebase.
+- Do not invent CLI commands, configuration options, features, or limits.
+- If a fact is missing from the code, leave a `{/* TODO: ... */}` comment and
+  tell the reviewer.
+- Match the existing voice, heading style, frontmatter fields, and component
+  choices.
+- Run `mint format` before committing; the diff should be reviewable.
+- Run `mint validate` and `mint broken-links`; fix every error.
+- New pages must be added to `docs.json` navigation.
+
+## Code PRs
+
+- Add tests for behavioral changes.
+- Run the full quality gate suite before submitting:
+  - `cargo fmt --all --check`
+  - `cargo check --workspace`
+  - `cargo build --workspace`
+  - `cargo test --workspace`
+  - `cargo clippy --workspace --all-targets -D warnings`
+- Do not delete useful engineering documentation.
+- Preserve security defaults: loopback binding, default-deny scope, explicit
+  private-upstream opt-in, mandatory upstream TLS verification, redaction, and
+  terminal sanitization.
+- Do not invent project functionality or claim unsupported features.
+
+## Mixed PRs (docs + code)
+
+Both sets of requirements above apply. The reviewer will check both the
+documentation and the code changes.
+

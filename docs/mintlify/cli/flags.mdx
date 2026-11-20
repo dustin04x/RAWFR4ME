@@ -1,0 +1,24 @@
+---
+title: "Flags"
+description: "CLI flags reference for RAWFRAME"
+---
+
+## Flags
+
+All RAWFRAME CLI behavior is controlled through flags on the `rawframe` binary.
+
+## Flag reference
+
+| Flag | Description |
+| --- | --- |
+| `--scope <url>` | Destination allowlist (default-deny scope) |
+| `--allow-private-upstreams` | Allow CONNECT tunnels to private IP upstreams |
+| `--intercept` | Enable TLS interception (requires local CA trust) |
+| `--persist-bodies` | Persist request/response bodies in SQLite |
+| `--persist-sensitive-headers` | Preserve sensitive header values instead of redacting |
+| `--data-dir <path>` | Override data directory |
+| `--db <path>` | Override SQLite database path |
+| `--log-file <path>` | Override log file path |
+| `--port <n>` | Override proxy listener port |
+| `--version` | Report version and exit |
+

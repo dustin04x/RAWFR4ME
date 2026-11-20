@@ -1,0 +1,39 @@
+---
+title: "Integration tests"
+description: "End-to-end tests across the workspace"
+---
+
+## Integration tests
+
+The workspace test suite covers proxy forwarding, streaming, duplicate headers,
+malformed requests, scope and address policy, `CONNECT`, TLS interception, HTTP/2,
+WebSocket relay and interception, Repeater execution and redirects, Decoder
+pipelines, Intruder execution and cancellation, storage migrations and crash
+recovery, export and redaction, and TUI rendering and input at 140×40, 100×30,
+and 80×24.
+
+## Environment notes
+
+- The TUI interception end-to-end test shells out to `curl`, so `curl` must be
+  on `PATH`.
+- `scripts/capture_readme_screenshots.py` regenerates the screenshot gallery
+  and needs Pillow plus a monospace font with box-drawing coverage. Font
+  discovery honours `RAWFRAME_MONO_FONT`, then fontconfig, then a fixed
+  candidate list.
+
+## Test coverage
+
+The suite covers:
+
+- Proxy forwarding, streaming, and duplicate headers.
+- Malformed requests and scope/address policy.
+- `CONNECT` tunnelling and TLS interception.
+- HTTP/2 over negotiated ALPN.
+- WebSocket relay and frame-level interception.
+- Repeater execution, redirects, and comparison views.
+- Decoder pipelines and transformations.
+- Intruder execution, cancellation, and wordlist import.
+- Storage migrations, crash recovery, and redaction.
+- Export as JSON Lines.
+- TUI rendering and input at multiple PTY sizes.
+

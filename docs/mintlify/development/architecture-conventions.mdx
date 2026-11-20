@@ -1,0 +1,31 @@
+---
+title: "Architecture conventions"
+description: "Crate responsibilities, dependency rules, and contribution guidance"
+---
+
+## Architecture conventions
+
+## Crate responsibilities
+
+| Crate | Responsibility | Must not depend on |
+| --- | --- | --- |
+| `rawframe-core` | Domain models, config, scope, lifecycle, filters, bounded events/commands, terminal-safety primitives, fixtures. | No terminal, socket, or database APIs. |
+| `rawframe-http` | Authored HTTP/1.x document parser. | — |
+| `rawframe-proxy` | Listener, forwarding, CONNECT relay, TLS interception, destination policy, body guards, limits, shutdown. | `rawframe-tui`, `rawframe-repeater`, proxy listener/CA manager/interception queue. |
+| `rawframe-repeater` | Execution engine, redirects, bounded capture, command service, authored WebSocket sessions. | proxy listener, CA manager, interception queue, TUI. |
+| `rawframe-intruder` | Plan construction, payload expansion, worker pool, rate gate, pause/resume/cancel, wordlist import. | own HTTP stack, TUI, storage. |
+| `rawframe-analysis` | Deterministic rules, finding construction, fingerprinting, bounded scheduler, report formatting. | network, terminal, or storage dependency. |
+| `rawframe-store` | SQLite schema/migrations, single writer thread, redaction-on-write, session queries, export. | proxy or TUI. |
+| `rawframe-tui` | Ratatui/Crossterm application, workspaces, inspector, editor, layouts, input handling. | `rawframe-proxy`. |
+| `rawframe-cli` | Composition root, CLI validation, logging, Tokio runtime, proxy worker, Repeater services, storage worker/capture pump, TUI loop. | — |
+
+## Contribution guidelines
+
+- Add tests for behavioral changes and run the quality gates before submitting.
+- Read [CONTRIBUTING.md] for the workflow.
+- Read [docs/development.md] for the crate map and test commands.
+- Report suspected vulnerabilities privately per [SECURITY.md]. Do not open a public issue for them.
+- Preserve security defaults: loopback binding, default-deny scope, explicit private-upstream opt-in, mandatory upstream TLS verification, redaction, and terminal sanitization.
+- Do not invent project functionality or claim unsupported features.
+- Do not delete useful engineering documentation.
+

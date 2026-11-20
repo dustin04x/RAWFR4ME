@@ -1,0 +1,54 @@
+---
+title: "Arguments"
+description: "Complete list of CLI arguments and flags"
+---
+
+## Arguments
+
+## Global options
+
+| Option | Short | Description |
+| --- | --- | --- |
+| `--bind <ADDR>` | | Listener address. Defaults to `127.0.0.1`. |
+| `--port <PORT>` | | Listener port. Defaults to `8080`. |
+| `--allow-remote-bind` | | Required for a non-loopback bind address. |
+| `--no-mouse` | | Disable mouse capture and interaction. |
+| `--no-redact` | | Show sensitive header values. Dangerous in shared environments. |
+
+## Scope options
+
+| Option | Description |
+| --- | --- |
+| `--scope <RULE>` | Allow an upstream host; repeatable. No rules denies everything. Accepts `host`, `host:port`, `http://host[:port]`, `https://host[:port]`, and leading wildcards `*.example.test`. |
+| `--allow-private-upstreams` | Permit loopback/private targets for local labs. |
+
+## TLS interception options
+
+| Option | Description |
+| --- | --- |
+| `--tls-intercept` | Enable HTTPS TLS interception for scoped CONNECT targets. |
+| `--tls-ca-dir <DIR>` | Override the local CA directory. |
+| `--tls-upstream-ca <FILE>` | Use an explicit PEM trust bundle; verification stays on. |
+| `--tls-ca-show` | Print CA path/status and exit. |
+| `--tls-ca-export <FILE>` | Export the public CA certificate and exit. |
+| `--tls-ca-fingerprint` | Print the CA SHA-256 fingerprint and exit. |
+| `--tls-ca-regenerate` | Replace the CA and exit. Invalidates prior trust. |
+
+## Persistence options
+
+| Option | Description |
+| --- | --- |
+| `--no-persist` | Do not create or write a database; history is memory-only. |
+| `--persist-bodies` | Store captured request/response bodies (off by default). |
+| `--persist-sensitive-headers` | Store sensitive header values instead of `<redacted>`. |
+| `--db <FILE>` | SQLite database for captured history. |
+| `--project <NAME>` | Name the project that owns this session. |
+| `--session-name <NAME>` | Name this capture session. |
+
+## Export options
+
+| Option | Description |
+| --- | --- |
+| `--export-history <FILE>` | Export stored history as JSON Lines and exit. |
+| `--export-session <ID>` | Session to export; defaults to the newest session. |
+

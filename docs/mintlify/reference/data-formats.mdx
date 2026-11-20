@@ -1,0 +1,63 @@
+---
+title: "Data formats"
+description: "Serialization formats used throughout RAWFRAME"
+---
+
+## Data formats
+
+## JSON Lines (export format)
+
+Exported history is JSON Lines (`format: rawframe.history.v1`). Each line is a
+complete JSON object with the following top-level fields:
+
+- `format` — always `"rawframe.history.v1"`.
+- `session` — `{ id, name }` of the source session.
+- `traffic_id` — the stored traffic ID (integer, may be absent for restored entries).
+- `restored` — `true` when the entry was loaded from the database (never `false`).
+- `restored_as` — the ID of the entry as stored in the database.
+- `kind` — the traffic kind (`Http` or `ConnectTunnel`).
+- `stored_source` — the original producer (`"restored"` or the session name).
+- `state` — the lifecycle state (`completed`, `dropped`, `failed`, `timed_out`, `cancelled`).
+- `method` — the HTTP method (for HTTP traffic).
+- `scheme` — the scheme (`http` or `https`).
+- `host` — the destination host.
+- `port` — the destination port.
+- `target` — the request target.
+- `version` — the HTTP version string.
+- `request_headers` — array of `{ name, value }` objects; duplicates preserved;
+  sensitive values replaced with `<redacted>`.
+- `request_body` — UTF-8 text object `{"encoding": "utf-8", "text": "..."}` or hex
+  object `{"encoding": "hex", "hex": "..."}`; `{"omitted": true}` if withheld.
+- `response` — object with `status`, `reason`, `version`, `headers` (array of
+  `{ name, value }`), and `body` (same format as `request_body`); `body_omitted`
+  flag if the response body was withheld.
+- `tunnel` — object with `client_to_upstream_bytes`, `upstream_to_client_bytes`,
+  and `outcome` label; absent for HTTP traffic.
+- `repeater_origin` — optional capture reference ID; only present for Repeater traffic.
+- `intruder_origin` — optional origin capture ID; only present for Intruder traffic.
+- `intruder_payloads` — optional JSON payload lists; only present for Intruder traffic.
+- `started_at` — RFC 3339 timestamp of when the request was first captured.
+- `completed_at` — RFC 3339 timestamp of when the response ended, or `null`.
+- `duration_ms` — duration in milliseconds, or `null`.
+- `error` — error string if the entry failed, or `null`.
+- `note` — free-form note string; may be empty.
+- `incomplete` — `true` if the transaction was not terminal.
+
+## TrafficRecord encoding
+
+Internal storage uses `TrafficRecord::encode(entry, policy)` which encodes a
+`TrafficEntry` into a structured row. Key encoding rules:
+
+- Sensitive header values become `<redacted>` unless `persist_sensitive_headers`
+  is on.
+- Bodies are stored as SQL `NULL` unless `persist_bodies` is on.
+- Request and response bodies are stored as BLOBs or hex-encoded strings depending
+  on the encoding policy.
+- Redaction count is tracked but never retroactively applied.
+
+## WebSocket export format
+
+WebSocket recordings are exported as JSON Lines after HTTP traffic. Their payloads
+were already redacted/omitted on the write path; the export re-encodes them under
+the current policy for consistency.
+

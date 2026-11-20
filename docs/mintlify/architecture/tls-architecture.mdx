@@ -1,0 +1,47 @@
+---
+title: "TLS architecture"
+description: "CA, leaf certificates, upstream verification, and ALPN negotiation"
+---
+
+## TLS architecture
+
+## Local CA
+
+RAWFRAME creates a local Certificate Authority when TLS interception is enabled.
+
+- The CA private key never leaves memory and local disk with restrictive Unix
+  permissions (`0600` file, `0700` directory).
+- Per-host leaf certificates are issued from the CA (DNS or IP SAN, serverAuth
+  EKU, bounded deduplicated cache).
+- The leaf key is generated in a blocking task, never on a Tokio worker.
+- Only the public certificate path/fingerprint is published through events and the
+  TUI.
+
+## Client-facing TLS
+
+- The client-facing TLS acceptor presents the leaf certificate.
+- SNI, when sent, must match the CONNECT authority; a mismatch fails the
+  handshake.
+- The client-facing ALPN result selects the server protocol: `h2` runs a Hyper
+  HTTP/2 server, anything else keeps the HTTP/1.1 server.
+- The two legs (client-facing and upstream) negotiate independently.
+
+## Upstream TLS
+
+- A separate upstream TLS session is established with mandatory chain and
+  hostname verification against trusted roots.
+- ALPN offers `h2` then `http/1.1`; the result is read back from the completed
+  handshake and never assumed.
+- Upstream verification completes before the `200` CONNECT response, so an
+  untrusted chain or hostname mismatch fails closed without forwarding.
+- `--tls-upstream-ca` replaces the trust roots for a lab; it does not weaken
+  verification.
+
+## TLS state
+
+`TlsStateChanged` event publishes:
+
+- TLS enabled/disabled state.
+- The public CA path and fingerprint.
+- A non-secret enable error (e.g., key generation failure).
+

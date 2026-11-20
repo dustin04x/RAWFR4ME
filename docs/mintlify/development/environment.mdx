@@ -1,0 +1,67 @@
+---
+title: "Development environment"
+description: "Rust toolchain, workspace setup, and build commands"
+---
+
+## Development environment
+
+## Rust toolchain
+
+RAWFRAME requires Rust **1.89 or newer** with edition 2024 support.
+
+```bash
+rustc --version   # must report 1.89 or newer
+rustup show
+```
+
+## Workspace setup
+
+```bash
+git clone https://github.com/dustin04x/RAWFR4ME.git
+cd RAWFR4ME
+```
+
+The workspace has 9 crates with one-way dependency flow. See the [Architecture]
+section for the full dependency graph.
+
+## Build commands
+
+```bash
+## Format check
+cargo fmt --all --check
+
+## Workspace check
+cargo check --workspace
+
+## Debug build
+cargo build --workspace
+
+## Release build
+cargo build --workspace --release
+
+## Run all tests
+cargo test --workspace
+
+## Clippy (warnings are errors)
+cargo clippy --workspace --all-targets -D warnings
+```
+
+## Test shortcut
+
+```bash
+./scripts/check.sh
+```
+
+Runs `cargo fmt --all --check`, `cargo check --workspace`, `cargo build --workspace`,
+`cargo test --workspace`, and `cargo clippy --workspace --all-targets -D warnings`.
+
+## PTY testing
+
+The TUI interception end-to-end test shells out to `curl`, so `curl` must be on
+`PATH`. Two environment notes:
+
+- The TUI E2E test uses local servers and self-contained test CAs; no test
+  contacts an external website.
+- `scripts/capture_readme_screenshots.py` regenerates the screenshot gallery
+  and needs Pillow plus a monospace font with box-drawing coverage.
+

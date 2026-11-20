@@ -1,0 +1,75 @@
+---
+title: "Certificate authorities and trust"
+description: "Local CA, trust model, and certificate export"
+---
+
+## Certificate authorities and trust
+
+## Local CA
+
+RAWFRAME creates a local Certificate Authority on demand when TLS interception
+is enabled. The CA private key never leaves memory and local disk with
+restrictive Unix permissions.
+
+### CA paths
+
+| Item | Default path (Unix) |
+| --- | --- |
+| CA directory | `$XDG_DATA_HOME/rawframe/ca` (default `~/.local/share/rawframe/ca`) |
+| Private key | `$XDG_DATA_HOME/rawframe/ca/key.pem` — `0600`, directory `0700` |
+| Public certificate | `$XDG_DATA_HOME/rawframe/ca/cert.pem` — fingerprint and SHA-256 published |
+
+### Regenerating the CA
+
+```bash
+rawframe --tls-ca-regenerate
+```
+
+This permanently invalidates the old CA. Every client that trusted it must be
+updated with the new public certificate.
+
+### Exporting the public certificate
+
+```bash
+rawframe --tls-ca-export ./rawframe-ca.crt.pem
+```
+
+Only the public certificate is exported. The private key remains protected.
+
+### Fingerprint and SHA-256
+
+```bash
+rawframe --tls-ca-fingerprint   # shows path, status, and SHA-256
+rawframe --tls-ca-show           # shows path and status
+```
+
+## Trust model
+
+### You must trust the CA in your test client only
+
+1. Use a disposable browser profile or a dedicated test VM.
+2. Import the exported `rawframe-ca.crt.pem` as a trusted authority **in that
+   profile only**. Do not add it to the system trust store.
+3. Configure the client to use `127.0.0.1:8080` as its HTTP/HTTPS proxy.
+4. Confirm the target certificate is issued by the RAWFRAME CA before sending
+   sensitive traffic.
+5. When finished, disable interception, remove the CA from the profile, and
+   delete the profile.
+
+### Pinned clients cannot be intercepted
+
+Clients that perform certificate pinning will fail the intercepted handshake by
+design. RAWFRAME does not bypass certificate pinning.
+
+### System trust store
+
+RAWFRAME never modifies the system trust store. The CA is purely local and
+opt-in.
+
+## `--tls-upstream-ca`
+
+This flag replaces the trust roots used for upstream TLS verification in
+intercepted sessions. It does not weaken verification; it simply substitutes
+the CA bundle. The `--tls-upstream-ca` file must be a valid PEM bundle of
+trusted root CAs.
+

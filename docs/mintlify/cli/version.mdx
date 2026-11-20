@@ -1,0 +1,17 @@
+---
+title: "Version"
+description: "Version command and release information"
+---
+
+## Version
+
+```bash
+rawframe --version   # rawframe 1.0.0
+```
+
+The workspace version is `1.0.0`. All nine crates inherit the workspace version,
+so `rawframe --version` reports `1.0.0`.
+
+The release artifact is built from the tagged source with `--locked` and its
+version output is checked against the tag before publication.
+

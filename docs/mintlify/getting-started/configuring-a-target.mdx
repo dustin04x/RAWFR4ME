@@ -1,0 +1,62 @@
+---
+title: "Configuring a target"
+description: "Scope rules, address policy, and allowlist behavior"
+---
+
+## Configuring a target
+
+## Scope rules
+
+Scope is a default-deny allowlist. With no `--scope` rule, nothing is proxied.
+
+### Syntax
+
+```
+--scope <RULE>
+
+--scope accepts the following formats:
+
+- `host` — exact host match (case-insensitive)
+- `host:port` — exact host and port match
+- `http://host[:port]` — HTTP forwarding with host and optional port
+- `https://host[:port]` — CONNECT tunnelling with host and optional port
+- `*.example.test` — leading wildcard; matches the apex and all subdomains
+```
+
+### Examples
+
+```bash
+## Authorize exact host and port
+rawframe --scope http://example.test:8080
+
+## Authorize a wildcard host (all subdomains of example.test)
+rawframe --scope *.example.test
+
+## Authorize multiple rules (repeatable)
+rawframe --scope http://127.0.0.1:8000 --scope https://lab.example.test:443
+```
+
+## Address policy
+
+Before any DNS resolution or upstream connection, the engine checks the
+resolved addresses against an explicit allow policy:
+
+| Category | Status |
+| --- | --- |
+| Always rejected | IPv4 unspecified, multicast/reserved, link-local, carrier-grade NAT, benchmarking, documentation ranges |
+| Requires `--allow-private-upstreams` | IPv4 loopback and RFC 1918 private ranges; IPv6 loopback and unique-local |
+| Allowed otherwise | Public IPv4 and IPv6 global-unicast addresses |
+
+### Private upstreams
+
+Loopback (`127.0.0.1`/`::1`) and RFC 1918 private ranges (`10.0.0.0/8`,
+`172.16.0.0/12`, `192.168.0.0/16`) require `--allow-private-upstreams` to
+connect. Link-local, metadata, multicast, and documentation ranges are always
+blocked, even with the flag.
+
+## Scope editing live
+
+The allowlist can be edited in Settings. New requests and CONNECT sessions use
+the updated rules immediately; established connections and already-forwarded
+requests keep the rules they were admitted under.
+

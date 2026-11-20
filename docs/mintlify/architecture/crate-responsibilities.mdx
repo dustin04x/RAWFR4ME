@@ -1,0 +1,47 @@
+---
+title: "Crate responsibilities"
+description: "Crate responsibilities and dependency graph"
+---
+
+## Crate responsibilities
+
+RAWFRAME is organized as a workspace of nine crates with a one-way dependency
+graph. The following table summarizes each crate's responsibility:
+
+| Crate | Responsibility |
+| --- | --- |
+| `rawframe-core` | Domain types, config, scope, traffic/tunnel lifecycle, models, events, filters, decoder, intruder, websocket, fixtures |
+| `rawframe-proxy` | Listener, lifecycle service, connection limits, shutdown, HTTP forwarding, capture events, CONNECT upgrades, HTTPS interception sessions, destination, tunnel, body, TLS |
+| `rawframe-store` | Schema-v4 SQLite migrations, connection owner, batched upserts, session queries, export, worker, record encoding/decoding |
+| `rawframe-tui` | Application controller and actions, input, UI composition and overlays, screens (workspace screens including Intruder and Decoder), layout, geometry, hit targets, scroll zones, render output, text buffer |
+| `rawframe-intruder` | Payload expansion, worker pool, rate gate, typed outcomes, service, wordlist |
+| `rawframe-analysis` | 17 passive analysis rules, finding engine, storage schema |
+| `rawframe-http` | Authored HTTP/1.x document parser |
+| `rawframe-cli` | Arguments, scope parsing, safety composition root: runtime, proxy service, TUI |
+
+## Dependency graph
+
+The dependency graph is strict: no crate may import from a "lower" crate in the
+graph. The one-way dependency order is:
+
+```
+rawframe-http
+    ↑
+rawframe-core
+    ↑
+rawframe-analysis
+    ↑
+rawframe-intruder
+    ↑
+rawframe-store
+    ↑
+rawframe-proxy
+    ↑
+rawframe-tui
+    ↑
+rawframe-cli
+```
+
+New types shared across boundaries should belong in `rawframe-core`; the CLI wire
+only (`rawframe-cli`) orchestrates all services.
+

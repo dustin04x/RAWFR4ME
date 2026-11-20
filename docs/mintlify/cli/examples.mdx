@@ -1,0 +1,43 @@
+---
+title: "CLI examples"
+description: "Common command examples and workflows"
+---
+
+## CLI examples
+
+## Starting the proxy with scope
+
+```bash
+rawframe --port 8080 --scope http://127.0.0.1:8000 --allow-private-upstreams
+```
+
+## Starting with TLS interception
+
+```bash
+rawframe --tls-intercept --port 8080 --scope https://lab.example.test:443
+```
+
+## Creating a new CA
+
+```bash
+rawframe --tls-ca-regenerate
+```
+
+## Exporting stored history
+
+```bash
+rawframe --db ~/.local/share/rawframe/rawframe.db --export-history ./history.jsonl
+```
+
+## Named project and session
+
+```bash
+rawframe --project acme --session-name baseline --scope http://127.0.0.1:8000
+```
+
+## Without persistence (memory only)
+
+```bash
+rawframe --no-persist --port 8080 --scope http://127.0.0.1:8000
+```
+

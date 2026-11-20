@@ -1,0 +1,23 @@
+---
+title: "Environment variables"
+description: "Environment variables in RAWFRAME"
+---
+
+## Environment variables
+
+RAWFRAME does not use environment variables for configuration. All settings are
+passed as CLI flags at startup and are session-only (do not persist across restarts).
+
+## CLI flags are the sole configuration mechanism
+
+- `--scope <url>` — destination allowlist
+- `--allow-private-upstreams` — allow private IP upstreams
+- `--intercept` — enable TLS interception
+- `--persist-bodies` — persist request/response bodies in SQLite
+- `--persist-sensitive-headers` — preserve sensitive header values
+- `--data-dir <path>` — override data directory
+- `--db <path>` — override database path
+- `--log-file <path>` — override log file path
+- `--port <n>` — override proxy listener port
+- `--version` — report version and exit
+

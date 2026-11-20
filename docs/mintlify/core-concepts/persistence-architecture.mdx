@@ -1,0 +1,42 @@
+---
+title: "Persistence architecture"
+description: "Persistence architecture in RAWFRAME"
+---
+
+## Persistence architecture
+
+## SQLite schema v4
+
+RAWFRAME uses SQLite with schema version 4. The schema is versioned and migrations
+are additive (bump `SCHEMA_VERSION`, add SQL to versioned batch, test upgrade from
+existing database as well as fresh one).
+
+### Key tables
+
+- `sessions` — session metadata, scope, and configuration.
+- `traffic` — captured HTTP/1.1, CONNECT tunnel, and Repeater traffic records.
+- `rules` — passive analysis rule definitions (17 rules from `rawframe-analysis`).
+- `findings` — analysis findings (currently library only; no Findings UI in 1.0.0).
+
+## Redaction-on-write
+
+- Sensitive header values are replaced with `<redacted>` during row encoding
+  (`record.rs`), not at render time.
+- Bodies are stored as SQL `NULL` unless `persist_bodies` is enabled.
+- Redaction count is tracked but never retroactively applied.
+
+## Persistence policy
+
+- `persist_bodies` flag: control whether bodies are persisted (off by default).
+- `persist_sensitive_headers` flag: control whether sensitive headers are preserved
+  or redacted (off by default; `<redacted>` by default).
+- Append migrations only; never edit an applied migration or recreate a user
+  database.
+- Isolated `tempfile` directories in tests; never point a test at the operator's
+  real data directory.
+
+## Security considerations
+
+- Do not store CA keys, TLS secrets, tunnel payloads, or logs in the database.
+- Use isolated test databases; never share test data with production.
+

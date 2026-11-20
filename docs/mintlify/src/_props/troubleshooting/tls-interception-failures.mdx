@@ -1,0 +1,32 @@
+---
+title: "TLS interception failures"
+description: "Troubleshooting TLS interception failures"
+---
+
+## TLS interception failures
+
+## Symptoms
+
+* Decrypted HTTPS traffic not displayed in the TUI.
+* CONNECT tunnel metadata only, no HTTP content.
+* Error: "TLS interception not enabled" or similar.
+
+## Likely causes
+
+* TLS interception feature not enabled in the build.
+* `--intercept` flag not passed at startup.
+* Local CA not trusted or misconfigured.
+* Upstream certificate pinning prevents interception.
+
+## Resolution
+
+1. Rebuild RAWFRAME with TLS interception enabled (check `Cargo.toml` features).
+2. Start RAWFRAME with `--intercept` flag.
+3. Ensure local CA is trusted (see certificate-trust troubleshooting page).
+4. For pinned clients, interception will fail by design; this is expected behavior.
+
+## Security considerations
+
+* TLS interception is opt-in and requires explicit configuration.
+* Never intercept traffic on systems you do not own or have authorization to assess.
+* Pinned certificates cannot be bypassed; this is a security feature, not a bug.

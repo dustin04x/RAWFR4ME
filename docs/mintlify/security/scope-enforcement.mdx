@@ -1,0 +1,24 @@
+---
+title: "Scope enforcement"
+description: "Scope enforcement in RAWFRAME"
+---
+
+## Scope enforcement
+
+## Default-deny policy
+
+RAWFRAME uses default-deny scope enforcement. Any destination not explicitly
+allowed in the scope allowlist is rejected. Connections to disallowed destinations
+are dropped and not captured.
+
+## Scope configuration
+
+- Set at startup via `--scope <url>` CLI flag.
+- Session-only: changes do not persist across restarts.
+- The allowlist is checked before upstream connection resolution.
+
+## New connections vs established connections
+
+- New connections use the current scope allowlist.
+- Connections established before a scope change keep their original rules.
+

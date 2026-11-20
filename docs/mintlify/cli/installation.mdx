@@ -1,0 +1,57 @@
+---
+title: "Installation"
+description: "Prebuilt binary, source build, and verification"
+---
+
+## Installation
+
+## Prebuilt release binary
+
+Linux x86_64 builds are attached to each [GitHub Release](https://github.com/dustin04x/RAWFR4ME/releases):
+
+```bash
+curl -LO https://github.com/dustin04x/RAWFR4ME/releases/download/v1.0.0/rawframe-v1.0.0-x86_64-unknown-linux-gnu.tar.gz
+curl -LO https://github.com/dustin04x/RAWFR4ME/releases/download/v1.0.0/rawframe-v1.0.0-x86_64-unknown-linux-gnu.tar.gz.sha256
+
+sha256sum --check rawframe-v1.0.0-x86_64-unknown-linux-gnu.tar.gz.sha256
+
+tar -xzf rawframe-v1.0.0-x86_64-unknown-linux-gnu.tar.gz
+install -m 755 rawframe ~/.local/bin/rawframe
+rawframe --version   # rawframe 1.0.0
+```
+
+The release artifact is built from the tagged source with `--locked` and its
+version output is checked against the tag before publication.
+
+No other target is published for 1.0.0. macOS and Windows are not claimed to
+work, and no builds are produced for them.
+
+## Build from source
+
+Prerequisites:
+
+- Rust **1.89+** with edition 2024 support.
+- A C toolchain for the bundled SQLite build.
+- A terminal of at least 64×18; 140×40 recommended.
+- A truecolor terminal and a monospace font with box-drawing coverage.
+- Python 3 with Pillow only for regenerating screenshots.
+
+```bash
+git clone https://github.com/dustin04x/RAWFR4ME.git
+cd RAWFR4ME
+
+## Debug build
+cargo build --workspace
+
+## Optimised release binary
+cargo build --workspace --release
+
+## Install into cargo bin
+cargo install --path crates/rawframe-cli --locked
+```
+
+## Verification
+
+```bash
+rawframe --version   # rawframe 1.0.0
+```

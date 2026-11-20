@@ -1,0 +1,49 @@
+---
+title: "Persistence worker"
+description: "SQLite writer thread, redaction, and crash recovery"
+---
+
+## Persistence worker
+
+## Ownership and threading
+
+`rawframe-store` owns one `rusqlite::Connection` on one OS thread. The worker
+receives captures on a bounded **synchronous** channel using `try_send`, so the
+proxy never waits on disk. When the queue is full the capture is dropped and the
+count is surfaced as `StorageStatus::dropped`.
+
+## Commands
+
+Commands arrive on the async command channel and are drained with `try_recv`
+between batches. Results are published as `AppEvent::Storage`.
+
+### Available commands
+
+- `StartProxy` / `StopProxy` — control the proxy engine.
+- `SetInterception` / `SetTlsInterception` — arm/disarm interception and TLS.
+- `ForwardRequest` / `ForwardModified` / `DropRequest` — resolve pending entries.
+- `UpdateScope` — replace the live allowlist.
+- `ListSessions` / `LoadSession` / `ExportSession` — browse and export.
+- `Shutdown` — close the database cleanly.
+
+## Redaction on write
+
+`StoragePolicy` is applied while encoding a row, not at render time. Sensitive
+header values become `<redacted>` unless `persist_sensitive_headers` is on;
+bodies are written as SQL `NULL` unless `persist_bodies` is on. A policy change
+affects future writes only and never rewrites stored history.
+
+## Durability and failure behavior
+
+- `journal_mode=WAL`, `synchronous=FULL`, a 5 s busy timeout, and a bounded
+  `max_page_count` (512 MiB default) limit damage from crashes and disk growth.
+- Batches are committed in one transaction: either all rows in the batch are
+  durable or none are.
+- A `quick_check` runs at open. Corruption, a newer schema, a full database,
+  or an unwritable path disables persistence with an explicit error; the proxy
+  keeps running and the file is never deleted.
+- On the next open, sessions without a clean close are marked recovered and
+  their non-terminal transactions stay `incomplete`.
+- Unix database files are `0600`; directories are `0700`; exports are `0600`
+  and are written to a sibling temporary file and renamed atomically.
+

@@ -1,0 +1,49 @@
+---
+title: "Build failures"
+description: "Troubleshooting build failures"
+---
+
+## Build failures
+
+## Symptoms
+
+- `cargo build --workspace` fails.
+- Compilation errors in one or more crates.
+- Clippy warnings treated as errors.
+
+## Likely causes
+
+- Missing Rust toolchain version (1.89+ required).
+- Incompatible feature flags in Cargo.toml.
+- Clippy lint warnings that fail `--D warnings`.
+- Missing dependencies or SDK components.
+
+## Diagnostic commands
+
+```bash
+## Check Rust version
+rustup show
+
+## Build with verbose output
+cargo build --workspace -v
+
+## Run clippy explicitly
+cargo clippy --workspace --all-targets -- -D warnings 2>&1 | head -30
+
+## Check for outdated deps
+cargo outdated 2>&1 | head -20
+```
+
+## Resolution
+
+1. Ensure Rust 1.89+ with edition 2024 support is installed (`rustup show`).
+2. Fix compilation errors in the affected crate.
+3. Address clippy warnings by fixing the underlying design issue, not by adding `#[allow(...)]`.
+4. Run `cargo fmt --all --check` and `cargo build --workspace --check` to verify.
+5. If using feature flags, verify they are compatible across crates.
+
+## Security considerations
+
+- Do not add `#[allow(...)]` to silence a lint without fixing or documenting the underlying design issue.
+- Clippy denies warnings by default; each requires a design-level fix.
+

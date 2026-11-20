@@ -1,0 +1,49 @@
+---
+title: "Security Findings"
+description: "Passive analysis engine, rule inventory, and finding lifecycle"
+---
+
+## Security Findings
+
+## Engine library (`rawframe-analysis`)
+
+The passive analysis engine ships in `rawframe-analysis` as a library only. It is
+built, tested, and documented, but **not yet wired into the TUI or CLI**. There
+is no Findings workspace, no runtime analysis, and no findings persistence in
+1.0.0.
+
+**17 rules** evaluate captured HTTP/1.1, HTTP/2 shared messages, and WebSocket
+handshakes and complete text messages. Each finding carries:
+
+- **Severity** (`info`, `low`, `medium`, `high`).
+- **Confidence** (`firm`, `possible`, `speculative`).
+- **Triggering field or fixed marker**.
+- **Impact** description.
+- **Remediation** guidance.
+- **Stable fingerprints** for deduplication.
+- **Redacted evidence** (sensitive headers and bodies are masked before storage).
+
+## Bounded scheduler
+
+The engine uses a bounded scheduler that adds backpressure and supports
+cancellation. Rules are applied deterministically; the same input always
+produces the same output.
+
+## Not yet integrated
+
+- No Findings UI in the TUI.
+- No runtime analysis scheduler in the proxy.
+- No findings persistence in the SQLite database.
+- No CLI flags for enabling analysis.
+
+## Where to find the rule inventory
+
+See [docs/analysis-rules.md] in the repository for the complete 17-rule inventory,
+including severity, confidence, and sample output.
+
+## Future integration
+
+Integration into the TUI, CLI, and persistence pipeline is planned for a later
+milestone. Until then, the engine remains a tested library that users can import
+directly if they wish to add custom analysis to their own workflows.
+

@@ -1,0 +1,63 @@
+---
+title: "Error handling"
+description: "Typed errors, failure modes, and recovery"
+---
+
+## Error handling
+
+## Typed error model
+
+Errors are modeled as typed values within the `rawframe_core` crates, avoiding
+panics and unhandled failures in the data path.
+
+### Storage errors (`StoreError`)
+
+| Error variant | Meaning |
+| --- | --- |
+| `Corrupt(String)` | Database quick_check returned a non-"ok" result. |
+| `Full(u64)` | Database reached the byte ceiling (`max_bytes`). |
+| `Io(std::io::Error)` | Filesystem I/O error during read/write. |
+| `UnknownSession(String)` | Requested session does not exist. |
+| `SizeLimit` | Row exceeded size limits during encoding. |
+
+### Destination policy errors
+
+- `ScopeError` — the destination does not match any allowlist rule.
+- `ScopeParseError` — the `--scope` rule could not be parsed.
+- `AddressNotAllowed` — the resolved address is in a rejected category.
+
+### TLS errors
+
+- `TlsError` — TLS handshake failure (upstream verification failure, cert
+  issuance failure).
+- `TlsInterceptionNotEnabled` — attempting TLS interception operations without
+  the feature enabled.
+
+### Intruder errors
+
+- `PlanError` — the intruder plan is invalid (empty lists, unequal Pitchfork
+  lengths, too many generated requests).
+- `PayloadError` — the payload source or individual payload is invalid.
+
+## Failure modes
+
+| Component | Failure mode | Recovery |
+| --- | --- | --- |
+| Proxy listener | Bind failure, shutdown timeout | Retry with corrected config; service aborts after 8 s total. |
+| CONNECT tunnel | Idle timeout, half-close | Activity-based timeout; proxy shutdown terminates it. |
+| Interception | Timeout (120 s), queue full | Forward unchanged; emit warning. |
+| Repeater execution | Cancel, shutdown, timeout | Worker pool aborts; unsent indices marked `NotSent`. |
+| Intruder execution | Cancel, shutdown, rate limit | Pool aborts; paused runs keep their queue and resume. |
+| Decoder pipeline | Input/output limit exceeded, 16-step limit | First failure returns completed steps; later steps never run. |
+| Storage | Corruption, full database, unwritable path | Persistence disabled; proxy keeps running. |
+| TUI | Invalid input, resize | Centered size message; graceful degradation at minimum size. |
+
+## Error reporting in the UI
+
+- Footer `DB ERROR` / `DB ON` / `DB OFF` reflects persistence status.
+- Status toasts appear on storage failures.
+- Dropped-capture warning appears in the Proxy workspace.
+- Row source badges (`LIVE`, `SIM`, `AUTH`, `RESTORED`) keep provenance obvious.
+- CONNECT rows say `TUNNEL` and use metadata, not fabricated HTTP payloads.
+- Failures display recorded error strings, not invented success.
+

@@ -1,0 +1,197 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "RAWFRAME",
+  "theme": "maple",
+  "colors": {
+    "primary": "#8B5CF6",
+    "light": "#A78BFA",
+    "dark": "#6D28D9"
+  },
+  "logo": {
+    "light": "/images/rawframe-light.svg",
+    "dark": "/images/rawframe-dark.svg"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Overview",
+        "pages": [
+          "index",
+          "overview",
+          "product-overview"
+        ]
+      },
+      {
+        "group": "Getting started",
+        "pages": [
+          "getting-started/installation",
+          "getting-started/building-from-source",
+          "getting-started/prerequisites",
+          "getting-started/first-launch",
+          "getting-started/first-proxy-session",
+          "getting-started/configuring-a-target",
+          "getting-started/capturing-http-traffic",
+          "getting-started/inspecting-a-request",
+          "getting-started/sending-to-repeater",
+          "getting-started/saving-a-project",
+          "getting-started/first-run-issues"
+        ]
+      },
+      {
+        "group": "Core concepts",
+        "pages": [
+          "core-concepts/http-interception",
+          "core-concepts/proxy-architecture",
+          "core-concepts/http-request-lifecycle",
+          "core-concepts/connect-tunneling",
+          "core-concepts/tls-interception",
+          "core-concepts/ca-and-trust",
+          "core-concepts/scope-and-destination-policies",
+          "core-concepts/projects-and-sessions",
+          "core-concepts/traffic-history",
+          "core-concepts/findings-and-evidence",
+          "core-concepts/persistence-architecture",
+          "core-concepts/protocol-adapters",
+          "core-concepts/request-lifecycle-and-cancellation"
+        ]
+      },
+      {
+        "group": "Features",
+        "pages": [
+          "features/proxy",
+          "features/history-inspector",
+          "features/repeater",
+          "features/intruder",
+          "features/decoder",
+          "features/http2",
+          "features/websocket",
+          "features/security-findings"
+        ]
+      },
+      {
+        "group": "Security documentation",
+        "pages": [
+          "security/threat-model",
+          "security/intended-use",
+          "security/scope-enforcement",
+          "security/default-deny",
+          "security/destination-validation",
+          "security/dns-resolution",
+          "security/tls-verification",
+          "security/ca-trust",
+          "security/interception-opt-in",
+          "security/redirect-handling",
+          "security/sensitive-data-handling",
+          "security/redaction",
+          "security/limitations"
+        ]
+      },
+      {
+        "group": "Architecture and internals",
+        "pages": [
+          "architecture/workspace-overview",
+          "architecture/crate-responsibilities",
+          "architecture/dependency-direction",
+          "architecture/application-startup",
+          "architecture/tui-architecture",
+          "architecture/proxy-lifecycle",
+          "architecture/destination-and-scope-primitives",
+          "architecture/tls-architecture",
+          "architecture/http1-architecture",
+          "architecture/http2-architecture",
+          "architecture/websocket-architecture",
+          "architecture/persistence-worker",
+          "architecture/sqlite-schema-and-migrations",
+          "architecture/analysis-engine",
+          "architecture/event-and-command-flow",
+          "architecture/error-handling",
+          "architecture/cancellation-and-resource-management",
+          "architecture/testing-architecture"
+        ]
+      },
+      {
+        "group": "Configuration reference",
+        "pages": [
+          "configuration/options",
+          "configuration/file-location",
+          "configuration/project-data",
+          "configuration/environment-variables",
+          "configuration/command-line-flags",
+          "configuration/terminal-behavior",
+          "configuration/color-support",
+          "configuration/platform-differences"
+        ]
+      },
+      {
+        "group": "CLI reference",
+        "pages": [
+          "cli/installation",
+          "cli/version",
+          "cli/help",
+          "cli/arguments",
+          "cli/subcommands",
+          "cli/flags",
+          "cli/exit-codes",
+          "cli/examples",
+          "cli/configuration-behavior",
+          "cli/keyboard-shortcuts"
+        ]
+      },
+      {
+        "group": "Troubleshooting and FAQ",
+        "pages": [
+          "troubleshooting/proxy-startup",
+          "troubleshooting/port-conflicts",
+          "troubleshooting/certificate-trust",
+          "troubleshooting/tls-interception-failures",
+          "troubleshooting/scope-rejection",
+          "troubleshooting/dns-resolution",
+          "troubleshooting/http2-negotiation",
+          "troubleshooting/websocket-upgrade-failures",
+          "troubleshooting/sqlite-and-persistence",
+          "troubleshooting/permission-problems",
+          "troubleshooting/terminal-rendering",
+          "troubleshooting/color-and-font-problems",
+          "troubleshooting/application-startup",
+          "troubleshooting/build-failures",
+          "faq"
+        ]
+      },
+      {
+        "group": "Development and contribution",
+        "pages": [
+          "development/environment",
+          "development/rust-toolchain",
+          "development/workspace-setup",
+          "development/build-commands",
+          "development/test-commands",
+          "development/formatting",
+          "development/clippy",
+          "development/integration-tests",
+          "development/ptx-testing",
+          "development/architecture-conventions",
+          "development/adding-a-proxy-feature",
+          "development/adding-an-analysis-rule",
+          "development/modifying-persistence",
+          "development/documentation-contributions",
+          "development/pull-request-expectations",
+          "development/release-process"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "reference/glossary",
+          "reference/supported-protocols",
+          "reference/analysis-rule-reference",
+          "reference/keyboard-shortcuts",
+          "reference/data-formats",
+          "reference/error-reference",
+          "reference/version-history",
+          "reference/known-limitations"
+        ]
+      }
+    ]
+  }
+}

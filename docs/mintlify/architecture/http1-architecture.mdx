@@ -1,0 +1,39 @@
+---
+title: "HTTP/1.1 architecture"
+description: "Forward proxying, CONNECT tunneling, and request forwarding"
+---
+
+## HTTP/1.1 architecture
+
+## Forward proxying
+
+The proxy implements a local forward proxy for HTTP/1.1 requests.
+
+### Request forwarding
+
+1. Parse an absolute-form URI. `https://` is rejected (requires CONNECT).
+2. Normalize the authority, default the port, reject port 0 and unsafe characters.
+3. Check scope before DNS resolution or connection.
+4. Copy method, version, filtered headers, and origin-form target upstream.
+5. Stream the request body upstream under a guarded cap.
+6. Wait for response headers under timeout; stream the response downstream.
+7. Remove `Transfer-Encoding` and stale `Content-Length` while forwarding.
+8. Remove `Connection` and listed fields from both directions.
+
+### Response forwarding
+
+- Per-frame idle timer aborts stalled bodies.
+- Exceeding the response body cap terminates the downstream response.
+- End-to-end headers keep order and duplicates.
+
+## Opaque CONNECT tunnelling
+
+See the [CONNECT tunneling] page for the full flow. The key point is that no
+bytes are parsed, logged, or exposed as HTTP content, and no TLS certificate is
+generated or inspected.
+
+## TLS interception (opt-in)
+
+See the [TLS architecture] page for the full opt-in flow. Decrypted requests
+enter the same interception queue, history, and lifecycle as plaintext HTTP.
+

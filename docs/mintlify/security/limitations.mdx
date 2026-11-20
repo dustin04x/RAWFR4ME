@@ -1,0 +1,38 @@
+---
+title: "Security limitations"
+description: "Deligent boundaries of the 1.0.0 release, not bugs"
+---
+
+## Security limitations
+
+These are deliberate boundaries of the 1.0.0 release, not bugs.
+
+- **Plaintext proxying is HTTP/1.1 only.** h2c is not implemented. HTTP/2 requires
+  TLS with an `h2` ALPN result.
+- **WebSocket support is HTTP/1.1 upgrade only.** No HTTP/3, QUIC, RFC 8441
+  extended CONNECT, WebSocket over HTTP/2, or `permessage-deflate`.
+- **TLS interception does not bypass certificate pinning.** Pinned clients fail
+  the intercepted handshake by design.
+- **Modified HTTPS requests cannot change the original `CONNECT` authority.**
+- **Opaque tunnels expose only destination, duration, byte counts, and outcome.**
+  No URL, headers, body, or tunnelled certificate is visible.
+- **Settings are session-only.** There is no configuration file. The accent,
+  limits, and scope edits do not persist across restarts.
+- **Local diagnostic logs are not rotated.**
+- **Scope rule changes apply to new requests.** Established connections keep the
+  rules they were admitted under.
+- **Connection-limit overflow closes the socket** rather than returning `503`.
+- **The minimum usable TUI size is 64×18; the inspector requires 108 columns.**
+  Truecolor is assumed, and 8/16-colour terminals will degrade.
+- **Release artifacts are built and verified for Linux x86_64 only.** Other targets
+  are not claimed.
+- **Passive analysis has no user interface.** The rule engine is a library with
+  no Findings workspace, no runtime scheduler, and no findings table; storage
+  schema version remains `4`.
+- **Rules are conservative observations, not exploit verification.** Status, size,
+  and timing differences are never presented as proof of a vulnerability.
+- **No proxy authentication.** There is no way to require credentials for
+  connecting clients.
+- **No per-client rate limit.** Connection-limit overflow closes sockets.
+- **Diagnostic logs are not rotated.**
+

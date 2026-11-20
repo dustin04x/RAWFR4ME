@@ -1,0 +1,40 @@
+---
+title: "Scope rejection"
+description: "Troubleshooting scope rejection issues"
+---
+
+## Scope rejection
+
+## Symptoms
+
+- Requests are being dropped or not captured.
+- Proxy screen shows "scope rejection" or similar message.
+- Traffic from certain destinations is not visible.
+
+## Likely causes
+
+- Destination not in the scope allowlist.
+- Scope rules changed after the connection was established.
+- Default-deny policy: only explicitly allowed destinations receive traffic.
+
+## Diagnostic commands
+
+```bash
+## Check current scope configuration
+cargo run -p rawframe-cli --bin rawframe -- --show-scope
+
+## Verify the destination is in the allowlist
+## Scope is session-only; edits do not persist across restarts
+```
+
+## Resolution
+
+1. Add the destination to the scope allowlist: `--scope http://target:port`.
+2. Connections established before the scope change keep their original rules.
+3. New connections will use the updated scope.
+
+## Security considerations
+
+- Scope is default-deny by design; only allowed destinations receive traffic.
+- Scope rule changes apply to new requests only.
+

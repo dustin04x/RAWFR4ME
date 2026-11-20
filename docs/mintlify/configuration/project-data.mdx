@@ -1,0 +1,37 @@
+---
+title: "Project data"
+description: "Project data location and behavior in RAWFRAME"
+---
+
+## Project data
+
+## Data directory
+
+The application data directory depends on the deployment environment:
+
+- **XDG Base Directory compliant systems**: `$XDG_DATA_HOME/rawframe/` or
+  `~/.local/share/rawframe/`
+- **Custom path**: override with `--data-dir <path>` CLI flag.
+
+## Database
+
+- Default: `$XDG_DATA_HOME/rawframe/rawframe.db` or
+  `~/.local/share/rawframe/rawframe.db`
+- Override with `--db <path>` CLI flag.
+- SQLite schema version 4; migrations are additive (bump `SCHEMA_VERSION`, add SQL
+  to versioned batch).
+- Never recreate a user database; append migrations only.
+
+## Log file
+
+- Default: `$XDG_DATA_HOME/rawframe/logs/rawframe.log` or
+  `~/.local/share/rawframe/logs/rawframe.log`
+- Override with `--log-file <path>`.
+
+## No persistent configuration
+
+Edits made in the TUI (accent, scope, body persistence, limits) do not persist
+across restarts. Each new session starts with the defaults specified by the CLI
+flags passed at launch. The SQLite database persists captured traffic, but
+configuration changes are lost on restart.
+

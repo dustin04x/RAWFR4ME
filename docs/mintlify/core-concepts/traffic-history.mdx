@@ -1,0 +1,47 @@
+---
+title: "Traffic history"
+description: "Browsing, filtering, and restoring captured traffic"
+---
+
+## Traffic history
+
+## Browsing stored sessions
+
+Press `B` in the Proxy workspace to open the session browser. Sessions are listed
+newest first, with record counts and last activity timestamps. Select a session
+to restore it read-only into History.
+
+## Filters
+
+The History workspace provides these filters:
+
+| Filter | Description |
+| --- | --- |
+| Status filter | Filter by state: `completed`, `dropped`, `failed`, `timed_out`, `cancelled` |
+| Source filter | Filter by source: `LIVE`, `SIM`, `AUTH`, `RESTORED` |
+| Scope filter | Filter by host/port matching scope rules |
+| Method filter | Filter by HTTP method |
+| Host filter | Filter by destination host |
+
+## Restore semantics
+
+Restored traffic is loaded as `TrafficSource::Restored` with interface IDs based
+on the row id (`1_000_000 + row_id`), never reusing live IDs. Restored entries
+are read-only history: they are excluded from the Proxy workspace, cannot be
+forwarded, and are labelled `RESTORED` in the table and inspector. Filters work
+across live, simulated, and restored entries.
+
+## Source badges
+
+Each row displays a source badge:
+
+- `LIVE` — captured from the live proxy engine.
+- `SIM` — a simulated fixture.
+- `AUTH` — restored from a previous session.
+- `RESTORED` — loaded from the SQLite database.
+
+## Search
+
+Press `Ctrl+F` to open the search field. It matches against method, host, and
+note text across all entries.
+

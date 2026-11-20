@@ -1,0 +1,36 @@
+---
+title: "TLS interception"
+description: "TLS interception in RAWFRAME core concepts"
+---
+
+## TLS interception
+
+## Opt-in feature
+
+TLS interception is opt-in and requires explicit configuration. It is not enabled by
+default.
+
+## Enabling interception
+
+Start RAWFRAME with the `--intercept` flag:
+
+```bash
+cargo run -p rawframe-cli --bin rawframe -- --intercept
+```
+
+## How it works
+
+1. RAWFRAME terminates TLS at its local CA.
+2. The leaf certificate is issued for the destination hostname.
+3. Upstream chain and hostname are verified.
+4. Decrypted traffic is displayed in the TUI.
+
+## Limitations
+
+- Pinned clients fail the intercepted handshake by design. RAWFRAME does not
+  bypass certificate pinning.
+- Modified HTTPS requests cannot change the original `CONNECT` authority.
+- No URL, headers, body, or tunnelled certificate is visible in opaque tunnels.
+- TLS interception must not be used on systems you do not own or have authorization
+  to assess.
+

@@ -1,0 +1,49 @@
+---
+title: "Application startup"
+description: "Troubleshooting application startup issues"
+---
+
+## Application startup
+
+## Symptoms
+
+- Application fails to launch.
+- Error messages on startup.
+- TUI does not render correctly at launch.
+
+## Likely causes
+
+- Missing or misconfigured data directory.
+- SQLite database corruption.
+- Terminal incompatible (too small, missing truecolor support).
+- Scope or configuration errors preventing listener startup.
+
+## Diagnostic commands
+
+```bash
+## Check data directory exists and is writable
+ls -ld $XDG_DATA_HOME/rawframe/
+## or custom: --data-dir <path>
+
+## Verify database integrity
+sqlite3 $XDG_DATA_HOME/rawframe/logs/rawframe.log 2>/dev/null || echo "no log yet"
+
+## Check terminal size
+stty size
+
+## Try with fresh database
+cargo run -p rawframe-cli --bin rawframe -- --db /tmp/test.rawframe.db
+```
+
+## Resolution
+
+1. Ensure the data directory exists and is writable.
+2. If the database is corrupted, delete it and allow RAWFRAME to recreate it on first launch.
+3. Use a compatible terminal (minimum 64×18, truecolor recommended).
+4. Check scope and configuration flags (--scope, --allow-private-upstreams).
+
+## Security considerations
+
+- Do not delete another operator's database or point the application at real data without authorization.
+- Fresh database creation will start with no captured traffic; this is expected.
+

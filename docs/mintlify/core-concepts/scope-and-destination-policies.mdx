@@ -1,0 +1,65 @@
+---
+title: "Scope and destination policies"
+description: "Default-deny allowlist, address policy, and DNS safety"
+---
+
+## Scope and destination policies
+
+## Default-deny allowlist
+
+Scope is a default-deny allowlist. With no `--scope` rule, every HTTP request and
+CONNECT is blocked. Starting the engine with an empty scope emits a warning.
+
+### Rule syntax
+
+```
+--scope <RULE>
+
+--scope accepts the following formats:
+
+- `host` — exact host match (case-insensitive)
+- `host:port` — exact host and port match
+- `http://host[:port]` — HTTP forwarding with host and optional port
+- `https://host[:port]` — CONNECT tunnelling with host and optional port
+- `*.example.test` — leading wildcard; matches the apex and all subdomains
+```
+
+### Examples
+
+```bash
+## Authorize exact host and port
+rawframe --scope http://127.0.0.1:8000
+
+## Authorize a wildcard host
+rawframe --scope *.example.test
+
+## Multiple rules (repeatable)
+rawframe --scope http://127.0.0.1:8000 --scope https://lab.example.test:443
+```
+
+## Address policy
+
+Before any DNS resolution or upstream connection, the engine resolves the
+hostname **once** and checks every returned address against this policy:
+
+| Category | Condition | Action |
+| --- | --- | --- |
+| Always rejected | IPv4 unspecified (0.0.0.0), multicast/reserved (≥224), link-local (169.254/16), carrier-grade NAT (100.64/10), benchmarking (198.18/15), documentation (192.0.2/24, 198.51.100/24, 203.0.113/24), IPv6 link-local, multicast, unspecified, documentation (2001:db8::/32) | Connect blocked; recorded as failed capture |
+| Requires `--allow-private-upstreams` | IPv4 loopback and RFC 1918 private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16); IPv6 loopback and unique-local (fc00::/7) | Connect allowed only with the flag |
+| Allowed otherwise | Public IPv4 and IPv6 global-unicast addresses | Connect allowed |
+
+### DNS safety
+
+- The hostname is resolved **once**. Every returned address is checked by the
+  address policy, and the connection is made to that exact validated address list.
+- No second lookup occurs between validation and connection, preventing a rebinding
+  response from redirecting the connection.
+- `--allow-private-upstreams` relaxes only loopback/private answers, never
+  link-local, metadata, multicast, or documentation ranges.
+
+## Scope editing live
+
+The allowlist can be edited in Settings. New requests and CONNECT sessions use
+the updated rules immediately; established connections and already-forwarded
+requests keep the rules they were admitted under.
+

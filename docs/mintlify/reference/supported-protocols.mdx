@@ -1,0 +1,52 @@
+---
+title: "Supported protocols"
+description: "Protocol support in RAWFRAME 1.0.0"
+---
+
+## Supported protocols
+
+## HTTP/1.1
+
+Full support for HTTP/1.1 request/response lifecycle. The proxy intercepts, forwards,
+modifies, or drops requests and responses with streaming bounded bodies and hop-by-hop
+filtering. HTTPS CONNECT tunneling is available with optional TLS interception.
+
+- Plaintext proxying: HTTP/1.1 only
+- HTTPS CONNECT: Opaque tunnel with byte and duration metadata
+- TLS interception: Opt-in with local CA trust
+
+## HTTP/2
+
+HTTP/2 support requires TLS with `h2` ALPN negotiation. The proxy, Repeater, and Intruder
+all support HTTP/2 over TLS. There is no h2c (plaintext HTTP/2) support.
+
+- ALPN negotiation: `h2` then `http/1.1`
+- Streams: 128 concurrent streams per connection
+- Pseudo-headers: managed through `rawframe_core::h2`
+- Header handling: sanitized via `sanitize_headers_for_h2`
+- Interoperability: HTTP/1.1 and HTTP/2 share the same networking stack (Hyper)
+- Limits: 64 KiB request header lists, 128 concurrent streams, existing body/timeout caps
+- No h2c support; HTTP/2 exclusively over TLS with h2 ALPN result
+
+## WebSocket
+
+WebSocket support is HTTP/1.1 upgrade only. No HTTP/3, QUIC, RFC 8441 extended CONNECT,
+WebSocket over HTTP/2, or `permessage-deflate` is implemented.
+
+- Upgrade handshake: standard HTTP/1.1 `Upgrade: websocket` + `Connection: Upgrade`
+- Frame inspection: per-frame pause/forward/drop/modify in the TUI
+- Frame boundaries: preserved through the custom codec; no reframing or coalescing
+- Masking direction: enforced (client-to-server and server-to-client)
+- Control-frame rules: close handshakes, ping/pong, and UTF-8 validation for completed text
+- 64 tunnel limit, 2 MiB frame limit, 8 MiB message limit, 8 MiB retained payload
+- 300 s idle timeout, bounded interception queue/timeout
+- WebSocket Repeater: direct scoped client, not a replay; uses only destination metadata
+  and shared verified TLS builder
+- Authored frame/connection IDs start at 3,000,000
+- PTY evidence requires real local execution: `scripts/capture_websocket_pty.py`
+
+## Opaque Tunnel (CONNECT)
+
+Destination-only metadata for CONNECT tunnels. No URL, headers, body, or tunnelled
+certificate is visible. Outcome labels, byte counts, and duration are stored.
+

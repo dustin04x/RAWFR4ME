@@ -1,0 +1,45 @@
+---
+title: "CA trust"
+description: "Local CA trust configuration for RAWFRAME"
+---
+
+## CA trust
+
+## Local CA for TLS interception
+
+TLS interception requires trust in RAWFRAME's local Certificate Authority (CA). The
+local CA is generated when TLS interception is first enabled.
+
+## Enabling CA trust
+
+1. Start RAWFRAME with `--intercept` flag.
+2. The local CA certificate is stored in the application data directory.
+3. Export the certificate from the data directory.
+4. Install the CA certificate into the system trust store or browser.
+
+### Linux system trust
+
+```bash
+cp $XDG_DATA_HOME/rawframe/ca-cert.pem /usr/local/share/ca-certificates/rawframe-ca.pem
+update-ca-certificates
+```
+
+### Browser trust
+
+1. Go to browser settings → certificates → authorities.
+2. Click "Import" and select the exported CA certificate.
+3. Trust the certificate for identifying websites.
+
+## Disabling interception
+
+When TLS interception is disabled (`--no-intercept` or default), the local CA is
+not used. No trust configuration is required for plain proxying.
+
+## Security considerations
+
+- Only trust the RAWFRAME local CA on systems you control or have explicit
+  authorization to assess.
+- Do not trust the CA on public or shared systems.
+- Pinned clients fail the intercepted handshake by design; this is a security
+  feature, not a bug.
+

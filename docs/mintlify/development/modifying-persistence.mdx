@@ -1,0 +1,45 @@
+---
+title: "Modifying persistence"
+description: "Guidance for changing the storage layer in RAWFRAME"
+---
+
+## Modifying persistence
+
+When modifying the persistence layer in RAWFRAME, follow these guidelines:
+
+## Schema migration rules
+
+- Migrations are additive only: add columns/tables, never remove or modify existing
+  ones.
+- Migrations run in an `IMMEDIATE` transaction and are idempotent.
+- A database newer than the build is refused instead of modified.
+- Record migrations in both `schema_migrations` and `user_version`.
+
+## Policy changes
+
+- `StoragePolicy` changes affect future writes only; existing rows keep the
+  redaction they were stored with.
+- This is deliberate: rewriting history could either destroy evidence or reveal
+  secrets the operator chose to mask.
+- Policy changes are applied via `Store::set_policy()` and do not retroactively
+  rewrite stored rows.
+
+## Adding new columns
+
+1. **Define the column** in the `TrafficRecord::encode()` method in
+   `crates/rawframe-store/src/record.rs`.
+2. **Add the column** to the `UPSERT_TRAFFIC` SQL statement.
+3. **Update the migration** if the column is new for existing databases (use
+   `ALTER TABLE`).
+4. **Run the quality gates** to ensure the schema still opens correctly.
+
+## Changing the database ceiling
+
+The database ceiling is configured in `Store::open()` via the `max_bytes`
+parameter and the `max_page_count` pragma setting. To change the default:
+
+1. Modify `DEFAULT_MAX_BYTES` in `crates/rawframe-store/src/store.rs`.
+2. Rebuild and run the quality gates.
+3. Existing databases are not retroactively affected; the new ceiling applies
+   only to new databases or after the operator explicitly sets a new policy.
+

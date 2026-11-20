@@ -1,0 +1,25 @@
+---
+title: "Default-deny"
+description: "Default-deny policy in RAWFRAME"
+---
+
+## Default-deny
+
+RAWFRAME's scope policy is default-deny by design. This means:
+
+- Any destination not explicitly allowed in the scope allowlist is rejected.
+- Connections to disallowed destinations are dropped and not captured.
+- The default-deny policy applies to all traffic, including proxy captures,
+  CONNECT tunnels, and Repeater requests.
+- Scope is session-only; edits do not persist across restarts.
+
+## Configuration
+
+```bash
+## Allow a specific destination
+--scope http://127.0.0.1:8000
+
+## Multiple destinations can be added (space-separated or repeated flags)
+--scope http://127.0.0.1:8000 --scope http://127.0.0.1:9000
+```
+

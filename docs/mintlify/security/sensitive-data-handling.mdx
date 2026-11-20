@@ -1,0 +1,32 @@
+---
+title: "Sensitive data handling"
+description: "Sensitive data handling in RAWFRAME"
+---
+
+## Sensitive data handling
+
+## Redaction of sensitive headers
+
+By default, RAWFRAME replaces sensitive header values with `<redacted>` during
+storage. The list of sensitive headers is controlled by the
+`persist_sensitive_headers` setting and the `SENSITIVE_HEADERS` list in
+`crates/rawframe-core/src/security.rs`.
+
+## Body persistence
+
+By default, request and response bodies are not persisted (`persist_bodies` off).
+When `persist_bodies` is enabled, bodies are stored in the SQLite database,
+respecting the `persist_sensitive_headers` setting.
+
+## Export format
+
+Exported JSON Lines respect the current redaction policy. If `persist_sensitive_headers`
+is off, sensitive values are redacted in the export. If on, sensitive values are
+preserved as-is.
+
+## User control
+
+- `persist_sensitive_headers` flag: whether to preserve or redact sensitive headers.
+- `persist_bodies` flag: whether to persist bodies at all.
+- Redaction is applied at write time, not render time.
+

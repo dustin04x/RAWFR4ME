@@ -1,0 +1,85 @@
+---
+title: "Event and command flow"
+description: "How commands and events move through the system"
+---
+
+## Event and command flow
+
+## Command channel
+
+Commands flow from the UI (or CLI) to the engines through bounded channels.
+
+### From the TUI
+
+Single-letter shortcuts (`?`, `Q`, `I`, `P`, `B`) and modifier combos
+(`Ctrl+1`–`7`, `Ctrl+F`, `Ctrl+N`, `Ctrl+W`, `Ctrl+Enter`) are parsed by the
+input dispatcher and sent as `AppCommand` through a bounded channel (capacity 32).
+
+### From the CLI
+
+The CLI sends commands through the same channel structure, either directly from
+`main.rs` or via the capture pump.
+
+### Bounded capacity
+
+- EventBus capacity: 4096 (MPSC queues).
+- Command channel capacity: 32.
+- Dropped subscribers are skipped so they cannot abort the proxy.
+- If the command channel is full, new commands are dropped rather than blocked.
+
+## Event fan-out
+
+Events fan out from the engines to the UI and storage through the EventBus.
+
+### Proxy events
+
+- `ProxyStateChanged` — drives `Idle → Starting → Listening → Stopping → Stopped` or `Failed`.
+- `ProxyBound(SocketAddr)` — reports the actual bound address.
+- `TrafficCaptured` / `TrafficUpdated` — carry HTTP captures, decrypted HTTPS
+  requests, and CONNECT tunnel metadata.
+- `TlsStateChanged` — publishes TLS enabled/disabled state, the public CA path
+  and fingerprint, or a non-secret enable error.
+
+### Repeater events
+
+- `AppEvent::Repeater(Phase|Completed)` — drives the owning tab and, on completion,
+  carries a ready-to-persist `TrafficEntry` labelled `Repeater`.
+
+### Intruder events
+
+- `AppEvent::Intruder(IntruderEvent)` — drives the Intruder workspace:
+  `Started` fixes the run/total count, `Phase` carries pause/resume/cancel
+  transitions, `Completed` carries one terminal result plus a ready-to-persist
+  `TrafficEntry` labelled `Intruder`, `Finished` carries the typed summary and
+  stop reason, `Failed` reports a refused launch, and `Wordlist` returns an
+  import outcome.
+
+### WebSocket events
+
+- `WebSocketConnection` / `WebSocketFrame` — drive the WebSocket workspace.
+- `WebSocketFramePaused` — marks a frame awaiting a decision.
+- `WebSocketRepeater(Opened|Failed|Closed)` — drives the authored session.
+
+### Storage events
+
+- `Storage(StorageEvent)` — carries persistence status, stored session lists,
+  restored entries, export results, and storage failures.
+
+### Notice events
+
+- `Notice` — surfaces lifecycle warnings/errors in the UI.
+
+## Live traffic insertion
+
+Live traffic is inserted into `App::traffic` by `TrafficCaptured` /
+`TrafficUpdated`. Existing pending fixtures are retained but hidden from the
+Proxy queue while live captures exist. Proxy rows use the same selection model
+and inspector as History. History filtering includes live captures and fixtures;
+source badges keep provenance obvious.
+
+## ID stability
+
+Live IDs start at 1000 and are allocated by the running service. Fixtures keep
+their low IDs and `TrafficSource::Simulated`. This keeps the controller stable
+when filters or sort order change.
+

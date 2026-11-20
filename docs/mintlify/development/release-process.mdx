@@ -1,0 +1,34 @@
+---
+title: "Release process"
+description: "RAWFRAME release workflow and tagging"
+---
+
+## Release process
+
+## 1.0.0 release
+
+The first stable release of RAWFRAME. Milestones 1–10 are complete and covered
+by the workspace test suite. Milestone 11 (passive analysis) ships as a library
+only with no Findings UI.
+
+### Release assets
+
+- Linux x86_64 binary built from tagged source with `--locked`.
+- SHA-256 checksums published alongside the release.
+- Release notes with version, tag SHAs, and gate results.
+
+### Gates verified on the release tree
+
+| Gate | Result |
+| --- | --- |
+| `cargo fmt --all --check` | 0 failures |
+| `cargo check --workspace` | 0 failures |
+| `cargo build --workspace` | 0 failures |
+| `cargo test --workspace` | 499 passed, 0 failed, 0 ignored |
+| `cargo clippy --workspace --all-targets -D warnings` | 0 failures |
+| Release build (tag-triggered CI) | 0 failures |
+
+### Release URL
+
+[Release v1.0.0](https://github.com/dustin04x/RAWFR4ME/releases/tag/v1.0.0)
+

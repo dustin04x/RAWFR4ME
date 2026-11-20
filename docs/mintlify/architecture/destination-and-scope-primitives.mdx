@@ -1,0 +1,44 @@
+---
+title: "Destination and scope primitives"
+description: "Destination and scope primitives in RAWFRAME"
+---
+
+## Destination and scope primitives
+
+## Scope
+
+A scope defines which destinations a connection is allowed to reach. RAWFRAME uses
+default-deny scope enforcement, where only explicitly allowed destinations are
+permitted.
+
+### Scope configuration
+
+- Set at startup via `--scope <url>` CLI flag.
+- Session-only: changes do not persist across restarts.
+- Default-deny: any destination not explicitly allowed is rejected.
+
+### Scope rules
+
+- Connections established before a scope change keep their original rules.
+- New connections use the updated scope.
+- The scope allowlist is checked before upstream connection resolution.
+
+## Destination
+
+A destination is the network endpoint (host:port) that a traffic connection targets.
+Destinations are validated against the scope allowlist before the upstream socket
+is opened.
+
+### Verified TLS
+
+- Upstream TLS is verified against the hostname in the scope.
+- The local CA issues leaf certificates for authorized hosts only.
+- Certificate pinning is not bypassed; pinned clients fail by design.
+
+### Resolve-once DNS
+
+- The hostname is resolved once at connection time via the shared destination
+  helper.
+- DNS results are cached for the duration of the connection.
+- Changes to DNS after connection establishment do not affect the connection.
+

@@ -1,0 +1,52 @@
+---
+title: "RAWFRAME"
+description: "Terminal-native HTTP interception and security testing workbench"
+---
+
+## RAWFRAME
+
+*A terminal-native HTTP interception and security testing workbench.*
+
+RAWFRAME is a local forward proxy and set of request workbenches for authorized HTTP/1.1, HTTP/2, and WebSocket testing from the terminal. It provides a local forward proxy, opaque HTTPS tunnelling, opt-in TLS interception, durable SQLite history, and a live request workbench inside a keyboard-driven TUI.
+
+**Current release: 1.0.0** — the first stable release. Milestones 1–10 are complete. Milestone 11 (passive analysis) ships as a library only with no Findings UI.
+
+## What it solves
+
+- Intercept and inspect HTTP/1.1 and HTTP/2 traffic in real time.
+- Pause requests before upstream contact, forward modified, or drop entirely.
+- Opt-in TLS interception with a local CA you trust in your test profile only.
+- Durable history with redaction, session restore, and JSON Lines export.
+- Intruder payload workbench with four strategies and bounded concurrency.
+- WebSocket frame-level interception and authored Repeater sessions.
+
+## Who should use it
+
+Auditors, security researchers, and developers who need to inspect and modify
+live HTTP traffic on systems they own or are explicitly authorized to test.
+
+## Design philosophy
+
+- **Explicit authority.** Scope is default-deny; nothing is proxied without an
+  allowlist rule.
+- **Explicit decryption.** Opaque `CONNECT` tunnelling is the default. HTTPS is
+  only decrypted after you enable TLS interception and trust the local CA.
+- **No silent downgrade.** Upstream certificate-chain and hostname verification
+  cannot be disabled.
+- **Bounded everything.** Hard ceilings on bodies, connections, queues, and timeouts.
+- **Local only.** No telemetry, no external reporting, no automatic trust-store
+  modification.
+
+## Quick start
+
+```bash
+## Start a local upstream server
+python3 -m http.server 8000 --bind 127.0.0.1
+
+## Run RAWFRAME, authorizing only this upstream
+rawframe --port 8080 --scope http://127.0.0.1:8000 --allow-private-upstreams
+
+## Press P on the Proxy workspace to start the listener, then request through the proxy
+curl --noproxy '' -x http://127.0.0.1:8080 http://127.0.0.1:8000/
+```
+

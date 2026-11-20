@@ -1,0 +1,74 @@
+---
+title: "Configuration reference"
+description: "Every verified configuration option with defaults and descriptions"
+---
+
+## Configuration reference
+
+Every option below is verified from the source code. Defaults are the values
+enforced by the application at runtime. Nothing is invented.
+
+## Listener settings
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--bind <ADDR>` | Address | `127.0.0.1` | Listener address. Non-loopback requires `--allow-remote-bind`. |
+| `--port <PORT>` | Port | `8080` | Listener port. |
+| `--allow-remote-bind` | Flag | `false` | Required for a non-loopback bind address. |
+| `--no-mouse` | Flag | `false` | Disable mouse capture and interaction. |
+
+## Scope settings
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--scope <RULE>` | Rule | *empty* | Allow an upstream host; repeatable. No rules denies everything. |
+| `--allow-private-upstreams` | Flag | `false` | Permit loopback/private targets for local labs. |
+
+## Body and connection limits
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--max-body-bytes <N>` | Size | `2 MiB` | Max request body size. |
+| `--max-response-bytes <N>` | Size | `2 MiB` | Max response body size. |
+| `--max-connections <N>` | Number | `128` | Max concurrent client connections. |
+| `--connect-timeout <S>` | Duration | `10 s` | Upstream connect timeout. |
+| `--response-header-timeout <S>` | Duration | `30 s` | Wait for upstream response headers. |
+| `--idle-timeout <S>` | Duration | `60 s` | Terminate silent connections. |
+| `--interception-timeout <S>` | Duration | `120 s` | Pause before upstream timeout. |
+
+## TLS interception settings
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--tls-intercept` | Flag | `false` | Enable HTTPS TLS interception for scoped CONNECT targets. |
+| `--tls-ca-dir <DIR>` | Directory | *auto* | Override the local CA directory. |
+| `--tls-upstream-ca <FILE>` | File | *none* | Use an explicit PEM trust bundle; verification stays on. |
+| `--tls-ca-show` | Flag | `false` | Print CA path/status and exit. |
+| `--tls-ca-export <FILE>` | File | *none* | Export the public CA certificate and exit. |
+| `--tls-ca-fingerprint` | Flag | `false` | Print the CA SHA-256 fingerprint and exit. |
+| `--tls-ca-regenerate` | Flag | `false` | Replace the CA and exit. Invalidates prior trust. |
+
+## Persistence settings
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--no-persist` | Flag | `false` | Do not create or write a database; history is memory-only. |
+| `--persist-bodies` | Flag | `false` | Store captured request/response bodies. |
+| `--persist-sensitive-headers` | Flag | `false` | Store sensitive header values instead of `<redacted>`. |
+| `--db <FILE>` | Path | *auto* | SQLite database path. Overrides `$XDG_DATA_HOME/rawframe/`. |
+
+## Session settings
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--project <NAME>` | Name | *none* | Name the project that owns this session. |
+| `--session-name <NAME>` | Name | *default* | Name this capture session. |
+| `--export-history <FILE>` | Path | *none* | Export stored history as JSON Lines and exit. |
+| `--export-session <ID>` | ID | *newest* | Session to export; defaults to the newest session. |
+
+## Redaction behavior
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--no-redact` | Flag | `false` | Show sensitive header values. Dangerous in shared environments. |
+

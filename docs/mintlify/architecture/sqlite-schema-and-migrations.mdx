@@ -1,0 +1,67 @@
+---
+title: "SQLite schema and migrations"
+description: "Versioned schema, migrations, and durability guarantees"
+---
+
+## SQLite schema and migrations
+
+## Schema versions
+
+The database uses additive, versioned migrations. A fresh database applies all
+migrations in order; existing databases are preserved.
+
+### Schema v1 (initial)
+
+Created tables:
+
+| Table | Contents |
+| --- | --- |
+| `schema_migrations` | applied version and timestamp |
+| `projects` | id, name, created timestamp |
+| `sessions` | project, name, created/closed time, close reason, recovered flag |
+| `traffic` | one row per transaction, unique per `(session_id, traffic_id)` |
+
+The `traffic` row preserves method, scheme, host, port, target, version, ordered
+headers as a JSON array (duplicates intact), request and response body BLOBs,
+response status/reason, start/completion timestamps, duration, error, note,
+interception metadata, tunnel metadata, original/final subrequest JSON, a redaction
+count, and an `incomplete` flag. Indexes cover session/start order, host, method,
+status, and state.
+
+### Schema v2 (adds repeater_origin)
+
+Adds `traffic.repeater_origin`, a nullable reference to the capture a Repeater
+execution was seeded from. The version 1 → 2 migration uses `ALTER TABLE`, so
+existing M5 databases and their rows are preserved. A fresh database applies both
+versions in order.
+
+### Schema v3 (adds intruder columns)
+
+Adds `intruder_payloads` and `intruder_origin` columns by a versioned migration
+that preserves M5–M7 data. Only Intruder rows populate them.
+
+### Schema v4 (adds WebSocket tables)
+
+Adds `websocket_connections`, `websocket_frames`, and `websocket_messages`
+tables through an additive migration. `WebSocketFrame` and `WebSocketMessage`
+carry `payload_omitted`, so a row restored under a no-bodies policy is
+distinguishable from a genuinely empty payload.
+
+## Migration characteristics
+
+- Migrations run in an `IMMEDIATE` transaction.
+- Recorded in both `schema_migrations` and `user_version`.
+- Idempotent: running a migration twice is a no-op.
+- A database newer than the build is refused instead of modified.
+- Each migration adds columns/tables only; never removes or modifies existing
+  columns.
+
+## Durability guarantees
+
+- `journal_mode=WAL`, `synchronous=FULL`, a 5 s busy timeout.
+- Batches committed in one transaction: either all rows are durable or none are.
+- `quick_check` at open detects corruption.
+- Sessions left open by an unclean shutdown are marked `recovered`; pending
+  transactions stay `incomplete`.
+- 512 MiB ceiling (`max_page_count`) stops runaway growth with an explicit error.
+

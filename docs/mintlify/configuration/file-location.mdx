@@ -1,0 +1,34 @@
+---
+title: "File location"
+description: "Configuration and data file locations in RAWFRAME"
+---
+
+## File location
+
+## Data directory
+
+The application data directory depends on the deployment environment:
+
+- **XDG Base Directory compliant systems**: `$XDG_DATA_HOME/rawframe/` or
+  `~/.local/share/rawframe/`
+- **Custom path**: override with `--data-dir <path>` CLI flag.
+
+## Log file
+
+- Default: `$XDG_DATA_HOME/rawframe/logs/rawframe.log` or
+  `~/.local/share/rawframe/logs/rawframe.log`
+- Override with `--log-file <path>`.
+
+## Database
+
+- Default: `$XDG_DATA_HOME/rawframe/rawframe.db` or
+  `~/.local/share/rawframe/rawframe.db`
+- Override with `--db <path>` CLI flag.
+
+## Configuration
+
+- RawFRAME has no static configuration file. All settings are session-only,
+  passed as CLI flags at startup.
+- Settings do not persist across restarts: scope, accent, body persistence, and
+  other edits are lost when the application exits.
+

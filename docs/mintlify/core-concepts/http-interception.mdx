@@ -1,0 +1,50 @@
+---
+title: "HTTP interception"
+description: "Pause, forward, modify, or drop requests before upstream contact"
+---
+
+## HTTP interception
+
+## What interception does
+
+Interception pauses matching HTTP requests before they reach the upstream server.
+While paused, you can forward the request unchanged, forward a modified version,
+or drop it entirely. No request is sent upstream until you make a decision.
+
+## Enabling interception
+
+In the Proxy workspace, press `I` to enable interception. The header banner
+indicates whether interception is arms or disarmed.
+
+## Decision options
+
+While a request is paused, the following actions are available:
+
+| Shortcut | Action |
+| --- | --- |
+| `F` | Forward the request unchanged upstream |
+| `E` then edit | Forward a modified version |
+| `Ctrl+Enter` or `S` | Send the modified request |
+| `D` | Drop the request; never reach upstream |
+
+## Interception timeout
+
+Pending interceptions time out after 120 seconds. The entry is marked
+`timed_out` and the proxy either forwards it unchanged or drops it, according
+to the configured policy.
+
+## TLS interception vs opaque tunnelling
+
+- **Opaque `CONNECT`** (default): the tunnel endpoint sees only destination,
+  outcome, byte counts, and duration. No URL, headers, or body is exposed.
+- **HTTPS TLS interception** (opt-in, `--tls-intercept`): decrypted HTTP/1.1
+  requests and responses enter the same interception queue, history, and lifecycle
+  as plaintext HTTP. See the [Security documentation] for the threat model and
+  CA trust requirements.
+
+## Sensitive-header redaction
+
+By default, sensitive header values are replaced with `<redacted>` before the
+entry is stored. This policy applies on write and never retroactively rewrites
+existing rows.
+

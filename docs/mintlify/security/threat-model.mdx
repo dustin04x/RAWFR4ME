@@ -1,0 +1,131 @@
+---
+title: "Threat model"
+description: "Hostile data, network abuse, confidentiality, and resource exhaustion controls"
+---
+
+## Threat model
+
+RAWFRAME is security-sensitive infrastructure. This document records the threat
+model, the controls implemented through Milestone 10 (RAWFRAME v1.0.0), and the
+gaps that must stay visible until later milestones close them.
+
+RAWFRAME must only be used against systems for which the operator has explicit
+authorization. The tool does not grant permission to test anything.
+
+## 1. Hostile captured data
+
+HTTP traffic is attacker-controlled. Without neutralization it can:
+
+- **emit terminal escape sequences** that clear the screen, move the cursor,
+  change colors, write fabricated text, query the terminal, or set the clipboard
+  through OSC sequences;
+- **contain Unicode bidi overrides and C1 controls** that visually reorder or
+  hide content;
+- **include invalid UTF-8 or large binary bodies** that break naive rendering;
+- **contain header values with control characters or extreme lengths**.
+
+### Controls
+
+- Sensitive-header redaction replaces dangerous values with `<redacted>` on write.
+- Terminal rendering sanitizes captured text before display.
+- Body caps (2 MiB request/response) prevent memory exhaustion from large bodies.
+- The TUI assumes truecolor and box-drawing coverage; degraded gracefully on
+  8/16-colour terminals.
+
+## 2. Network and destination abuse
+
+A proxy can become an open relay, expose the operator's host, or be tricked into
+reaching services that the hostname scope was meant to protect. DNS rebinding can
+return a different address between an authorization check and the connection.
+
+### Controls
+
+- Scope is checked **before** DNS resolution or any upstream connection. A denial
+  is recorded as a failed capture (`403`) and no socket is opened.
+- The hostname is resolved **once**. Every returned address is checked by the
+  address policy, and the connection is made to that exact validated address list.
+- No second lookup occurs between validation and connection, preventing rebinding.
+- `--allow-private-upstreams` relaxes only loopback/private answers, never
+  link-local, metadata, multicast, or documentation ranges.
+- The default listener is `127.0.0.1:8080`. A non-loopback `--bind` is refused
+  unless `--allow-remote-bind` is supplied, and the CLI logs a warning.
+
+## 3. Confidentiality
+
+Captured traffic routinely contains bearer tokens, cookies, API keys, session
+identifiers, and personal data. Accidental screenshots, shoulder surfing,
+logging, persistence, and export can disclose them. When TLS interception is
+explicitly enabled, decrypted HTTP/1.1 headers and bodies are captured like
+ordinary HTTP traffic.
+
+### Controls
+
+- **Opt-in interception.** Opaque `CONNECT` is the default. TLS interception is
+  off unless enabled with `--tls-intercept` or the Settings toggle.
+- **Explicit CA trust.** The public certificate is exported and must be trusted in
+  a client profile you control. It is never installed to the system trust store.
+- **Protected private key.** CA material lives under
+  `$XDG_DATA_HOME/rawframe/ca` with `0600` file and `0700` directory permissions.
+  The private key is never exported, logged, or published in events or history.
+- **No verification bypass.** Upstream certificate-chain and hostname verification
+  cannot be disabled. `--tls-upstream-ca` replaces trust roots for a lab; it does
+  not weaken verification.
+- **Redaction before storage.** Sensitive header values become `<redacted>` and
+  bodies are stored as SQL `NULL` unless `persist_sensitive_headers`/`persist_bodies`
+  is on. A policy change affects future writes only; existing rows are never
+  rewritten.
+- **Local data only.** No telemetry, no external reporting, no automatic
+  trust-store modification, and no shell execution from captured content.
+- Diagnostic logs are written locally without captured headers or bodies.
+- Sensitive headers are redacted by default and captured text is sanitized before
+  terminal rendering.
+
+## 4. Resource exhaustion
+
+Slow clients, stalled upstream servers, very large bodies, connection floods, and
+silent tunnels can consume memory, sockets, or task slots. Limits must be
+enforced in the data path, not only in form validation.
+
+### Controls
+
+- **Body caps** — 2 MiB request body, 2 MiB response body.
+- **Connection limits** — max concurrent connections (128 default).
+- **Timeouts** — connect (10 s), response-header (30 s), idle (60 s),
+  interception (120 s).
+- **Connection-limit overflow** — closes the socket rather than returning `503`.
+- **Database ceiling** — 512 MiB default; persistence stops with an explicit
+  error instead of filling the disk.
+- **Bounded queues** — event bus capacity 4096, command channel capacity 32.
+- **Worker pools** — Intruder concurrency ≤ 8, Repeater concurrency bounded.
+
+## 5. Operator error
+
+Accidental forwarding, dropping, or replaying the wrong request can alter an
+authorized engagement. Destructive actions must be explicit and clearly
+distinguishable from safe inspection. Running a listener on a non-loopback
+interface without authentication exposes it to the local network.
+
+### Controls
+
+- **Destructive actions** (drop, cancel, shutdown) require explicit confirmation.
+- `Ctrl+C` is always an immediate exit.
+- The TUI Settings editor refuses non-loopback addresses; remote binding is a
+  CLI-only, explicit action.
+- There is no proxy authentication. A remote bind trusts every client that can
+  reach the port; operators must protect it with host firewall rules or a
+  trusted network.
+- This is documented as a limitation.
+
+## 6. Supply chain
+
+Every dependency increases the trust surface. Networking, TLS, parsing, and
+database libraries need deliberate review and version pinning.
+
+### Controls
+
+- Dependencies are pinned in `Cargo.lock`.
+- The workspace enforces `edition = "2024"` and `rust-version = "1.89"`.
+- Clippy runs with `-D warnings` to catch lint violations.
+- `cargo build --workspace --release` produces the release binary from tagged
+  source with `--locked`.
+

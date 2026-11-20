@@ -1,0 +1,53 @@
+---
+title: "Projects and sessions"
+description: "Naming and persisting capture engagements"
+---
+
+## Projects and sessions
+
+## Projects
+
+A project is a named grouping for sessions. Each project has a unique ID and a
+name.
+
+### Creating a project
+
+```bash
+rawframe --project acme
+```
+
+The first time you use a project name, it is created automatically. You can also
+create it explicitly via the Settings scope editor.
+
+## Sessions
+
+A session is a named capture within a project. Each session has a unique ID, a
+name, a project ID, and timestamps.
+
+### Creating a session
+
+```bash
+rawframe --project acme --session-name baseline
+```
+
+### Switching sessions
+
+The current session is shown in the footer. You can switch sessions in Settings.
+
+### Closing a session
+
+When you close a session (via Settings or on shutdown), any sessions left open
+by an unclean exit are marked `recovered`, and their pending transactions are
+labelled `incomplete`.
+
+## Session data locations
+
+- Database: `$XDG_DATA_HOME/rawframe/rawframe.db` (default `~/.local/share/rawframe/rawframe.db`)
+- Override with `--db <FILE>`
+
+## Recovered sessions
+
+Sessions left open by a previous unclean shutdown are marked `recovered` on the
+next start. Their non-terminal transactions stay `incomplete`. The proxy keeps
+running; only the session browser reflects the recovery status.
+

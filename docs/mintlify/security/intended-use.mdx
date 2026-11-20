@@ -1,0 +1,64 @@
+---
+title: "Intended use"
+description: "Authorization, scope, and operational boundaries"
+---
+
+## Intended use
+
+RAWFRAME is intended **only** for systems you own or are explicitly authorized to
+test. It does not grant permission to test anything, and it does not bypass
+certificate pinning, authentication, or scope restrictions.
+
+## Authorized engagements
+
+- Test only systems you own, manage, or have a written authorization for (e.g.,
+  a penetration test engagement, a bug bounty program, an internal security
+  assessment).
+- Scope your engagement with explicit `--scope` rules. Default-deny means
+  nothing is proxied until you authorize specific hosts and ports.
+- Respect the `--allow-private-upstreams` flag: loopback and private upstreams
+  require explicit opt-in.
+
+## Unauthorized use cases
+
+Do NOT use RAWFRAME against:
+
+- Systems you do not own or have authorization to assess.
+- Production systems without a rollback plan.
+- Targets where the engagement could cause downtime or data loss.
+- Any system where the operator lacks explicit authorization.
+
+## Scope enforcement
+
+- Scope is default-deny. An empty allowlist denies every HTTP request and CONNECT.
+- Scope rules enforce case-insensitive exact hosts, leading-wildcard hosts,
+  optional scheme, and optional port.
+- Scope is checked before DNS resolution or any upstream connection.
+- A denial is recorded as a failed capture (`403`) and no socket is opened.
+
+## TLS interception boundaries
+
+- TLS interception is **opt-in only**. Opaque `CONNECT` tunnelling is the default.
+- Interception requires explicit `--tls-intercept` or the Settings toggle.
+- You must trust the local CA in a client profile you control. Do not add it to
+  the system trust store.
+- Pinned clients fail the intercepted handshake by design; RAWFRAME does not
+  bypass certificate pinning.
+- `--tls-upstream-ca` replaces trust roots for a lab; it does not weaken
+  upstream verification.
+
+## Repeater is not a bypass
+
+- The Repeater opens its own scoped connections.
+- It uses the same resolve-once address policy.
+- It always verifies upstream TLS.
+- It never enters the interception queue or trusts the local CA.
+- Scope is re-checked before every redirect hop.
+
+## WebSocket scope
+
+- The upgrade destination is scope-checked and address-validated before any
+  upstream socket opens.
+- Extensions are stripped, compression is not negotiated, RSV bits are rejected.
+- The client only receives `101` after upstream accepts.
+

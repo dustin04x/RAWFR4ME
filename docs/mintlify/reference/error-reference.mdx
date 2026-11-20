@@ -1,0 +1,42 @@
+---
+title: "Error reference"
+description: "Error codes and meanings used throughout RAWFRAME"
+---
+
+## Error reference
+
+## Store errors
+
+| Error | Meaning |
+| --- | --- |
+| `Corrupt(String)` | Database quick_check returned a non-"ok" result; the database may be corrupt. |
+| `Full(u64)` | Database reached the byte ceiling (`max_bytes`); persistence is disabled. |
+| `Io(std::io::Error)` | Filesystem I/O error during read or write. |
+| `UnknownSession(String)` | Requested session does not exist in the database. |
+| `SizeLimit` | Row encoding exceeded size limits. |
+
+## CLI exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Success. |
+| `1` | General error. |
+| `2` | Validation error (invalid CLI argument or configuration). |
+| `3` | Database error. |
+| `4` | TLS error. |
+| `5` | Scope error (destination does not match allowlist). |
+
+## TLS errors
+
+| Error | Meaning |
+| --- | --- |
+| `TlsError` | TLS handshake failure (upstream verification failure, cert issuance failure). |
+| `TlsInterceptionNotEnabled` | Attempting TLS interception operations without the feature enabled. |
+
+## Analysis rule errors
+
+| Error | Meaning |
+| --- | --- |
+| `PlanError` | The intruder plan is invalid (empty lists, unequal Pitchfork lengths, too many generated requests). |
+| `PayloadError` | The payload source or individual payload is invalid. |
+

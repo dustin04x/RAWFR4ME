@@ -1,0 +1,51 @@
+---
+title: "First proxy session"
+description: "First proxy session in RAWFRAME"
+---
+
+## First proxy session
+
+## Starting the proxy
+
+1. Start RAWFRAME:
+   ```bash
+   cargo run -p rawframe-cli --bin rawframe
+   ```
+
+2. Press `P` on the Proxy screen or click **Start**.
+   The proxy listener begins on the default port (or the port specified with `--port`).
+
+## Authorizing an upstream
+
+Before capturing traffic, you must authorize the upstream destination:
+
+```bash
+## Allow only localhost:8000
+cargo run -p rawframe-cli --bin rawframe -- --scope http://127.0.0.1:8000
+
+## Allow private upstreams too
+cargo run -p rawframe-cli --bin rawframe -- --scope http://127.0.0.1:8000 --allow-private-upstreams
+```
+
+## Generating traffic
+
+Once the proxy is running and the scope is set, generate traffic:
+
+```bash
+## Simple HTTP request to the authorized upstream
+curl --noproxy '' -x http://127.0.0.1:8080 http://127.0.0.1:8000/
+```
+
+## Inspecting the capture
+
+1. The captured request appears in the History workspace with `LIVE` status.
+2. Press `H` to open the Inspector and view request/response details.
+3. Press `P` again to stop the proxy; the state changes to `Stopped`.
+
+## Security considerations
+
+- Scope is default-deny; only authorized destinations receive traffic.
+- TLS interception is opt-in (`--intercept`); without it, HTTPS CONNECT tunnels
+  are opaque—only metadata is visible.
+- Do not use on systems you do not own or have explicit authorization to assess.
+

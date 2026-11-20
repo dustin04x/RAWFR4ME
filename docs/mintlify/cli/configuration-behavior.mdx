@@ -1,0 +1,32 @@
+---
+title: "Configuration behavior"
+description: "How configuration works in RAWFRAME CLI"
+---
+
+## Configuration behavior
+
+RAWFRAME has no configuration file. All settings are session-only, passed as CLI
+flags at startup, and do not persist across restarts.
+
+## Session-only settings
+
+The following are configured at startup and apply only to the current session:
+
+- **Scope**: `--scope <url>` defines the destination allowlist for the session.
+  Default-deny: only explicitly allowed destinations receive traffic.
+- **TLS interception**: `--intercept` enables/disables TLS interception.
+- **Body persistence**: `--persist-bodies` controls whether bodies are stored in
+  the database (off by default; stored as SQL `NULL`).
+- **Sensitive headers**: `--persist-sensitive-headers` controls whether sensitive
+  header values are preserved or redacted with `<redacted>`.
+- **Data directory**: `--data-dir <path>` overrides the default data location.
+- **Database path**: `--db <path>` overrides the default database file.
+- **Log file**: `--log-file <path>` overrides the default log file location.
+- **Proxy port**: `--port <n>` overrides the default proxy listener port.
+
+## No persistent configuration
+
+Edits made in the TUI (accent, scope changes, body persistence toggles) do not
+persist across restarts. Each new session starts with the defaults specified by
+the CLI flags passed at launch.
+

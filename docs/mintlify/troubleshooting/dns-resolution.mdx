@@ -1,0 +1,30 @@
+---
+title: "DNS resolution"
+description: "Troubleshooting DNS resolution issues"
+---
+
+## DNS resolution
+
+## Symptoms
+
+- Upstream host cannot be resolved.
+- DNS errors in the TUI or log output.
+- CONNECT tunnel fails because the hostname cannot be resolved.
+
+## Likely causes
+
+- Resolve-once DNS policy: hostname resolved once at connection time.
+- DNS resolution blocked by scope rules.
+- Private upstream hosts require `--allow-private-upstreams`.
+
+## Resolution
+
+1. Ensure the destination is in the scope allowlist.
+2. For private upstreams, start with `--allow-private-upstreams`.
+3. The resolve-once policy means the hostname is resolved when the connection is first established; changes to DNS later do not affect existing connections.
+
+## Security considerations
+
+- DNS resolution follows the same scope rules as TCP connections.
+- Private upstreams require explicit authorization via `--allow-private-upstreams`.
+

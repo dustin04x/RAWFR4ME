@@ -1,0 +1,42 @@
+---
+title: "PTY testing"
+description: "PTY-based testing evidence for RAWFRAME"
+---
+
+## PTY testing
+
+Rawframe uses PTY (pseudo-terminal) captures for terminal UI screenshots and
+integration test evidence. All PTY captures are generated from real local runs
+against local origins, not emulated or synthetic.
+
+## Repeater PTY capture
+
+```bash
+cargo build -p rawframe-cli
+python3 scripts/capture_repeater_pty.py --binary target/debug/rawframe --no-png
+```
+
+## Decoder PTY capture
+
+```bash
+cargo build -p rawframe-cli
+python3 scripts/capture_decoder_pty.py --binary target/debug/rawframe --no-png
+```
+
+## Intruder PTY capture
+
+```bash
+cargo build -p rawframe-cli
+python3 scripts/capture_intruder_pty.py --binary target/debug/rawframe --no-png
+```
+
+## WebSocket PTY capture
+
+```bash
+cargo build -p rawframe-cli
+python3 scripts/capture_websocket_pty.py --binary target/debug/rawframe --no-png
+```
+
+All captures support `--no-png` to emit text frames only on machines without a
+monospace font. Standard resolutions are 140×40, 100×30, and 80×24 columns.
+

@@ -1,0 +1,53 @@
+---
+title: "HTTP/2 architecture"
+description: "Protocol negotiation, streams, and capture representation"
+---
+
+## HTTP/2 architecture
+
+## Protocol negotiation
+
+ALPN is advertised as `h2`, then `http/1.1`, on both intercepted legs and in
+the Repeater. The selected value is read back after the handshake; `h2` must
+match exactly. A server that selects nothing, an unexpected value, or an HTTP/1.1
+preference falls back without special cases.
+
+## Conversion boundary
+
+`rawframe_core::h2` is the single conversion boundary shared by the proxy and
+Repeater:
+
+- ALPN matching and protocol labels.
+- `sanitize_headers_for_h2` drops HTTP/1.1 connection-specific fields and `Host`.
+- `absolute_uri` rebuilds the required absolute URI from the structured fields.
+
+## Streams and isolation
+
+Intercepted HTTP/2 serves bounded concurrent streams. Each stream becomes its own
+traffic entry and interception decision. A paused stream does not block other
+streams on the connection. A client stream reset cancels and dequeues its pending
+decision without forwarding.
+
+### Per-stream bounds
+
+- 128 concurrent streams per client connection.
+- 64 KiB request header list.
+- Request/response body caps, timeouts, connection caps, and event queue bounds
+  are the existing proxy limits.
+
+## Capture representation
+
+`HttpRequest` and `HttpResponse` keep their existing `version` string. HTTP/2
+pseudo-headers are never stored as ordinary headers:
+
+| Field | Model |
+| --- | --- |
+| `:method` | `HttpRequest.method` |
+| `:scheme` | `HttpRequest.scheme` |
+| `:authority` | `HttpRequest.host` / `port` |
+| `:path` | `HttpRequest.target` |
+
+Because `version` already exists in the schema, no migration was needed; M5–M8
+rows remain readable and HTTP/2 rows persist through the same columns and redacted
+export.
+

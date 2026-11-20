@@ -1,0 +1,33 @@
+---
+title: "Protocol adapters"
+description: "Protocol adapters in RAWFRAME"
+---
+
+## Protocol adapters
+
+RAWFRAME supports multiple protocol adapters for different network layers:
+
+## HTTP/1.1 adapter
+
+- Plaintext proxying with streaming bounded bodies
+- Hop-by-hop filtering and duplicate header preservation
+- Default-deny scope enforcement
+- CONNECT tunneling for HTTPS
+
+## HTTP/2 adapter
+
+- Requires TLS with `h2` ALPN negotiation
+- No h2c (plaintext HTTP/2) support
+- Pseudo-headers managed through `rawframe_core::h2`
+- 128 concurrent streams per connection
+- Share networking stack with HTTP/1.1 (Hyper)
+
+## WebSocket adapter
+
+- HTTP/1.1 upgrade only
+- No RFC 8441, WebSocket over HTTP/2, HTTP/3, or QUIC
+- Per-frame pause/forward/drop/modify
+- Frame boundaries preserved through custom codec
+- 64 tunnel limit, 2 MiB frame limit, 8 MiB message limit, 8 MiB retained payload
+- 300 s idle timeout, bounded interception queue/timeout
+

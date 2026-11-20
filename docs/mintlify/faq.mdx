@@ -1,0 +1,60 @@
+---
+title: "Frequently asked questions"
+description: "FAQ for RAWFRAME users"
+---
+
+## Frequently asked questions
+
+## Can RAWFRAME intercept HTTPS?
+
+Yes, but TLS interception is opt-in and requires explicit local CA trust configuration.
+Without interception, HTTPS CONNECT tunnels are opaque; only metadata (destination,
+duration, byte counts, outcome) is visible.
+
+## Does RAWFRAME bypass certificate pinning?
+
+No. Pinned clients fail the intercepted handshake by design. This is a security feature,
+not a bug.
+
+## Is RAWFRAME a proxy or a scanner?
+
+RAWFRAME is an HTTP interception and security testing workbench. It functions as a
+proxy with optional passive analysis (via the `rawframe-analysis` library). It is not
+an active vulnerability scanner or exploit tool.
+
+## Can I use RAWFRAME on Windows/macOS?
+
+Release artifacts (1.0.0) are built and verified for Linux x86_64 only. Other targets
+are not claimed. You can build from source on other platforms, but binary releases
+are Linux-only.
+
+## How do I scope which destinations RAWFRAME intercepts?
+
+Use the `--scope` flag followed by the destination host/port (e.g., `--scope
+http://127.0.0.1:8000`). Scope is default-deny; only explicitly allowed destinations
+receive traffic. Scope rules are session-only and do not persist across restarts.
+
+## Does RAWFRAME store request bodies?
+
+By default, no. Bodies are stored as SQL `NULL` unless `persist_bodies` is enabled.
+Sensitive header values are redacted (`<redacted>`) unless `persist_sensitive_headers`
+is on.
+
+## Can I persist data across restarts?
+
+Settings are session-only. Scope edits, accent changes, and body persistence settings
+do not persist across restarts. The SQLite database persists captured traffic, but
+configuration changes are lost on restart.
+
+## What protocols are supported?
+
+- HTTP/1.1 plaintext proxying
+- HTTPS CONNECT tunneling (opaque)
+- HTTP/2 over TLS with `h2` ALPN (no h2c)
+- WebSocket over HTTP/1.1 upgrade only (no HTTP/3, QUIC, or extended CONNECT)
+
+## How do I contribute to RAWFRAME?
+
+See the [Development and contribution](#development-and-contribution) section for
+guidelines on adding proxy features, analysis rules, and modifying persistence.
+

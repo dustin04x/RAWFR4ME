@@ -1,0 +1,63 @@
+---
+title: "Saving a project"
+description: "Persistent sessions, databases, and project data locations"
+---
+
+## Saving a project
+
+## Database locations (Unix)
+
+| Item | Path |
+| --- | --- |
+| Database | `$XDG_DATA_HOME/rawframe/rawframe.db` (default `~/.local/share/rawframe/rawframe.db`) |
+| CA material | `$XDG_DATA_HOME/rawframe/ca` |
+| Log | `$XDG_DATA_HOME/rawframe/logs/rawframe.log` |
+
+The data directory is `0700` (owner-read/write only). The database, CA key, and
+exports are `0600`. Override with `--db <FILE>`, `--tls-ca-dir <DIR>`, and
+`--log-file <FILE>`.
+
+## Use a named database and session
+
+```bash
+rawframe --db ./engagement.db --project acme --session-name baseline
+```
+
+## Persistence policy
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| Persistence | On; local SQLite | History is written to SQLite durability. |
+| Stored bodies | Off; SQL `NULL` | Bodies are not persisted unless `--persist-bodies` is on. |
+| Stored sensitive headers | Off; `<redacted>` | Sensitive headers are redacted unless `--persist-sensitive-headers` is on. |
+| Database ceiling | 512 MiB | Persistence stops with an explicit error if the database grows beyond 512 MiB. |
+
+## Disable persistence (memory only)
+
+```bash
+rawframe --no-persist
+```
+
+History is kept in memory only; nothing is written to disk. The proxy keeps
+running.
+
+## Export stored history
+
+```bash
+rawframe --db ~/.local/share/rawframe/rawframe.db \
+  --export-history ./engagement-history.jsonl
+
+rawframe --db ~/.local/share/rawframe/rawframe.db \
+  --export-session sess-abc123 \
+  --export-history ./engagement-history.jsonl
+```
+
+Exports contain the stored, already-redacted rows. Withheld bodies are marked
+`"omitted": true`; binary bodies are hex-encoded.
+
+## Recovered sessions
+
+Sessions left open by an unclean shutdown are marked `recovered` on the next
+start. Their pending transactions are labelled `incomplete`. The proxy keeps
+running; only the session browser reflects the recovery status.
+

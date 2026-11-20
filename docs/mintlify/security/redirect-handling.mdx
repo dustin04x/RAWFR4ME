@@ -1,0 +1,22 @@
+---
+title: "Redirect handling"
+description: "Redirect handling in RAWFRAME"
+---
+
+## Redirect handling
+
+## HTTPS redirect handling
+
+When TLS interception is enabled, HTTP redirects (3xx status codes) are handled as
+follows:
+
+- Redirects are re-checked per hop; the new destination is validated against the
+  scope allowlist.
+- Credentials are stripped on cross-origin hops.
+- The original `CONNECT` authority is not modifiable via request modification.
+
+## Without interception
+
+Without TLS interception, CONNECT tunnels are opaque. Redirect metadata (status,
+reason) is visible, but the redirected HTTP content is not decrypted.
+

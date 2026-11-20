@@ -1,0 +1,32 @@
+---
+title: "Certificate trust"
+description: "Troubleshooting TLS certificate trust issues"
+---
+
+## Certificate trust
+
+## Symptoms
+
+- Browser or TUI warns about untrusted certificate.
+- CONNECT tunnel fails with certificate error.
+- Upstream HTTPS connection rejected.
+
+## Likely causes
+
+- Local CA not trusted in the system or browser.
+- Certificate chain validation failed.
+- Hostname mismatch between certificate and destination.
+
+## Resolution
+
+1. Export the local CA certificate from RAWFRAME's data directory.
+2. Install the CA certificate into the system trust store or browser.
+3. For browsers: go to settings → certificates → authorities → import.
+4. For system trust (Linux): `cp rawframe-ca.pem /usr/local/share/ca-certificates/` and run `update-ca-certificates`.
+5. Retry the connection.
+
+## Security considerations
+
+- Only trust the RAWFRAME local CA on systems you control or have explicit authorization to assess.
+- Do not trust the CA on public or shared systems.
+

@@ -1,0 +1,42 @@
+---
+title: "Overview"
+description: "What is RAWFRAME and what problems does it solve?"
+---
+
+## What is RAWFRAME?
+
+RAWFRAME is a local forward proxy and suite of request workbenches for authorized
+HTTP/1.1, HTTP/2, and WebSocket testing from the terminal. It sits between your
+client and the target server, captures every request and response, and gives you
+full control over what gets forwarded, paused, or dropped.
+
+## Core workflow
+
+1. **Start the proxy** — RAWFRAME listens on `127.0.0.1:8080` by default.
+2. **Authorize destinations** — Add scope rules for the hosts you want to test.
+3. **Intercept or forward** — Press `I` to pause requests before upstream contact,
+   then `F` (forward), `E` (edit), or `D` (drop).
+4. **Inspect history** — Press `B` to browse stored sessions, restore read-only,
+   or export redacted JSON Lines.
+5. **Use the workbenches** — Repeater, Intruder, Decoder, WebSocket, and Settings
+   are available via `Ctrl+1`–`Ctrl+7`.
+
+## Key capabilities
+
+| Feature | Status |
+| --- | --- |
+| HTTP/1.1 forwarding proxy | Complete |
+| Opaque HTTPS `CONNECT` tunnelling | Complete |
+| HTTPS TLS interception (opt-in) | Complete |
+| HTTP/2 over TLS (ALPN `h2`) | Complete |
+| HTTP/1.1 WebSocket upgrade | Complete |
+| Repeater with redirects and comparison | Complete |
+| Decoder pipeline (22 transformations) | Complete |
+| Intruder (4 strategies, bounded concurrency) | Complete |
+| SQLite persistence with redaction | Complete |
+| Security analysis engine (library only) | Library |
+
+RAWFRAME is intended **only** for systems you own or are explicitly authorized to
+test. It does not grant permission to test anything, and it does not bypass
+certificate pinning, authentication, or scope restrictions.
+

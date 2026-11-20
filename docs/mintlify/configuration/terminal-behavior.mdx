@@ -1,0 +1,26 @@
+---
+title: "Terminal behavior"
+description: "Terminal behavior configuration in RAWFRAME"
+---
+
+## Terminal behavior
+
+## Minimum size
+
+- **64×18** columns × rows — minimum usable size.
+- **84×24** — recommended for general use.
+- **108×30** — required for the inspector workspace.
+- **140×40** — full feature access (all workbenches, PTY captures).
+
+## Color support
+
+- **Truecolor** (24-bit RGB) — assumed and recommended.
+- **8/16-colour ANSI terminals** — palette-based rendering; colors may differ
+  from the intended theme (maple: graphite/violet/dark scheme).
+- The application assumes a monospace font with box-drawing glyph coverage.
+
+## Alt screen and mouse
+
+- Alternate screen buffer is used on launch; restored on exit.
+- Mouse capture (bracketed paste) is supported; disabled in constrained contexts.
+

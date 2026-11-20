@@ -1,0 +1,39 @@
+---
+title: "Prerequisites"
+description: "System requirements before using RAWFRAME"
+---
+
+## Prerequisites
+
+## Rust toolchain
+
+RAWFRAME requires Rust **1.89 or newer** with edition 2024 support.
+
+```bash
+rustc --version   # must report 1.89 or newer
+rustup show
+```
+
+## Terminal
+
+- Truecolor support (assumed; `COLORTERM=truecolor` or a terminal that
+  advertises 24-bit colour)
+- Box-drawing character coverage for panel borders and line graphics
+- Minimum size: 64×18 columns×rows; 140×40 recommended
+- The inspector requires at least 108 columns
+
+## Optional dependencies
+
+- Python 3 + Pillow — only needed to regenerate the README screenshot gallery
+  via `scripts/capture_readme_screenshots.py`
+- `curl` on `PATH` — required by the TUI interception end-to-end test
+
+## Verification
+
+```bash
+## Check Rust version
+rustup show | head -5
+
+## Check terminal capabilities
+tput colors 2>/dev/null && echo "colors available" || echo "limited color support"
+```

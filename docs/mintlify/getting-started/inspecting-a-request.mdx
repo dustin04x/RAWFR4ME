@@ -1,0 +1,33 @@
+---
+title: "Inspecting a request"
+description: "Inspecting HTTP requests in RAWFRAME"
+---
+
+## Inspecting a request
+
+## Request inspection workflow
+
+After capturing traffic through the proxy, you can inspect individual requests and
+responses using the Inspector workspace.
+
+### Viewing request details
+
+1. Navigate to the History workspace.
+2. Select the request you want to inspect.
+3. The Inspector panel displays:
+   - Request method, host, port, and target.
+   - Response status, version, and headers.
+   - Request and response bodies (if `persist_bodies` is enabled).
+   - Tunnel metadata for CONNECT connections.
+
+### Modifying and forwarding
+
+- Press `S` on the request to send it to the Repeater.
+- Use the editor to modify headers or body before sending.
+- Redirects are re-checked per hop with scope validation.
+
+## INSPECT keybinding
+
+- `H` opens the Inspector workspace from the Proxy or History screen.
+- Within the Inspector, `T` transfers to Repeater, `R` restarts the capture.
+

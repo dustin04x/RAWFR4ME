@@ -1,0 +1,56 @@
+---
+title: "Proxy"
+description: "Starting, configuring, and using the local forward proxy"
+---
+
+## Proxy
+
+## Starting the proxy
+
+The proxy starts idle with default-deny scope. Press `P` on the Proxy workspace
+to start the listener.
+
+```bash
+rawframe --port 8080 --scope http://127.0.0.1:8000 --allow-private-upstreams
+```
+
+Press `P` again to stop the proxy.
+
+## Configuring the listener
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| Listener address | `127.0.0.1:8080` | Change with `--bind` and `--port`. |
+| Scope | Empty allowlist, default deny | Add `--scope` rules to authorize upstreams. |
+| Max connections | 128 | Bounded by a Tokio `Semaphore`. |
+| Connect timeout | 10 s | Per-request upstream connection timeout. |
+| Response-header timeout | 30 s | Wait for upstream response headers. |
+| Idle timeout | 60 s | Terminate a silent connection after this duration. |
+| Interception timeout | 120 s | Pause before upstream; times out after this duration. |
+| Sensitive-header redaction | On | Replaced with `<redacted>` by default. |
+| Persist bodies | Off | Enable with `--persist-bodies`. |
+| Persist sensitive headers | Off | Enable with `--persist-sensitive-headers`. |
+
+## HTTP traffic interception
+
+- Pause matching requests before upstream contact (press `I`).
+- Forward unchanged (`F`), forward modified (`E`, then `S`), or drop (`D`).
+- Bounded pending queue (32 entries); when full, new entries forward unchanged.
+
+## HTTPS tunnelling (opaque CONNECT)
+
+- Default mode: the proxy relays bytes without inspecting TLS.
+- Destination, outcome, byte counts, and duration are recorded as metadata.
+- No URL, headers, or body is exposed.
+
+## TLS interception (opt-in)
+
+Enable with `--tls-intercept` or the Settings toggle. See the [Security
+documentation] for the threat model and CA trust requirements.
+
+## Scope enforcement
+
+- Scope is checked before DNS resolution or any upstream connection.
+- A denial is recorded as a failed capture (`403`) and no socket is opened.
+- The allowlist can be edited live in Settings.
+

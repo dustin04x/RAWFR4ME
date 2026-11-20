@@ -1,0 +1,24 @@
+---
+title: "DNS resolution"
+description: "DNS resolution in RAWFRAME"
+---
+
+## DNS resolution
+
+## Resolve-once policy
+
+DNS resolution follows a resolve-once policy: the hostname is resolved once at
+connection time via the shared destination helper. The result is cached for the
+duration of the connection. Changes to DNS after connection establishment do not
+affect the connection.
+
+## Scope interaction
+
+DNS resolution respects the scope allowlist. Destinations not in the allowlist are
+rejected regardless of DNS outcome.
+
+## Private upstreams
+
+For private IP upstreams, the `--allow-private-upstreams` flag must be set.
+Without this flag, DNS resolution for private upstreams is blocked.
+

@@ -1,0 +1,47 @@
+---
+title: "Adding a proxy feature"
+description: "Guidance for adding new proxy features to RAWFRAME"
+---
+
+## Adding a proxy feature
+
+When adding a new feature to the RAWFRAME proxy, follow these conventions:
+
+## Dependency rules
+
+- The proxy crate (`rawframe-proxy`) must not depend on `rawframe-tui` or
+  `rawframe-repeater`.
+- Depend only on `rawframe-core` for shared domain models and contracts.
+- Use public destination and TLS-policy functions from `rawframe-proxy` in other
+  crates that need them (e.g., `rawframe-repeater`).
+
+## Adding a new feature
+
+1. **Define the domain model** in `rawframe-core` if it is shared. Keep the
+   crate free of terminal, networking, and database APIs.
+2. **Implement the logic** in `rawframe-proxy`, respecting the one-way dependency
+   flow.
+3. **Add UI events/commands** in `rawframe-core` if the feature needs to interact
+   with the TUI or CLI.
+4. **Write unit and integration tests** that cover the new behavior.
+5. **Update the documentation** to describe the new feature, following the
+   style of existing pages.
+6. **Run the quality gates** (`cargo fmt --all --check`, `cargo check --workspace`,
+   `cargo build --workspace`, `cargo test --workspace`,
+   `cargo clippy --workspace --all-targets -D warnings`).
+
+## Example: adding a new scope rule
+
+```rust
+// In rawframe-core models
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct NewScopeRule {
+    pub pattern: String,
+    pub scheme: Option<Scheme>,
+    pub port: Option<u16>,
+}
+```
+
+Then implement the parser in `rawframe-core` and reuse it in `rawframe-proxy`
+via the shared `Scope` model.
+

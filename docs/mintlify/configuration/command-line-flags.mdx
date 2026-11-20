@@ -1,0 +1,28 @@
+---
+title: "Command-line flags"
+description: "CLI flags for RAWFRAME"
+---
+
+## Command-line flags
+
+## Installation and startup
+
+```bash
+cargo run -p rawframe-cli --bin rawframe [FLAGS]
+```
+
+## Available flags
+
+| Flag | Shorthand | Default | Description |
+| --- | --- | --- | --- |
+| `--scope` | `-s` | (none, default-deny) | Destination allowlist (e.g., `http://127.0.0.1:8000`) |
+| `--allow-private-upstreams` | `-p` | off | Allow connecting to private IP upstreams |
+| `--intercept` | `-i` | off | Enable TLS interception (opt-in) |
+| `--persist-bodies` | `-b` | off | Persist request/response bodies in SQLite |
+| `--persist-sensitive-headers` | `-r` | off | Preserve sensitive header values (replace with `<redacted>` by default) |
+| `--data-dir` | `-d` | XDG default | Override data directory path |
+| `--db` | `-db` | XDG default | Override database file path |
+| `--log-file` | `-l` | XDG default | Override log file path |
+| `--port` | `-pt` | OS default | Override proxy listener port |
+| `--version` | `-v` | — | Report version and exit |
+

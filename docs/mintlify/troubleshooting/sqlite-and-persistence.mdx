@@ -1,0 +1,46 @@
+---
+title: "SQLite and persistence"
+description: "Troubleshooting SQLite and persistence issues"
+---
+
+## SQLite and persistence
+
+## Symptoms
+
+- Database errors on startup or shutdown.
+- Data not persisting across sessions.
+- Export fails or produces corrupt JSON Lines.
+
+## Likely causes
+
+- SQLite database locked by another process.
+- `persist_bodies` off: request bodies stored as SQL `NULL`.
+- `persist_sensitive_headers` off: sensitive values redacted on write.
+- Schema version mismatch after version bumps.
+
+## Diagnostic commands
+
+```bash
+## Check database file integrity
+sqlite3 /path/to/rawframe.db 'PRAGMA quick_check';
+
+## Verify body persistence setting
+cargo run -p rawframe-cli --bin rawframe -- --help | grep persist
+
+## Check log for database errors
+cat $XDG_DATA_HOME/rawframe/logs/rawframe.log
+```
+
+## Resolution
+
+1. Ensure no other process is using the database file.
+2. If `persist_bodies` is off, expect `request_body` to be SQL `NULL`, never an empty blob.
+3. If `persist_sensitive_headers` is off, expect sensitive header values to be `<redacted>`.
+4. When upgrading the database schema, migrations are additive; never recreate a user database.
+5. Use isolated `tempfile` directories in tests; never point a test at the operator's real data directory.
+
+## Security considerations
+
+- Do not store CA keys, TLS secrets, tunnel payloads, or logs in the database.
+- Append migrations only; never edit an applied migration.
+

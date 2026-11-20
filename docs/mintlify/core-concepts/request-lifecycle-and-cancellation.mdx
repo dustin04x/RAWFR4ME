@@ -1,0 +1,35 @@
+---
+title: "Request lifecycle and cancellation"
+description: "Request lifecycle and cancellation in RAWFRAME"
+---
+
+## Request lifecycle and cancellation
+
+## Lifecycle stages
+
+Requests in RAWFRAME progress through the following lifecycle states:
+
+- **Captured** — request first captured through the proxy.
+- **Pending** — waiting to be forwarded, modified, or dropped.
+- **Forwarded** — sent to upstream unchanged.
+- **Modified** — forwarded with changes (headers/body).
+- **Dropped** — discarded before upstream send.
+- **Completed** — response received and stored.
+- **Timed out** — operation exceeded duration limit.
+- **Cancelled** — explicitly cancelled by operator.
+
+## Cancellation
+
+- `P` must never fire while editing a document or search field.
+- Cancel/shutdown marks unsent indices `NotSent` rather than draining the queue.
+- A blocked request is `Blocked`, a timeout is `TimedOut`, and only a real response
+  carries a status.
+- Pause must not start new work, and cancel/shutdown must mark unsent indices
+  `NotSent` rather than draining the queue.
+
+## Scope interaction
+
+- Scope rules are checked before upstream connection resolution.
+- Established connections keep the rules they were admitted under.
+- Scope rule changes apply to new requests only.
+

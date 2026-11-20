@@ -1,0 +1,31 @@
+---
+title: "HTTP/2 negotiation"
+description: "Troubleshooting HTTP/2 negotiation issues"
+---
+
+## HTTP/2 negotiation
+
+## Symptoms
+
+- HTTP/2 not negotiated; falling back to HTTP/1.1.
+- ALPN offers not read correctly.
+- Connection stalls during TLS handshake.
+
+## Likely causes
+
+- Upstream does not support HTTP/2 or does not offer `h2` ALPN.
+- Proxy or Repeater does not read the negotiated ALPN value back.
+- Misconfigured ALPN fallback to `http/1.1`.
+
+## Resolution
+
+1. Verify the upstream supports HTTP/2 with `h2` ALPN.
+2. Ensure the proxy/Repeater path reads the negotiated ALPN value after the handshake.
+3. The connection path requires an exact `h2` match; do not add flags that bypass ALPN validation.
+4. HTTP/1.1 is used as fallback when `h2` is not negotiated.
+
+## Security considerations
+
+- Never infer the protocol; ALPN offers `h2` then `http/1.1`, and the connection path must read the negotiated value back after the handshake and require an exact `h2` match.
+- Do not add `h2c` or a "use HTTP/2" flag that bypasses ALPN.
+

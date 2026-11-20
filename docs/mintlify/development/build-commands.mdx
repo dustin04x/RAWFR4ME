@@ -1,0 +1,57 @@
+---
+title: "Build commands"
+description: "Build and format commands for RAWFRAME"
+---
+
+## Build commands
+
+## Workspace build
+
+```bash
+cargo build --workspace
+```
+
+Optimized (release) build:
+
+```bash
+cargo build --workspace --release
+```
+
+## CLI binary
+
+```bash
+cargo install --path crates/rawframe-cli --locked
+```
+
+Or run directly from source:
+
+```bash
+cargo run -p rawframe-cli --bin rawframe
+```
+
+## Release build
+
+```bash
+cargo build --release -p rawframe-cli
+./target/release/rawframe
+```
+
+The release profile enables thin LTO, one codegen unit for the final binary, and
+strips symbols. Do not deploy a build that claims networking features before their
+integration tests are present and passing.
+
+## Formatting check
+
+```bash
+cargo fmt --all --check
+```
+
+## Clippy quality gate
+
+```bash
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+Zero warnings are required. Do not add `#[allow(...)]` to silence a lint without
+fixing or documenting the underlying design issue.
+

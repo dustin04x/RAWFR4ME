@@ -1,0 +1,41 @@
+---
+title: "Rust toolchain"
+description: "Toolchain requirements and MSRV"
+---
+
+## Rust toolchain
+
+## Minimum supported Rust version (MSRV)
+
+RAWFRAME requires Rust **1.89 or newer** with edition 2024 support.
+
+```bash
+rustup show | head -5
+```
+
+## Toolchain stability
+
+The workspace is pinned to `edition = "2024"` and `rust-version = "1.89"` in
+`Cargo.toml`. This ensures consistent compilation across supported toolchains.
+
+## Upgrading the toolchain
+
+```bash
+rustup update stable
+rustup default stable
+```
+
+Verify the new toolchain:
+
+```bash
+rustc --version   # should report 1.89 or newer
+cargo --version
+```
+
+## Building with a newer toolchain
+
+If a newer Rust toolchain is available, the workspace should still compile
+without changes, as the code does not use any unstable nightly features. If
+`cargo clippy` reports new warnings, fix them rather than relaxing the gate
+(`-D warnings`).
+

@@ -1,0 +1,29 @@
+---
+title: "Terminal rendering"
+description: "Troubleshooting terminal rendering issues"
+---
+
+## Terminal rendering
+
+## Symptoms
+
+* Rendered output looks corrupted or garbled.
+* Box-drawing characters missing or incorrect.
+* TUI layout broken at certain screen sizes.
+
+## Likely causes
+
+* Terminal does not support truecolor or required font features.
+* Screen size below minimum: 64×18 columns/rows.
+* Monospace font lacks box-drawing glyphs.
+
+## Resolution
+
+1. Use a terminal of at least 64×18; 84×24 is recommended, 108×30 for the inspector, 140×40 for full feature access.
+2. Verify the monospace font has box-drawing coverage.
+3. Truecolor is assumed; 8/16-colour terminals will degrade to palette-based rendering.
+4. If the TUI appears broken, try resizing the terminal or adjusting font settings.
+
+## Security considerations
+
+* No security implications; purely a UI/rendering concern.

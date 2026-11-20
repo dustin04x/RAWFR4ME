@@ -1,0 +1,51 @@
+---
+title: "HTTP request lifecycle"
+description: "From client request to captured response, the full lifecycle"
+---
+
+## HTTP request lifecycle
+
+## Lifecycle states
+
+Each captured request passes through these states:
+
+| State | Meaning |
+| --- | --- |
+| `pending` | Intercepted, waiting for operator decision, or queued for forwarding |
+| `forwarded` | Sent upstream, response being collected |
+| `completed` | Full request and response captured |
+| `dropped` | Operator chose to drop; never reached upstream |
+| `failed` | Network error, timeout, or scope rejection |
+
+## Transitions
+
+- **pending → forwarded** — Operator presses `F` to forward the request upstream.
+- **pending → dropped** — Operator presses `D` to drop the request.
+- **forwarded → completed** — Response headers and body are fully received; the
+  entry is marked `completed` and emitted as a `TrafficCaptured` event.
+- **completed → failed** — A timeout, network error, or scope revalidation
+  failure during the upstream contact.
+- **Any → failed** — Shutdown or cancellation cancels pending work.
+
+## Cannot complete unless forwarded
+
+A request cannot reach the `completed` state unless it was forwarded. Terminal
+states (`dropped`, `failed`) cannot be revived.
+
+## Timing
+
+Each entry records:
+
+- `started_at` — when the request was first captured.
+- `completed_at` — when the response ended normally, or `null` if `failed`/`dropped`.
+- `duration_ms` — computed from start and completion timestamps.
+
+## Source badges
+
+In the History workspace, each row displays a source badge:
+
+- `LIVE` — captured from the live proxy engine.
+- `SIM` — a simulated fixture (`rawframe_core::fixtures::simulated_traffic()`).
+- `AUTH` — restored from a previous session.
+- `RESTORED` — loaded from the SQLite database.
+

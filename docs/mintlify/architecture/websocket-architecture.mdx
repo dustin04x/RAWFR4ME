@@ -1,0 +1,88 @@
+---
+title: "WebSocket architecture"
+description: "Frame-level relay, interception, and authored Repeater sessions"
+---
+
+## WebSocket architecture
+
+## Recognition and upgrade
+
+The proxy recognizes an HTTP/1.1 `Upgrade: websocket` request before normal
+forwarding, validates its destination, performs the upstream handshake itself over
+the existing verified TCP/TLS path, and only then returns `101` to the client. A
+failed upstream handshake is returned as a real failure.
+
+## Wire codec
+
+`rawframe_proxy::websocket::frame` is a small RFC 6455 codec owned by RAWFRAME:
+
+- Preserves FIN, RSV, opcode, masking, and payload bytes.
+- Enforces control-frame rules: FIN required, ≤125 bytes.
+- Rejects RSV bits and negotiated extensions.
+- Validates UTF-8 only when a text message is complete.
+- Client-to-server frames are masked; server-to-client frames are not.
+- The relay never re-frames a message or coalesces fragments.
+
+## Handshake policy
+
+- `Sec-WebSocket-Extensions` is stripped upstream (compression never negotiated,
+  RSV1 rejected safely).
+- The client `Sec-WebSocket-Key` is used for the upstream handshake; the upstream
+  `Sec-WebSocket-Accept` is verified before `101` is sent.
+- Subprotocols are preserved and recorded.
+- TLS verification, scope, resolve-once DNS, and private-address policy are the
+  same as HTTP.
+
+## Frame-level relay
+
+Both directions pass through the same bounded interception table. A frame pauses
+only its own relay; other connections and the other direction continue. The
+decision is `Forward`, `ForwardModified`, or `Drop`. A full queue forwards
+unchanged and emits a warning; an interception timeout or shutdown cancels the
+table and closes the WebSocket with `1001`.
+
+### Frame preservation
+
+- FIN required, ≤125 bytes for control frames.
+- RSV bits rejected; negotiated extensions rejected.
+- UTF-8 validated only when a text message is complete.
+- Client-to-server frames masked; server-to-client frames not masked.
+- Relay never re-frames or coalesces fragments.
+
+### Bounds
+
+- 64 concurrent WebSocket tunnels (separate semaphore).
+- 2 MiB frame limit.
+- 8 MiB reassembled message limit.
+- 64 KiB retained capture payload per frame.
+- 300 s idle timeout.
+
+## Workspace
+
+The TUI has a dedicated `NavSection::WebSocket` (`Ctrl+7`) after History. It
+owns `WebSocketState`: connections, frames, selection, filter, paused queue,
+payload editor, and Repeater session reference. At ≥108 columns it shows
+connections, frames, and inspector side by side; narrower layouts stack
+connections above frames and drop the inspector.
+
+### Persistence
+
+Schema v4 adds `websocket_connections`, `websocket_frames`, and
+`websocket_messages` tables through an additive migration. `WebSocketFrame` and
+`WebSocketMessage` carry `payload_omitted`. Frames are stored binary-safe.
+
+## WebSocket Repeater
+
+Authored WebSocket sessions live in `rawframe_repeater::websocket` and use the
+public client in `rawframe_proxy::websocket::client`. The client reuses the
+destination/TLS builder and the RFC 6455 codec, opens one scoped connection per
+session, and splits into a reader and writer. The service owns a bounded session
+map and emits `Opened`, `Failed`, and `Closed`; frames flow through
+`AppEvent::WebSocketFrame` with ids starting at `WEBSOCKET_REPEATER_ID_BASE`
+(3,000,000).
+
+### Non-goals
+
+No HTTP/3, QUIC, WebSocket-over-HTTP/2, RFC 8441, `permessage-deflate`, message
+reassembly for display, or a second HTTP proxy path.
+

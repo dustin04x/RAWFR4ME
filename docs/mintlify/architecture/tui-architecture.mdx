@@ -1,0 +1,99 @@
+---
+title: "TUI architecture"
+description: "Shell composition, layouts, input handling, and visual system"
+---
+
+## TUI architecture
+
+## Shell and geometry
+
+`layout::compute` produces all rectangles:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ header (2 rows + bottom border)                              │
+├───────────┬──────────────────────────────────┬───────────────┤
+│ sidebar   │ workspace                        │ inspector     │
+│ optional  │                                  │ optional      │
+├───────────┴──────────────────────────────────┴───────────────┤
+│ footer (2 rows + top border)                                 │
+└──────────────────────────────────────────────────────────────┘
+```
+
+- Header is always 3 rows; footer 3 rows.
+- Sidebar appears at ≥ 84 columns and is clamped to 18–30 columns.
+- Inspector appears at ≥ 108 columns when enabled; clamped to 40–64 columns.
+- Workspace keeps a 36-column minimum.
+- Under 64 × 18 the shell renders a centered size message.
+- Splitter drags update `LayoutState`; the same rectangles define one-cell
+  hit regions.
+
+## Render–input contract
+
+Rendering is immediate-mode and returns `RenderOutput` containing hit rectangles,
+scroll zones, editor viewport geometry, and the frame area. Mouse handling
+resolves the most recently registered hit, so overlays capture input naturally.
+Input never references literal screen positions. Tests render through
+`rawframe_tui::testing::render_frame`, which applies the hit map to the app.
+
+## State ownership
+
+`App` owns:
+
+- Navigation, focus, selections, filters, inspector state.
+- Repeater tabs, the Intruder state, the Decoder state, Settings editing,
+  notifications, proxy lifecycle state, storage status, the stored-session list,
+  the live scope editor, the WebSocket view state, the WebSocket Repeater session.
+- `WebSocketState` owns connections, frames, selection, filter, the paused set,
+  and the payload editor.
+- `IntruderState` owns the template components, marked positions, payload lists
+  and the active set index, strategy and limit settings, view mode, the plan
+  and its validation status, results and their filters/sort/baseline, inspector
+  view, prompts, and the run phase.
+- `DecoderState` owns the input buffer and exact input bytes, output display,
+  pipeline steps and results, view-step selection, session history, and the
+  background worker channel.
+
+Each Repeater tab owns its document, editor buffer, dirty/original state,
+in-flight execution ID, latest result, execution history, view mode, and
+redirect toggle. Completions are matched by tab and execution ID, so late events
+cannot overwrite a newer execution or another tab. Domain data comes from
+`rawframe-core`; the TUI never opens SQLite.
+
+## Input precedence and overlays
+
+1. `Ctrl+C` (immediate quit).
+2. Confirmation dialog.
+3. Command palette.
+4. Context menu.
+5. Scope editor / stored-session browser.
+6. Help overlay.
+7. Inline settings edit.
+8. Global control shortcuts (`Ctrl+K`, `Ctrl+1`…`7`, `Ctrl+F`, `Ctrl+N`,
+   `Ctrl+W`, `Ctrl+Enter`).
+9. `Esc` / `Tab`.
+10. Search text entry.
+11. Repeater, Intruder, Decoder, or WebSocket payload editing.
+12. Global single-letter shortcuts (`?`, `Q`, `I`, `P`, `B` for stored sessions).
+13. Focus-specific navigation.
+
+Text-entry contexts consume printable characters before shortcut handling.
+`Ctrl+C` is always an immediate exit. `P` toggles the proxy only when not
+editing. Overlays draw a shadow, clear their rectangle, and register a
+full-screen dismiss target.
+
+## Visual system and disclosure
+
+`Theme` owns a truecolor palette and semantic styles (green success, amber
+warning, red danger, muted metadata) with three accent presets. The UI labels
+liveness in four places:
+
+- Header badge `LIVE ENGINE` vs `SIMULATED`.
+- Proxy banner and status line with actual bound address/state.
+- Row source badges (`LIVE`, `SIM`, `AUTH`, `RESTORED`).
+- Footer line stating whether live captures exist, fixtures are retained, and
+  whether TLS interception is absent.
+
+CONNECT rows say `TUNNEL` and use metadata, not fabricated HTTP payloads.
+Failures display recorded error strings, not invented success.
+

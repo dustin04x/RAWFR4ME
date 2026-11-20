@@ -1,0 +1,15 @@
+---
+title: "Clippy"
+description: "Clippy lint checks with warnings as errors"
+---
+
+## Clippy
+
+Run `cargo clippy --workspace --all-targets -D warnings` to check all crates
+and targets. The gate is "warnings are errors": any lint failure causes the
+check to fail.
+
+Fix reported lints rather than relaxing the gate. The workspace is pinned to a
+specific Rust toolchain (`rust-version = "1.89"`), and the clippy version should
+match.
+

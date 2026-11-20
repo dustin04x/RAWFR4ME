@@ -1,0 +1,50 @@
+---
+title: "Proxy lifecycle"
+description: "Listener start/stop, shutdown, and connection tracking"
+---
+
+## Proxy lifecycle
+
+## Listener start
+
+`server::start_proxy` validates configuration, binds a `TcpListener`, creates a
+Hyper HTTP/1 server with keep-alive and a read buffer cap, then starts an accept
+loop.
+
+- Configuration validation requires a non-zero port, bounded body/connection
+  limits, non-zero timeouts, and a valid scope.
+- An explicit warning emits when the listener starts with an empty
+  default-deny scope.
+- Connection concurrency uses a Tokio `Semaphore` (`max_connections`). Excess
+  sockets are closed.
+
+## Listener stop
+
+`ProxyHandle::shutdown` signals a watch channel, waits for the listener and
+tracked connection tasks (up to 5 s), then aborts remaining tasks. Service
+shutdown waits up to 8 s total. Active CONNECT pumps observe shutdown, record
+their byte counts, and close.
+
+## Connection tracking
+
+- Per-connection state: `Idle`, `Starting`, `Listening`, `Stopping`, `Stopped`,
+  or `Failed`.
+- `ProxyBound(SocketAddr)` reports the actual bound address in the header badge.
+- The header badge changes from `SIMULATED` to `LIVE ENGINE` once the listener
+  is bound.
+
+## Graceful shutdown
+
+1. Signal shutdown via watch channel.
+2. Wait for listener to stop accepting new connections (up to 5 s).
+3. Tracked connection tasks complete their in-flight work or are aborted.
+4. Active CONNECT pumps observe shutdown, record byte counts, and close.
+5. Service waits up to 8 s total for all tasks to complete.
+
+## Shutdown with unsaved edits or paused requests
+
+If the TUI has unsaved edits or paused interceptions, `Q` requires
+confirmation. `Ctrl+C` is an immediate emergency exit that may leave the proxy
+in an inconsistent state, but the process exits and the port becomes available
+quickly.
+

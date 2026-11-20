@@ -1,0 +1,52 @@
+---
+title: "History and Inspector"
+description: "Browsing captured traffic, filtering, and the request/response inspector"
+---
+
+## History and Inspector
+
+## Browsing captured traffic
+
+Press `B` in the Proxy workspace to open the session browser. Sessions are listed
+newest first, with record counts and last activity timestamps. Select a session
+to restore it read-only into History.
+
+## Filtering
+
+The History workspace provides these filters:
+
+| Filter | Description |
+| --- | --- |
+| Status filter | Filter by state: `completed`, `dropped`, `failed`, `timed_out`, `cancelled` |
+| Source filter | Filter by source: `LIVE`, `SIM`, `AUTH`, `RESTORED` |
+| Scope filter | Filter by host/port matching scope rules |
+| Method filter | Filter by HTTP method |
+| Host filter | Filter by destination host |
+| Search | Press `Ctrl+F` to match against method, host, and note text |
+
+## Request/response inspector
+
+When an entry is selected, the inspector shows three tabs:
+
+| Tab | Content |
+| --- | --- |
+| **Raw** | Unmodified request or response bytes, including headers and body. |
+| **Headers** | Ordered list of name/value pairs, duplicates preserved. Sensitive values replaced with `<redacted>` by policy. |
+| **Body** | UTF-8 text or hex-encoded binary, subject to body-cap policy. Withheld bodies are marked `omitted: true`. |
+
+## Body handling
+
+- Bodies are capped at 2 MiB each (request and response).
+- Withheld bodies are stored as SQL `NULL` and marked `omitted: true` in exports.
+- Enable body persistence with `--persist-bodies` or the Settings toggle.
+- Restored entries state that bodies were withheld by policy.
+
+## Source badges
+
+Each row displays a source badge:
+
+- `LIVE` — captured from the live proxy engine.
+- `SIM` — a simulated fixture (`rawframe_core::fixtures::simulated_traffic()`).
+- `AUTH` — restored from a previous session.
+- `RESTORED` — loaded from the SQLite database.
+

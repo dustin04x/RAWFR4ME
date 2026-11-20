@@ -1,0 +1,31 @@
+---
+title: "WebSocket upgrade failures"
+description: "Troubleshooting WebSocket upgrade failures"
+---
+
+## WebSocket upgrade failures
+
+## Symptoms
+
+* WebSocket upgrade never completes.
+* Connection falls back to raw HTTP.
+* Error in TUI: "WebSocket upgrade failed" or similar.
+
+## Likely causes
+
+* Upgrade handshake not using HTTP/1.1 upgrade path.
+* `Sec-WebSocket-Extensions` or RSV bits not stripped correctly.
+* Frame boundaries not preserved through the custom codec.
+* Upstream handshake fails before `101` response is sent.
+
+## Resolution
+
+1. Verify the WebSocket upgrade is on the HTTP/1.1 path only; no RFC 8441, HTTP/2, HTTP/3, or QUIC routing.
+2. Ensure the proxy does not send `101` before the upstream handshake succeeds and `Sec-WebSocket-Accept` is verified.
+3. Strip `Sec-WebSocket-Extensions` upstream and reject RSV bits; otherwise a compressed frame is misread as plain payload.
+4. Preserve frame boundaries; do not reframe, coalesce fragments, or replace the custom codec with a message-oriented library.
+
+## Security considerations
+
+* Keep all limits explicit and enforced before allocation: 64 tunnels, 2 MiB frame, 8 MiB message, 8 MiB retained payload, 300 s idle, and the bounded interception queue/timeout.
+* A full queue forwards unchanged with a warning; it must not grow.

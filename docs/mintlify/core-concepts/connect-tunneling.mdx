@@ -1,0 +1,91 @@
+---
+title: "CONNECT tunneling"
+description: "Opaque HTTPS tunneling and HTTPS TLS interception"
+---
+
+## CONNECT tunneling
+
+## Opaque HTTPS `CONNECT` (default)
+
+The default mode is opaque tunnelling, which relays raw bytes between the client
+and the upstream destination without inspecting or modifying the TLS layer.
+
+### How it works
+
+1. Client sends a `CONNECT host:port` request.
+2. The proxy checks scope as HTTPS before resolution. A denial is recorded as
+   `403` and no connection is made.
+3. The proxy resolves and validates the address, then connects.
+4. The proxy returns `200` and upgrades the client connection.
+5. Two independent copy pumps with 16 KiB buffers relay bytes in both directions.
+6. EOF on one side calls `shutdown` on the corresponding write half; the other
+   direction may continue (half-close preserved).
+7. Activity-based idle timeout terminates a silent tunnel. Proxy shutdown also
+   terminates it.
+
+### What the operator sees
+
+- Destination (host:port from the CONNECT authority).
+- Outcome (`Active`, `Closed`, `TimedOut`, `Failed`).
+- Client-to-upstream bytes and upstream-to-client bytes.
+- Duration derived from entry timings.
+- A short non-sensitive summary in the entry note.
+
+### What is never exposed
+
+- No URL, headers, or body is parsed, logged, or exposed as HTTP content.
+- No TLS certificate is generated or inspected.
+- The CONNECT payload is opaque; only metadata is visible.
+
+## HTTPS TLS interception (opt-in)
+
+HTTPS TLS interception is explicitly enabled with `--tls-intercept` or the
+Settings toggle. It terminates the client-facing TLS connection, decrypts the
+traffic, and processes it through the same interception queue as plaintext HTTP.
+
+### Handshake flow
+
+1. `CONNECT` parsing, scope, resolve-once address policy, and upstream TCP
+   connection happen before any certificate is issued.
+2. A per-host leaf certificate is issued from the local CA (DNS or IP SAN,
+   serverAuth EKU, bounded deduplicated cache). The leaf key is generated in a
+   blocking task, never on a Tokio worker.
+3. A separate upstream TLS session is established with mandatory chain and
+   hostname verification against trusted roots. ALPN offers `h2` then
+   `http/1.1`; the result is read back from the completed handshake and never
+   assumed. Upstream verification completes before the `200` CONNECT response,
+   so an untrusted chain or hostname mismatch fails closed without forwarding.
+4. The client-facing TLS acceptor presents the leaf. SNI, when sent, must match
+   the CONNECT authority; the certificate resolver returns no certificate on a
+   mismatch, failing the handshake.
+5. The client-facing ALPN result selects the server protocol: `h2` runs a Hyper
+   HTTP/2 server, anything else keeps the HTTP/1.1 server. The two legs negotiate
+   independently.
+
+### Decrypted traffic lifecycle
+
+Decrypted requests run through the existing interception manager, body guards,
+history, lifecycle, and event pipeline. The same scope and redaction policies
+apply.
+
+### CA trust
+
+- The local CA is created on first TLS interception enable, or with
+  `--tls-ca-regenerate`.
+- The public certificate is exported via `--tls-ca-export` and must be trusted
+  in the client profile used for testing.
+- The private key stays in memory and on local disk with restrictive Unix
+  permissions (`0600` file, `0700` directory). It is never exported, logged,
+  or published in events or history.
+- `--tls-upstream-ca` replaces the trust roots for a lab; it does not weaken
+  upstream verification.
+- `--tls-ca-regenerate` permanently invalidates the old CA; every client that
+  trusted it must be updated.
+
+### What modifications are allowed
+
+- Modified requests must remain `https` and within the intercepted session
+  authority.
+- Modified requests are revalidated against scope before forwarding.
+- Dropped requests never reach upstream.
+

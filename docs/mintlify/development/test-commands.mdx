@@ -1,0 +1,94 @@
+---
+title: "Test commands"
+description: "Test commands for RAWFRAME"
+---
+
+## Test commands
+
+## Core unit tests
+
+```bash
+cargo test -p rawframe-core
+```
+
+HTTP parser tests:
+
+```bash
+cargo test -p rawframe-http
+```
+
+Proxy unit tests:
+
+```bash
+cargo test -p rawframe-proxy --lib
+```
+
+Proxy integration tests (all local; no external websites):
+
+```bash
+cargo test -p rawframe-proxy --test forwarding -- --nocapture
+```
+
+## TUI unit tests
+
+```bash
+cargo test -p rawframe-tui --lib
+```
+
+TUI interaction integration tests:
+
+```bash
+cargo test -p rawframe-tui --test interaction_flow
+```
+
+## TUI-to-engine boundary
+
+```bash
+cargo test -p rawframe-cli --test proxy_tui -- --nocapture
+```
+
+## Repeater (real local HTTP/HTTPS servers, no mocks)
+
+```bash
+cargo test -p rawframe-repeater -- --nocapture
+```
+
+## WebSocket proxy (real local upgrade, frames, interception, limits)
+
+```bash
+cargo test -p rawframe-proxy --test websocket -- --nocapture
+```
+
+## WebSocket Repeater (real local echo server, scope refusal, authored frames)
+
+```bash
+cargo test -p rawframe-repeater --test websocket -- --nocapture
+```
+
+## WebSocket PTY evidence at 140x40, 100x30, and 80x24
+
+```bash
+cargo build -p rawframe-cli
+python3 scripts/capture_websocket_pty.py --binary target/debug/rawframe --no-png
+```
+
+## Storage (real SQLite, isolated temp databases)
+
+```bash
+cargo test -p rawframe-store -- --nocapture
+```
+
+## CLI tests
+
+```bash
+cargo test -p rawframe-cli
+```
+
+## Full quality gate
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+

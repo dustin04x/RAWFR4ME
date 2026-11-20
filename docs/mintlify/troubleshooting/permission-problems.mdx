@@ -1,0 +1,31 @@
+---
+title: "Permission problems"
+description: "Troubleshooting permission issues"
+---
+
+## Permission problems
+
+## Symptoms
+
+- Unable to write to database directory.
+- Cache or log directory not writable.
+- TUI cannot access terminal or display.
+
+## Likely causes
+
+- Directory permissions prevent the application from reading/writing data.
+- Target upstream requires credentials or authorization not granted.
+- Terminal does not support required features (truecolor, box-drawing).
+
+## Resolution
+
+1. Check directory permissions: `ls -ld <directory>`.
+2. Ensure the application user has write access to the data directory (`$XDG_DATA_HOME/rawframe/` or `~/.local/share/rawframe/`).
+3. For terminal issues, verify the terminal supports truecolor and box-drawing characters (minimum 64×18).
+4. If using a constrained terminal (8/16-colour), some visual features will degrade gracefully.
+
+## Security considerations
+
+- Do not relax directory permissions to allow universal write access.
+- Run with appropriate user privileges for the deployment environment.
+

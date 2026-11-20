@@ -1,0 +1,47 @@
+---
+title: "Capturing HTTP traffic"
+description: "How traffic is captured, the interception queue, and lifecycle states"
+---
+
+## Capturing HTTP traffic
+
+## Interception
+
+When interception is enabled (press `I` in the Proxy workspace), matching HTTP
+requests can be paused before any upstream contact is made. Decisions:
+
+- **Forward unchanged** (`F`) — send the request upstream as-is.
+- **Forward modified** (`E`, then `Ctrl+Enter` or `S`) — edit the request line
+  or headers, then send the modified version.
+- **Drop** (`D`) — discard the request without notifying upstream.
+
+The pending queue has a bounded capacity (32 entries by default). When full,
+new intercepted requests are forwarded unchanged and a warning is emitted.
+
+## Request lifecycle
+
+Each captured request travels through these states:
+
+| State | Meaning |
+| --- | --- |
+| `pending` | Intercepted, waiting for operator decision |
+| `forwarded` | Sent upstream, waiting for response |
+| `completed` | Full request/response captured |
+| `dropped` | Operator chose to drop; never reached upstream |
+| `failed` | Network error, timeout, or scope rejection |
+
+A request cannot complete unless it was forwarded. Terminal states cannot be
+revived.
+
+## Interception timeout
+
+Pending interceptions time out after 120 seconds. The entry is then marked
+`timed_out` and the proxy forwards it unchanged or drops it, according to the
+configured policy.
+
+## Sensitive-header redaction
+
+By default, sensitive header values (e.g. `Authorization`, `Cookie`) are
+replaced with `<redacted>` before storage. This policy applies on write and
+never retroactively rewrites existing rows.
+

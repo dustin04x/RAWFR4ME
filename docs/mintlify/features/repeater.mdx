@@ -1,0 +1,58 @@
+---
+title: "Repeater"
+description: "Sending requests to scoped destinations, edit, redirects, and comparison"
+---
+
+## Repeater
+
+## Creating a request
+
+1. Start with an explicit scope: `rawframe --scope http://127.0.0.1:8000 --allow-private-upstreams`
+2. Press `Ctrl+3`, then `Enter`/`E` to edit the request line and headers.
+3. The request line uses an absolute URL, for example `POST http://127.0.0.1:8000/api HTTP/1.1`.
+4. Press `Ctrl+Enter` or `S` to send; `C` cancels. `1`–`6` switch Raw, Headers, Body, Pretty JSON, Hex, and Compare. `F` toggles redirects.
+
+## Editing requests
+
+- Edit the request line (method, absolute URL, HTTP version).
+- Add, remove, or modify headers.
+- Edit the request body (binary-safe).
+- Raw, Headers, Body, Pretty JSON, Hex, and Compare views are available.
+
+## Sending the request
+
+- `Ctrl+Enter` or `S` — send the request. A confirmation dialog appears first
+  (nothing is sent before you confirm).
+- `Y` — confirm and send.
+- `X` — cancel without sending.
+
+## Redirect handling
+
+If redirects are enabled (`F` to toggle):
+
+- At most five hops are followed.
+- Every destination is scope-checked before the next request.
+- Credentials are stripped on cross-origin hops.
+- 301/302 POST→GET and 303→GET rules apply; 307/308 preserve method and body.
+
+## Comparison view
+
+The Compare view shows the original request alongside the modified version,
+with differences highlighted. This is useful for assessing what changed before
+sending.
+
+## TLS and scope
+
+- The Repeater opens its own scoped connections, uses the same resolve-once
+  address policy.
+- Always verifies upstream TLS, and never enters the interception queue or trusts
+  the local CA.
+- Scope is re-checked before every redirect hop.
+
+## Concurrency and timeouts
+
+- Bounded concurrency limit with owned semaphore permits.
+- Response bodies are capped and explicitly marked truncated.
+- Connect, response-header, body-idle, and total timeouts per execution.
+- Rate gate spaces starts using a monotonic deadline.
+

@@ -1,0 +1,47 @@
+---
+title: "Proxy listener startup"
+description: "Troubleshooting proxy listener startup issues"
+---
+
+## Proxy listener startup
+
+## Symptoms
+
+- Proxy screen shows listener not started.
+- No ports are bound when attempting to start the proxy.
+- Error message on start attempt.
+
+## Likely causes
+
+- Port already in use by another process.
+- Missing scope allowlist for the target destination.
+- `--allow-private-upstreams` flag not set when targeting local upstreams.
+- Scope rule rejecting the connection before the listener binds.
+
+## Diagnostic commands
+
+```bash
+## Check what's using the port
+lsof -i :8080
+
+## Verify scope configuration
+cargo run -p rawframe-cli --bin rawframe -- --scope http://127.0.0.1:8000
+
+## Check log file for details
+cat $XDG_DATA_HOME/rawframe/logs/rawframe.log
+## or override with --log-file <path>
+```
+
+## Resolution
+
+1. Free the port: `kill <pid>` or use a different port with `--port <n>`.
+2. Add the destination to the scope allowlist: `--scope http://127.0.0.1:8000`.
+3. Enable private upstreams if needed: `--allow-private-upstreams`.
+4. Retry starting the proxy (press `P` on the Proxy screen).
+
+## Security considerations
+
+- Never open the proxy to public ports without explicit authorization.
+- Scope rules are default-deny; only explicitly allowed destinations receive traffic.
+- TLS interception requires explicit local CA trust; do not bypass verification.
+

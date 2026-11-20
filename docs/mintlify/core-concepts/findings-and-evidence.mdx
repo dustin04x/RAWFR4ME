@@ -1,0 +1,42 @@
+---
+title: "Findings and evidence"
+description: "Passive analysis findings and evidence in RAWFRAME"
+---
+
+## Findings and evidence
+
+## Finding inventory
+
+RAWFRAME 1.0.0 ships 17 passive analysis rules as the `rawframe-analysis`
+library. Rules are versioned, deterministic, and produce findings with stable
+fingerprints.
+
+### Finding attributes
+
+- `id` — stable fingerprint (hash of rule + normalized fields)
+- `rule` — rule name from the 17-rule inventory
+- `severity` — classified as informational, low, medium, high, critical
+- `confidence` — statistical confidence in the finding (0.0 to 1.0)
+- `trigger` — the field or fixed marker that caused the rule to match
+- `impact` — description of the observed effect
+- `remediation` — suggested mitigation or next step
+- `evidence` — redacted excerpt of the triggering data
+- `status` — one of `pending`, `acknowledged`, `resolved`, `suppressed`
+- `session` — the session in which the finding was detected
+- `created_at` — RFC 3339 timestamp
+- `updated_at` — RFC 3339 timestamp of last status change
+
+## Finding lifecycle
+
+- **Detected** — rule matched, finding created with `pending` status
+- **Acknowledged** — user or reviewer confirms the finding
+- **Resolved** — finding marked as resolved with remediation noted
+- **Suppressed** — finding hidden from future sessions (deduplication)
+
+## Evidence
+
+- Evidence is redacted by default; sensitive fields are replaced with `<redacted>`.
+- Redaction is applied at write time (`record.rs`), not at render time.
+- Findings carry stable fingerprints to ensure deduplication and status tracking
+  across sessions.
+

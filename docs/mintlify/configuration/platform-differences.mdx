@@ -1,0 +1,26 @@
+---
+title: "Platform differences"
+description: "Platform-specific differences in RAWFRAME"
+---
+
+## Platform differences
+
+## Linux x86_64 (binary releases)
+
+- Official binary releases are built and verified for Linux x86_64 only.
+- All features are claimed on this platform.
+- Tested on modern Linux distributions with truecolor terminal support.
+
+## Other targets (build from source)
+
+- RAWFRAME can be built from source on other platforms (macOS, Windows, other
+  Linux architectures).
+- No binary releases are published for non-Linux x86_64 targets.
+- Features functionality is not claimed on other targets; YMMV.
+
+## POSIX compatibility
+
+- Terminal lifecycle (raw mode, alternate screen, bracketed paste, panic-safe
+  restoration) follows POSIX and ncurses conventions.
+- Signal handling follows Unix conventions.
+

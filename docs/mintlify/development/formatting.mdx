@@ -1,0 +1,14 @@
+---
+title: "Formatting"
+description: "Code formatting with cargo fmt"
+---
+
+## Formatting
+
+Run `cargo fmt --all --check` to verify that all sources are formatted
+according to `rustfmt` defaults. The check exits non-zero if any file needs
+formatting.
+
+To format all files in place, run `cargo fmt --all` instead. This rewrites every
+file; commit the diff first so it is reviewable.
+

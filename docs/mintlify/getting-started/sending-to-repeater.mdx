@@ -1,0 +1,54 @@
+---
+title: "Sending to Repeater"
+description: "Moving a request from History to the Repeater workbench"
+---
+
+## Sending a request to Repeater
+
+## From HTTP History
+
+1. In the History workspace, select a completed request.
+2. Press `Ctrl+3` to open the request in the Repeater editor.
+3. The request line, headers, and body (if present) appear in the editor.
+4. Edit as needed: method, target, headers, or body content.
+
+## Request format
+
+The request line uses an absolute URL, for example:
+
+```
+POST http://127.0.0.1:8000/api HTTP/1.1
+```
+
+Headers follow the format `Name: Value`. Duplicate headers are preserved.
+Binary bodies are supported; the editor renders them in hex view.
+
+## Editing the request
+
+- `Ctrl+U` — clear filters and search.
+- `C` — cancel and close the Repeater tab.
+- `1`–`6` — switch views: Raw, Headers, Body, Pretty JSON, Hex, Compare.
+- `F` — toggle redirects (max 5 hops, credential stripping on cross-origin).
+
+## Sending the request
+
+- `Ctrl+Enter` or `S` — send the request. Confirmation dialog appears first
+  (nothing is sent before you confirm).
+- `Y` — confirm and send.
+- `X` — cancel without sending.
+
+## Redirect handling
+
+If redirects are enabled (`F` to toggle):
+
+- At most five hops are followed.
+- Every destination is scope-checked before the next request.
+- Credentials are stripped on cross-origin hops.
+- 301/302 POST→GET and 303→GET rules apply; 307/308 preserve method and body.
+
+## Comparison view
+
+The Compare view shows the original request alongside the modified version,
+with differences highlighted. This is useful for assessing what changed before
+sending.
+

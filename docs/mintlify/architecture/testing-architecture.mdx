@@ -1,0 +1,58 @@
+---
+title: "Testing architecture"
+description: "Unit, integration, and PTY tests across the workspace"
+---
+
+## Testing architecture
+
+## Core unit tests
+
+- Cover headers, redaction, sanitization, lifecycle, scope, config validation,
+  filtering, fixtures, bounded events, sessions, certificates.
+- Run with `cargo test --workspace` (core and HTTP subsets).
+- No terminal or external network required.
+
+## HTTP tests
+
+- Parser round-trips, absolute/origin forms, IPv6, duplicate headers, malformed
+  inputs, and display safety.
+- Run with `cargo test --workspace` (rawframe-http subset).
+
+## Proxy unit tests
+
+- Destination parsing, `Host` matching, scope, address policy, tunnel relay/
+  half-close, and idle termination.
+- Run with `cargo test --workspace` (rawframe-proxy subset).
+
+## Proxy integration tests
+
+Use only local upstream servers and cover GET/POST, duplicate headers, chunked
+encoding, scope rejection, CONNECT, TLS interception, HTTP/2, WebSocket relay
+and interception, Repeater execution and redirects, Decoder pipelines, Intruder
+execution and cancellation, storage migrations and crash recovery, export and
+redaction, and TUI rendering and input at 140×40, 100×30, and 80×24.
+
+- Two environment notes:
+  - The TUI interception end-to-end test shells out to `curl`, so `curl` must be
+    on `PATH`.
+  - `scripts/capture_readme_screenshots.py` regenerates the screenshot gallery
+    and needs Pillow plus a monospace font with box-drawing coverage. Font
+    discovery honours `RAWFRAME_MONO_FONT`, then fontconfig, then a fixed
+    candidate list.
+- Run with `cargo test --workspace`.
+
+## Clippy
+
+- `cargo clippy --workspace --all-targets -D warnings` — warnings are errors.
+- Gates are pinned to the exact toolchain version (`rust-version = "1.89"`).
+- Fix reported lints rather than relaxing the gate.
+
+## Test configuration notes
+
+- Tests use local servers and self-contained test CAs; no test contacts an
+  external website.
+- The TUI E2E test uses `curl`; ensure it is on `PATH`.
+- Screenshot regeneration needs Pillow and a monospace font with box-drawing
+  coverage.
+- Run `./scripts/check.sh` for the short form of all quality gates.
+

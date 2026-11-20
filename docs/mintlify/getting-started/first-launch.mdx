@@ -1,0 +1,55 @@
+---
+title: "First launch"
+description: "Starting RAWFRAME, authorizing destinations, and using the TUI"
+---
+
+## First launch
+
+## Starting the proxy for the first time
+
+The proxy starts idle with a default-deny scope (empty allowlist). Every HTTP
+request and CONNECT is blocked until you add a scope rule.
+
+```bash
+rawframe --port 8080 --scope http://127.0.0.1:8000 --allow-private-upstreams
+```
+
+Press `P` on the Proxy workspace to start the listener. The header badge will
+change from `SIMULATED` to `LIVE ENGINE` once listening.
+
+## First proxy session
+
+1. Start a local upstream server in a separate terminal:
+
+   ```bash
+   python3 -m http.server 8000 --bind 127.0.0.1
+   ```
+
+2. Start RAWFRAME with an explicit scope authorizing that upstream:
+
+   ```bash
+   rawframe --port 8080 --scope http://127.0.0.1:8000 --allow-private-upstreams
+   ```
+
+3. Press `P` to start the proxy listener.
+
+4. Send a request through the proxy:
+
+   ```bash
+   curl --noproxy '' -x http://127.0.0.1:8080 http://127.0.0.1:8000/
+   ```
+
+5. In the Proxy workspace, the request appears in the history. Press `F` to
+   forward it, or `D` to drop it.
+
+## Common first-run issues
+
+| Symptom | Cause | Resolution |
+| --- | --- | --- |
+| `connection refused` or proxy bypassed | Inherited `NO_PROXY`/`no_proxy` | Use `curl --noproxy '' -x http://127.0.0.1:8080 ...` |
+| Every request is blocked | Default-deny scope empty | Add an explicit `--scope` rule for the host:port |
+| Browser shows certificate error under interception | CA not trusted in browser profile | Export the CA and trust it in a dedicated test profile only |
+| UI looks plain or colours wrong | Terminal lacks truecolor | Set `COLORTERM=truecolor` or use a truecolor-capable terminal |
+| Layout cramped or won't render | Terminal below minimum size | Minimum usable size is 64×18; inspector needs 108 columns |
+| `DB ERROR` in footer | Database directory not writable | Use `--db <FILE>` to point to a writable path, or `--no-persist` for memory-only |
+

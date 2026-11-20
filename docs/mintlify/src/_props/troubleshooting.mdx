@@ -1,0 +1,60 @@
+---
+title: "Troubleshooting"
+description: "Common problems and resolutions"
+---
+
+## Troubleshooting
+
+## Proxy listener startup
+
+**`curl` returns "connection refused" or bypasses the proxy**
+
+An inherited `NO_PROXY`/`no_proxy` entry can bypass the proxy. Use
+`curl --noproxy '' -x http://127.0.0.1:8080 ...` to force proxy routing.
+
+**Every request is blocked**
+
+Scope is default-deny. Add an explicit `--scope` rule for the exact host and
+port. For loopback or private targets you also need `--allow-private-upstreams`.
+
+**A browser shows a certificate error under interception**
+
+The RAWFRAME CA is not trusted in that profile, or interception was enabled
+after the connection was established. Trust the exported public certificate in a
+disposable profile and retry. Pinned clients cannot be intercepted by design.
+
+**The UI looks plain or colours are wrong**
+
+RAWFRAME assumes a truecolor terminal. Set `COLORTERM=truecolor` or use a
+terminal that supports 24-bit colour. Fonts without box-drawing coverage will
+render panel borders incorrectly.
+
+**The layout is cramped or refuses to render**
+
+The minimum usable size is 64×18, and the inspector needs 108 columns.
+Truecolor is assumed, and 8/16-colour terminals will degrade.
+
+**The footer shows `DB ERROR`**
+
+The database is corrupt, locked, or the directory is not writable. Persistence
+is disabled and the proxy keeps running. Use `--db <FILE>` to point at another
+path, or `--no-persist` for a memory-only session. RAWFRAME never deletes the
+existing file.
+
+## Build failures
+
+**`cargo clippy` fails on a newer toolchain**
+
+The gates are pinned to "warnings are errors". Run the exact command from the
+Testing section and fix the reported lint rather than relaxing the gate.
+
+**Editing Rust: build fails with edition 2024 or MSRV errors**
+
+Rust 1.89 or newer is required (`rustc --version`).
+
+## Screenshot pipeline
+
+**`scripts/capture_readme_screenshots.py` regeneration fails**
+
+Needs Pillow plus a monospace font with box-drawing coverage. Font discovery
+honours `RAWFRAME_MONO_FONT`, then fontconfig, then a fixed candidate list.

@@ -1,0 +1,45 @@
+---
+title: "Port conflicts"
+description: "Troubleshooting port conflict issues"
+---
+
+## Port conflicts
+
+## Symptoms
+
+- Unable to start proxy listener on selected port.
+- Error: "port already in use" or similar.
+- Multiple proxy instances competing for the same port.
+
+## Likely causes
+
+- Another process is already listening on the target port.
+- Multiple RAWFRAME instances started simultaneously.
+- Stale listener from a previous session still bound.
+
+## Diagnostic commands
+
+```bash
+## Find processes using the port
+ss -tlnp | grep :8080
+## or
+netstat -tlnp | grep :8080
+
+## Kill stale processes
+kill <pid>
+
+## Verify port is free
+lsof -i :8080
+```
+
+## Resolution
+
+1. Identify and terminate the competing process.
+2. Restart RAWFRAME or select a different port.
+3. If using `--port <n>`, ensure the flag matches the desired port.
+
+## Security considerations
+
+- Do not expose proxy ports to untrusted networks.
+- Scope rules still apply even if the listener starts.
+

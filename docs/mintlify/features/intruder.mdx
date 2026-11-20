@@ -1,0 +1,83 @@
+---
+title: "Intruder"
+description: "Payload positions, strategies, and bounded execution"
+---
+
+## Intruder
+
+## Positions and plans
+
+A request template is scanned at the byte level for the UTF-8 marker `§` (two
+bytes). `IntruderTemplate::analyze` splits the request into ordered components
+(path, query values, header values, body) and records each marked span.
+
+### Position areas
+
+- **Path positions** — markers in the URL path.
+- **Query value positions** — markers in query strings.
+- **Header value positions** — markers in header values.
+- **Body positions** — markers in the request body.
+
+### Strategies
+
+| Strategy | Assignment rule | Generated requests |
+| --- | --- | --- |
+| **Sniper** | Each payload against one position; other positions fixed | `positions × payloads` |
+| **Battering Ram** | The same payload at every position | `payloads` |
+| **Pitchfork** | List *i* for position *i*, in lockstep | shortest list length |
+| **Cluster Bomb** | Full Cartesian product across positions | product of list lengths |
+
+### Limits
+
+- Maximum 16 positions per template.
+- Maximum 16 payload lists.
+- Maximum 512 payloads per list.
+- Maximum 4096 bytes per payload.
+- Maximum 2048 generated requests.
+- Maximum 8 concurrent workers.
+- Rate limit: 20 requests/second.
+- Duration ceiling: 1800 seconds.
+
+### Plan validation
+
+- Empty lists and unequal Pitchfork lengths are rejected.
+- Plans above `MAX_GENERATED_REQUESTS` (2048) are refused before anything is sent.
+- Expansion is deterministic and preview-driven.
+
+## Payload sources
+
+- **Manual lists** — enter payload values directly in the UI.
+- **Built-in demo values** — predefined payload sets for testing.
+- **Session-local named lists** — lists saved within the current session.
+- **Bounded local wordlist import** — read from a local file, capped at 4 MiB
+  total, 512 payloads, and bounded line sizes.
+
+### Wordlist import
+
+- Lines that are not valid UTF-8 are counted and skipped.
+- Truncation is reported if the file exceeds limits.
+- File content is never executed.
+
+## Execution
+
+The service accepts `IntruderCommand::{Start, Pause, Resume, Cancel, Shutdown,
+LoadWordlist}` and an `IntruderLaunch` containing the template, plan, cloned
+`RepeaterConfig`, and limits.
+
+- A worker pool of at most the configured concurrency pulls indices in order.
+- Each outcome is typed: `Response`, `Blocked`, `TimedOut`, `Failed`, `Cancelled`,
+  or `NotSent`, with the exact payload values that produced it.
+- Cancellation and shutdown abort the pool and mark unsent indices `NotSent`.
+- Rate gate spaces starts using a monotonic deadline; a paused run keeps its queue
+  and resumes without re-sending completed indices.
+
+## Results and persistence
+
+- Results show real status, size, duration, and payload values.
+- Filters, sort, search, and baseline comparison operate on captured data only.
+- Nothing infers a vulnerability from a status, size, or timing difference.
+- `IntruderResult::to_traffic_entry` maps each completed request to the shared
+  persistence model with `TrafficSource::Intruder`, the payload values (base64
+  JSON), and the origin capture when the template came from History.
+- Payload lists are session state and are never written to disk.
+

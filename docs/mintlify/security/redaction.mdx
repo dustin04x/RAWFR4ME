@@ -1,0 +1,33 @@
+---
+title: "Redaction"
+description: "Redacted data handling in RAWFRAME"
+---
+
+## Redaction
+
+## Sensitive header values
+
+By default, RAWFRAME replaces sensitive header values with `<redacted>` during
+storage. The list of sensitive headers is defined in `SENSITIVE_HEADERS` in
+`crates/rawframe-core/src/security.rs`. New sensitive headers can be added by
+adding entries to this list.
+
+## Body persistence
+
+By default, request and response bodies are not persisted (`persist_bodies` off).
+Bodies are stored as SQL `NULL`. When `persist_bodies` is enabled, bodies are
+stored as BLOBs or hex-encoded strings depending on the encoding policy.
+
+## Export redaction
+
+Exported JSON Lines respect the current redaction policy. Sensitive values are
+redacted in the export if `persist_sensitive_headers` is off. If on, sensitive
+values are preserved as-is in the export.
+
+## User-controlled redaction
+
+- `persist_sensitive_headers` flag: control whether sensitive headers are preserved
+  or redacted in stored traffic.
+- `persist_bodies` flag: control whether bodies are persisted at all.
+- Redaction is applied at write time (`record.rs`), not at render time.
+

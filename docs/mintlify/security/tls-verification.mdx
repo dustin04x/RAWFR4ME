@@ -1,0 +1,27 @@
+---
+title: "TLS verification"
+description: "TLS verification in RAWFRAME"
+---
+
+## TLS verification
+
+## Upstream TLS verification
+
+When TLS interception is disabled, the proxy still verifies the upstream TLS
+connection. The verified hostname is used for scope validation.
+
+## With TLS interception enabled
+
+When interception is opt-in (`--intercept` flag), the following verification
+applies:
+
+- The local CA issues leaf certificates for authorized hosts only.
+- The upstream chain and hostname are verified against the issued certificate.
+- Certificate pinning is not bypassed; pinned clients fail by design.
+- Hostname verification still applies even with the local CA trust.
+
+## Fail-closed behavior
+
+- If TLS verification fails, the connection is closed and not intercepted.
+- No traffic is captured for connections that fail verification.
+

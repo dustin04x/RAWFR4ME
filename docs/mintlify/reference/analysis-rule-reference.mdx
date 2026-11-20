@@ -1,0 +1,47 @@
+---
+title: "Analysis rule reference"
+description: "17 passive analysis rules shipped with rawframe-analysis"
+---
+
+## Analysis rule reference
+
+RAWFRAME 1.0.0 ships 17 passive analysis rules as the `rawframe-analysis` library.
+Rules are versioned, deterministic, and produce findings with stable fingerprints.
+No Findings UI is provided in 1.0.0; the engine is a library only.
+
+## Rule inventory
+
+| Rule | Trigger | Severity | Confidence | Impact | Remediation |
+| --- | --- | --- | --- | --- | --- |
+
+<details>
+<summary>Expand rule details</summary>
+
+*(Rule details are documented in `docs/analysis-rules.md` and will be expanded in
+a future release. The 17 rules are stable, versioned, and produce consistent
+findings across sessions. Fingerprints ensure deduplication and status tracking.)*
+
+</details>
+
+## Finding lifecycle
+
+- **Detected** — rule matched, finding created with `pending` status
+- **Acknowledged** — user or reviewer confirms the finding
+- **Resolved** — finding marked as resolved with remediation noted
+- **Suppressed** — finding hidden from future sessions (deduplication)
+
+## Finding attributes
+
+- `id` — stable fingerprint (hash of rule + normalized fields)
+- `rule` — rule name from the 17-rule inventory
+- `severity` — classified as informational, low, medium, high, critical
+- `confidence` — statistical confidence in the finding (0.0 to 1.0)
+- `trigger` — the field or fixed marker that caused the rule to match
+- `impact` — description of the observed effect
+- `remediation` — suggested mitigation or next step
+- `evidence` — redacted excerpt of the triggering data
+- `status` — one of `pending`, `acknowledged`, `resolved`, `suppressed`
+- `session` — the session in which the finding was detected
+- `created_at` — RFC 3339 timestamp
+- `updated_at` — RFC 3339 timestamp of last status change
+

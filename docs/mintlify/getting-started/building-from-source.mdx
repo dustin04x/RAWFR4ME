@@ -1,0 +1,36 @@
+---
+title: "Building from source"
+description: "Debug and release builds, installation into cargo bin"
+---
+
+## Building from source
+
+## Debug build
+
+```bash
+cargo build --workspace
+```
+
+Use this for development and testing. Artifacts go to `target/debug/`.
+
+## Release (optimised) build
+
+```bash
+cargo build --workspace --release
+```
+
+Artifacts go to `target/release/`. The binary reports `rawframe 1.0.0`.
+
+## Install into cargo bin
+
+```bash
+cargo install --path crates/rawframe-cli --locked
+```
+
+Installs to `~/.cargo/bin/rawframe`.
+
+## Verification
+
+```bash
+rawframe --version   # rawframe 1.0.0
+```

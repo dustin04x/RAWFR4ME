@@ -1,0 +1,29 @@
+---
+title: "Color and font problems"
+description: "Troubleshooting color and font rendering issues"
+---
+
+## Color and font problems
+
+## Symptoms
+
+- Accent color not matching the expected violet theme.
+- Palette colors appear incorrect in light/dark mode.
+- Font rendering issues or missing glyphs.
+
+## Likely causes
+
+- Theme not properly applied or detected.
+- Terminal color support limited to 8/16 colours instead of truecolor.
+- Custom font overrides the default monospace setting.
+
+## Resolution
+
+1. Verify the Mintlify theme is set to `maple` in `docs.json`.
+2. Ensure the terminal supports truecolor; 8/16-colour terminals will use the ANSI palette, which may differ from the intended colors.
+3. The default monospace font is assumed; custom fonts may not have the required glyphs.
+
+## Security considerations
+
+- No security implications; purely a visual styling concern.
+

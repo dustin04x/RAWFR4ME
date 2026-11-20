@@ -1,0 +1,63 @@
+---
+title: "Adding an analysis rule"
+description: "Guidance for adding new rules to the rawframe-analysis engine"
+---
+
+## Adding an analysis rule
+
+The `rawframe-analysis` engine contains 17 deterministic rules. Adding a new rule
+follows a defined pattern.
+
+## Rule structure
+
+Each rule evaluates captured HTTP/1.1, HTTP/2, or WebSocket data against
+predicates on the request/response fields. A rule produces a `Finding` with:
+
+- **Severity** (`info`, `low`, `medium`, `high`).
+- **Confidence** (`firm`, `possible`, `speculative`).
+- **Triggering field or fixed marker** — which component triggered the rule.
+- **Impact** description — the potential security impact.
+- **Remediation** guidance — steps to address the condition.
+- **Stable fingerprint** — for deduplication across captures.
+
+## Adding a new rule
+
+1. **Define the rule** in `rawframe-analysis` as a function that takes the
+   captured data and returns an `Option<Finding>` ( `None` if the rule does not
+   match).
+2. **Add the rule to the scheduler** so it is executed against every captured
+   message.
+3. **Write tests** that verify the rule produces the expected finding on sample
+   captured data, and `None` on data that should not trigger it.
+4. **Update the documentation** to describe the new rule, following the style
+   of [docs/analysis-rules.md].
+5. **Run the quality gates** to ensure no regressions.
+
+## Example pattern
+
+```rust
+/// Checks for the presence of the `X-Framework` header with a known-vulnerable
+/// framework version.
+fn check_framework_header(request: &HttpRequest) -> Option<Finding> {
+    let framework = request.headers.iter().find(|h| h.name == "X-Framework");
+    let Some(framework) = framework else { return None; };
+    
+    let version = extract_version(&framework.value);
+    let Some(version) = version else { return None; };
+    
+    // Known vulnerable versions
+    if matches!(version, "1.0.0" | "1.1.0" | "1.2.0") {
+        Some(Finding {
+            severity: "medium".into(),
+            confidence: "firm".into(),
+            triggering_field: "X-Framework".into(),
+            impact: "The installed framework version has known vulnerabilities.",
+            remediation: "Upgrade to a patched version of the framework.",
+            fingerprint: "framework-header-v1".into(),
+        })
+    } else {
+        None
+    }
+}
+```
+
