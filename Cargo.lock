@@ -1722,7 +1722,7 @@ dependencies = [
 
 [[package]]
 name = "rawframe-analysis"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "rawframe-core",
@@ -1733,7 +1733,7 @@ dependencies = [
 
 [[package]]
 name = "rawframe-cli"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1752,7 +1752,7 @@ dependencies = [
 
 [[package]]
 name = "rawframe-core"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "base64",
  "chrono",
@@ -1767,7 +1767,7 @@ dependencies = [
 
 [[package]]
 name = "rawframe-http"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "httparse",
  "rawframe-core",
@@ -1776,7 +1776,7 @@ dependencies = [
 
 [[package]]
 name = "rawframe-intruder"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "bytes",
  "chrono",
@@ -1797,7 +1797,7 @@ dependencies = [
 
 [[package]]
 name = "rawframe-proxy"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "base64",
  "bytes",
@@ -1824,7 +1824,7 @@ dependencies = [
 
 [[package]]
 name = "rawframe-repeater"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "bytes",
  "chrono",
@@ -1848,11 +1848,10 @@ dependencies = [
 
 [[package]]
 name = "rawframe-store"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "base64",
  "chrono",
- "rawframe-analysis",
  "rawframe-core",
  "rusqlite",
  "serde",
@@ -1865,7 +1864,7 @@ dependencies = [
 
 [[package]]
 name = "rawframe-tui"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "base64",
  "chrono",

@@ -1,51 +1,49 @@
 {
-  "generated_at": "2026-11-19T19:31:25.815731+00:00",
+  "generated_at": "2026-11-20T19:29:03.688316+00:00",
   "binary": "/home/dustin/Projects/RAWFRAME/target/debug/rawframe",
   "terminal": "140x40",
   "renderer": "real PTY -> ANSI cell grid -> Pillow",
-  "font": "/usr/share/fonts/TTF/JetBrainsMonoNerdFontMono-Regular.ttf",
+  "font": "/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf",
   "font_size": 14,
   "gallery": "docs/screenshots/readme",
   "captures": [
     {
       "name": "proxy-main",
       "file": "docs/screenshots/readme/proxy-main.png",
-      "source": "/tmp/rawframe-readme-pmuqbu32/140x40_proxy-main.png",
-      "sha256": "a2c730a16efacc9b15b2bbbba2f718227bbdbc8307c876f2b85a7baa694284c5",
-      "width": 1209,
-      "height": 826,
-      "unique_colours": 2950,
+      "source": "/tmp/rawframe-readme-k1lu0ywr/140x40_proxy-main.png",
+      "sha256": "fc5dd9b7449517b22406ce52cde56a6d6404ef07353eef42c411e4622453a82c",
+      "width": 1205,
+      "height": 824,
+      "unique_colours": 1777,
       "semantic_colours_present": [
         "accent",
         "success",
-        "danger",
-        "info"
+        "danger"
       ]
     },
     {
       "name": "history-inspector",
       "file": "docs/screenshots/readme/history-inspector.png",
-      "source": "/tmp/rawframe-readme-pmuqbu32/140x40_history-inspector.png",
-      "sha256": "d96d46ff97ce4e4155a288b025fa33fa11ae92907d40cf5b8564285bd29c6f86",
-      "width": 1209,
-      "height": 826,
-      "unique_colours": 3381,
+      "source": "/tmp/rawframe-readme-k1lu0ywr/140x40_history-inspector.png",
+      "sha256": "e21f7c96ead966a65b27f390aa0615de6f2d5f8316761b9bb0f9e0907b84b5bb",
+      "width": 1205,
+      "height": 824,
+      "unique_colours": 2038,
       "semantic_colours_present": [
         "accent",
         "success",
         "warning",
-        "danger",
-        "info"
+        "danger"
       ]
     },
     {
       "name": "repeater",
       "file": "docs/screenshots/readme/repeater.png",
-      "source": "/tmp/rawframe-readme-pmuqbu32/repeater/140x40_01_workspace.png",
-      "sha256": "aca45a443a4f548d6ba14df91a0f2df70a5576701635753b6d1723fe9ebe3c13",
-      "width": 1209,
-      "height": 826,
-      "unique_colours": 2003,
+      "source": "/tmp/rawframe-readme-k1lu0ywr/repeater/140x40_01_workspace.png",
+      "sha256": "f7a3ca3263998787ef15e9c2ed14e5303d626768a38c106606390849c80756b6",
+      "width": 1205,
+      "height": 824,
+      "unique_colours": 1445,
       "semantic_colours_present": [
         "accent",
         "success"
@@ -54,25 +52,24 @@
     {
       "name": "intruder",
       "file": "docs/screenshots/readme/intruder.png",
-      "source": "/tmp/rawframe-readme-pmuqbu32/intruder/140x40_04_results.png",
-      "sha256": "7f76fe637dc5d86759f59162ee6a365d928bff0f3779d0a41c6dc56ed1294857",
-      "width": 1209,
-      "height": 826,
-      "unique_colours": 2993,
+      "source": "/tmp/rawframe-readme-k1lu0ywr/intruder/140x40_04_results.png",
+      "sha256": "27c62616ed37598427dcedb9f9126f1ec37347d483cc67956f9cd48477823cc1",
+      "width": 1205,
+      "height": 824,
+      "unique_colours": 1975,
       "semantic_colours_present": [
         "accent",
-        "success",
-        "warning"
+        "success"
       ]
     },
     {
       "name": "decoder",
       "file": "docs/screenshots/readme/decoder.png",
-      "source": "/tmp/rawframe-readme-pmuqbu32/decoder/140x40_01_workspace.png",
-      "sha256": "be258e4535514e4679d9cb05fe4d362a7b7d26d45c50caee7e8903844caf2109",
-      "width": 1209,
-      "height": 826,
-      "unique_colours": 2047,
+      "source": "/tmp/rawframe-readme-k1lu0ywr/decoder/140x40_01_workspace.png",
+      "sha256": "aa6960a052175a02178f59b618cc1360ffd34f4000e195ca8f2fb716e0b0d844",
+      "width": 1205,
+      "height": 824,
+      "unique_colours": 1457,
       "semantic_colours_present": [
         "accent",
         "success"
@@ -81,30 +78,14 @@
     {
       "name": "websocket",
       "file": "docs/screenshots/readme/websocket.png",
-      "source": "/tmp/rawframe-readme-pmuqbu32/websocket/140x40_03_echo.png",
-      "sha256": "867e2817c993144da03f874b28aa05c4684c255224c9b5f94b49f521efe368cc",
-      "width": 1209,
-      "height": 826,
-      "unique_colours": 2305,
+      "source": "/tmp/rawframe-readme-k1lu0ywr/websocket/140x40_03_echo.png",
+      "sha256": "50112309def4ae8f277be80498b52d07995a48995598c8afc0d2260222eb1fbb",
+      "width": 1205,
+      "height": 824,
+      "unique_colours": 1717,
       "semantic_colours_present": [
         "accent",
         "success"
-      ]
-    },
-    {
-      "name": "security-findings",
-      "file": "docs/screenshots/readme/security-findings.png",
-      "source": "/tmp/rawframe-readme-pmuqbu32/analysis/140x40_01_findings.png",
-      "sha256": "60c1d208b85dafe8f244d21818e0634b21ef3353913b5aa4ca77c04ddb1e9cc5",
-      "width": 1209,
-      "height": 826,
-      "unique_colours": 3797,
-      "semantic_colours_present": [
-        "accent",
-        "success",
-        "warning",
-        "danger",
-        "info"
       ]
     }
   ]

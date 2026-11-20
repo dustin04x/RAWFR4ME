@@ -1,0 +1,27 @@
+# Normalise text to LF in the repository regardless of the committer's platform.
+* text=auto eol=lf
+
+# Rust and project sources.
+*.rs text diff=rust
+*.toml text
+*.md text
+*.yml text
+*.yaml text
+*.sh text eol=lf
+*.py text eol=lf
+
+# Test and documentation captures are data, not prose.
+*.txt text eol=lf
+*.jsonl text eol=lf
+
+# Binary assets must never be diffed or line-ending converted.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.gz binary
+*.zip binary
+*.db binary
+
+# Cargo writes this file; review it as generated data.
+Cargo.lock text merge=union

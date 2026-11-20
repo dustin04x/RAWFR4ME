@@ -1,8 +1,8 @@
 # Security Model
 
 RAWFRAME is security-sensitive infrastructure. This document records the threat
-model, the controls implemented through Milestone 7 (0.2.0), and the gaps that
-must stay visible until later milestones close them.
+model, the controls implemented through Milestone 10 (RAWFRAME v1.0.0), and the
+gaps that must stay visible until later milestones close them.
 
 RAWFRAME must only be used against systems for which the operator has explicit
 authorization. The tool does not grant permission to test anything.

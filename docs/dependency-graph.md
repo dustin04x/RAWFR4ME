@@ -2,6 +2,9 @@
 
 ## Internal crates
 
+Workspace members that no binary links yet are listed separately at the end of
+this section, so the tree below reflects the real runtime graph.
+
 ```
 rawframe-cli
 ├── rawframe-tui
@@ -74,6 +77,19 @@ crate; `rawframe-tui` does not depend on `rawframe-proxy` or
 HTTP, TLS, or destination logic of its own; it never depends on the TUI or
 storage. The CLI attaches bounded command senders to the UI, so the UI triggers
 engine commands without importing proxy or Repeater internals.
+
+### Workspace members not linked by the application
+
+```
+rawframe-analysis
+└── rawframe-core
+```
+
+`rawframe-analysis` is a library with no dependents in v1.0.0. It depends only on
+`rawframe-core` plus `sha2`, `serde`, and `serde_json`, and never on the TUI,
+proxy, or storage. Nothing in `rawframe-cli` links it yet, so the shipped binary
+does not contain the analysis engine. `cargo test --workspace` still builds and
+tests it.
 
 ### Dependency rules
 

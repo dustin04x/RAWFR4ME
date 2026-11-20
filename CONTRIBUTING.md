@@ -6,7 +6,7 @@ Thanks for your interest in improving RAWFRAME. This repository is a Rust worksp
 
 - RAWFRAME is intended **only** for systems you own or are explicitly authorized to test.
 - Do not add features that weaken security defaults (default-deny scope, loopback-by-default binding, explicit private-upstream opt-in, TLS verification, redaction/sanitization).
-- Do not claim unimplemented functionality (e.g. Intruder, Decoder, HTTP/2, or WebSocket support unless the code actually supports it). TLS interception, the local CA, SQLite session persistence, and real Repeater execution are implemented and tested; keep their documentation accurate.
+- Do not claim unimplemented functionality. TLS interception, the local CA, SQLite session persistence, HTTP/2, WebSocket interception, Repeater, Decoder, and Intruder are implemented and tested; keep their documentation accurate. The passive analysis rule engine exists only as the `rawframe-analysis` library and has no Findings workspace, so do not document one until it exists.
 
 ## Development
 
@@ -24,7 +24,7 @@ Or run `./scripts/check.sh`.
 
 ## Guidelines
 
-- Keep changes focused and consistent with the existing workspace architecture (`rawframe-core`, `rawframe-http`, `rawframe-proxy`, `rawframe-store`, `rawframe-tui`, `rawframe-cli`).
+- Keep changes focused and consistent with the existing workspace architecture (`rawframe-core`, `rawframe-http`, `rawframe-proxy`, `rawframe-repeater`, `rawframe-intruder`, `rawframe-analysis`, `rawframe-store`, `rawframe-tui`, `rawframe-cli`). Dependency flow is one-way and documented in `docs/dependency-graph.md`.
 - Preserve the event/command boundaries and existing backend behavior unless a change is explicitly intended and verified.
 - Add or update tests for behavioral changes where appropriate.
 - Do not commit secrets, private keys/certificates, local databases, logs, or build artifacts (`target/`).

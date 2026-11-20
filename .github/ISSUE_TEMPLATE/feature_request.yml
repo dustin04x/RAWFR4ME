@@ -1,0 +1,54 @@
+name: Feature request
+description: Propose a capability or behaviour change
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        RAWFRAME deliberately excludes evasion features: proxy rotation,
+        rate-limit or CAPTCHA circumvention, and distributed scanning will not be
+        accepted. Features that weaken the security defaults (default-deny scope,
+        loopback binding, mandatory TLS verification, redaction) will not be
+        accepted either.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can you not do today, and why does it matter?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: Describe the workflow and where it belongs in the TUI or CLI.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Proxy / forwarding
+        - Interception
+        - HTTPS TLS interception
+        - HTTP History / persistence
+        - Repeater
+        - Intruder
+        - Decoder
+        - WebSocket
+        - Passive analysis / findings
+        - Settings / CLI
+        - Documentation
+    validations:
+      required: true

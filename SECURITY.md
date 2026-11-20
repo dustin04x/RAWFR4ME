@@ -2,9 +2,19 @@
 
 RAWFRAME is a security-testing workbench intended **only** for systems you own or are explicitly authorized to test.
 
-## Supported status
+## Supported versions
 
-This project is under active development (see the README and `docs/roadmap.md` for current implementation status and limitations). Security-relevant behavior and defaults are documented in `docs/security.md`.
+Security fixes are issued for the latest 1.0.x release line.
+
+| Version | Supported |
+| --- | --- |
+| 1.0.x | Yes |
+| < 1.0 | No (pre-release development only) |
+
+Security-relevant behavior, defaults, and known gaps are documented in
+[`docs/security.md`](docs/security.md). Current implementation status and
+limitations are in the [README](README.md#release-status) and
+[`docs/roadmap.md`](docs/roadmap.md).
 
 ## Reporting a vulnerability
 

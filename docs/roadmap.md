@@ -1,5 +1,10 @@
 # Roadmap
 
+RAWFRAME v1.0.0 ships milestones 1–10 as the first stable release. Milestone 11
+is partially delivered: its rule engine exists as a library, but the Findings
+workspace is not available. See the milestone list at the end of this document
+for the exact split between shipped and planned work.
+
 RAWFRAME is built in testable milestones. A later milestone does not begin until
 the previous milestone’s foundation and tests pass. Nothing in this roadmap is
 claimed as implemented until it appears under “completed” with tests.
@@ -372,7 +377,7 @@ controls, QUIC, and any second networking stack.
   captured frames, an authored Repeater session, and a composed frame with its
   echo. `scripts/capture_websocket_pty.py` drives a real client and echo server.
 
-## Known limitations at 0.2.0
+## Known limitations at 1.0.0
 
 - The plaintext listener is HTTP/1.1 only; h2c is not implemented. HTTP/2
   requires TLS and an `h2` ALPN result. HTTP/1.1 WebSocket upgrades are
@@ -424,15 +429,38 @@ controls, QUIC, and any second networking stack.
 - Truecolor is assumed for the intended look; 8/16-color terminals will degrade.
 - The minimum usable size is 64×18; the inspector requires 108 columns.
 
+## Milestone 11 — Passive security analysis (partial)
+
+**Shipped in 1.0.0:** the `rawframe-analysis` library. It contains a
+versioned 17-rule inventory with per-rule detection and applicability
+boundaries, stable fingerprints so repeated observations merge, redacted
+evidence that never copies credential or body values, a bounded scheduler with
+backpressure and cancellation, and deterministic JSON/Markdown report
+formatting. The rules evaluate captured snapshots only and perform no network,
+DNS, URL, Repeater, or Intruder operation. The library is covered by its own
+tests and documented in [analysis-rules.md](analysis-rules.md).
+
+**Not shipped in 1.0.0:** the user-facing half.
+
+- There is no Security Findings workspace and no `Ctrl+8` binding.
+- No analysis scheduler is started by the CLI, so captures are not analyzed at
+  runtime.
+- There is no `findings` table and no findings persistence, lifecycle, or
+export path. Storage schema version remains `4`.
+
+An earlier attempt at the findings screen and a findings export path was
+removed before 1.0.0 because it was not reachable, not compiled, and not
+testable: the screen was never registered in the TUI module tree, its app state
+did not exist, and the store export queried a table that no migration created.
+Shipping it would have meant advertising a workflow that could not run. The
+removed code remains in the history of commit `7a0d1db`.
+
+**To finish M11:** add a `findings` schema migration and store API, start the
+scheduler from the CLI event pump, add TUI app state plus a registered Findings
+workspace and key bindings, then capture end-to-end evidence at 140×40, 100×30,
+and 80×24.
+
 ## Recommended next step
 
-**M11 — Passive security analysis.** Implementation is present and undergoing
-final verification. Captured HTTP/1.1, HTTP/2 shared messages, WebSocket
-handshakes, and eligible text messages are analyzed locally by a bounded
-worker. Findings use session-scoped persistence and project-wide bounded
-traffic paging through the existing store worker. The Security Findings
-workspace supports filters, search, sorting, inspection, lifecycle actions,
-related traffic, reanalysis, and JSON/Markdown exports. PTY captures exist at
-140×40, 100×30, and 80×24. The inventory records tested behavior and known
-limitations; M11 is not considered accepted until the final full suite and
-end-to-end evidence pass. HTTP/3 / RFC 8441 coverage remains future work.
+Finish M11 as scoped above, then HTTP/3 and RFC 8441 coverage, followed by the
+release hardening items listed under the roadmap tail.

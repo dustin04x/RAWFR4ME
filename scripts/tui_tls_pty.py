@@ -154,6 +154,46 @@ def char_width(ch: str) -> int:
     return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
 
 
+# Standard ANSI colours, used only when a capture falls back to the 8/16-colour
+# SGR codes instead of truecolor.
+ANSI_BASE = (
+    (0, 0, 0),
+    (205, 49, 49),
+    (13, 188, 121),
+    (229, 229, 16),
+    (36, 114, 200),
+    (188, 63, 188),
+    (17, 168, 205),
+    (229, 229, 229),
+    (102, 102, 102),
+    (241, 76, 76),
+    (35, 209, 139),
+    (245, 245, 67),
+    (59, 142, 234),
+    (214, 112, 214),
+    (41, 184, 219),
+    (255, 255, 255),
+)
+
+
+def xterm256(index: int) -> tuple[int, int, int]:
+    """Maps an xterm-256 palette index to RGB."""
+    if 0 <= index < 16:
+        return ANSI_BASE[index]
+    if 16 <= index < 232:
+        value = index - 16
+        steps = (0, 95, 135, 175, 215, 255)
+        return (
+            steps[value // 36],
+            steps[(value % 36) // 6],
+            steps[value % 6],
+        )
+    if 232 <= index < 256:
+        level = 8 + (index - 232) * 10
+        return (level, level, level)
+    return (255, 255, 255)
+
+
 class Screen:
     """Small ANSI terminal emulator for the subset ratatui emits."""
 
@@ -161,6 +201,12 @@ class Screen:
         self.width = width
         self.height = height
         self.grid = [[" "] * width for _ in range(height)]
+        # Per-cell SGR colours. ``None`` means "terminal default", which the
+        # renderer maps to the documented graphite palette.
+        self.fg_grid = [[None] * width for _ in range(height)]
+        self.bg_grid = [[None] * width for _ in range(height)]
+        self.fg = None
+        self.bg = None
         self.x = 0
         self.y = 0
         self.pending = ""
@@ -168,12 +214,28 @@ class Screen:
 
     def clear(self) -> None:
         self.grid = [[" "] * self.width for _ in range(self.height)]
+        self.fg_grid = [[None] * self.width for _ in range(self.height)]
+        self.bg_grid = [[None] * self.width for _ in range(self.height)]
         self.x = self.y = 0
+
+    def _erase(self, row: int, column: int) -> None:
+        self.grid[row][column] = " "
+        self.fg_grid[row][column] = self.fg
+        self.bg_grid[row][column] = self.bg
+
+    def _reset_row(self, row: int) -> None:
+        self.grid[row] = [" "] * self.width
+        self.fg_grid[row] = [self.fg] * self.width
+        self.bg_grid[row] = [self.bg] * self.width
 
     def _scroll_or_clamp(self) -> None:
         if self.y >= self.height:
             self.grid.pop(0)
+            self.fg_grid.pop(0)
+            self.bg_grid.pop(0)
             self.grid.append([" "] * self.width)
+            self.fg_grid.append([None] * self.width)
+            self.bg_grid.append([None] * self.width)
             self.y = self.height - 1
 
     def _put(self, ch: str) -> None:
@@ -185,8 +247,12 @@ class Screen:
             self.y += 1
             self._scroll_or_clamp()
         self.grid[self.y][self.x] = ch
+        self.fg_grid[self.y][self.x] = self.fg
+        self.bg_grid[self.y][self.x] = self.bg
         if width == 2 and self.x + 1 < self.width:
             self.grid[self.y][self.x + 1] = ""
+            self.fg_grid[self.y][self.x + 1] = self.fg
+            self.bg_grid[self.y][self.x + 1] = self.bg
         self.x += width
         if self.x >= self.width:
             self.x = self.width - 1
@@ -223,28 +289,71 @@ class Screen:
                 self.clear()
             elif mode == 0:
                 for x in range(self.x, self.width):
-                    self.grid[self.y][x] = " "
+                    self._erase(self.y, x)
                 for y in range(self.y + 1, self.height):
-                    self.grid[y] = [" "] * self.width
+                    self._reset_row(y)
             elif mode == 1:
                 for y in range(0, self.y):
-                    self.grid[y] = [" "] * self.width
+                    self._reset_row(y)
                 for x in range(0, self.x + 1):
-                    self.grid[self.y][x] = " "
+                    self._erase(self.y, x)
         elif final == "K":
             mode = nums[0] if nums else 0
             if mode == 0:
                 for x in range(self.x, self.width):
-                    self.grid[self.y][x] = " "
+                    self._erase(self.y, x)
             elif mode == 1:
                 for x in range(0, self.x + 1):
-                    self.grid[self.y][x] = " "
+                    self._erase(self.y, x)
             elif mode == 2:
-                self.grid[self.y] = [" "] * self.width
+                self._reset_row(self.y)
+        elif final == "m":
+            self._sgr(nums if raw else [0])
         elif final in ("h", "l") and private:
             mode = params
             if mode in ("1049", "47", "1047") and final == "h":
                 self.clear()
+
+    def _sgr(self, nums: list[int]) -> None:
+        """Applies an SGR parameter list to the current pen.
+
+        ratatui emits select-graphic-rendition sequences for every cell run, so
+        tracking them is what makes the rendered PNG carry the application's
+        real colours instead of a single flat fill.
+        """
+        index = 0
+        while index < len(nums):
+            code = nums[index]
+            if code == 0:
+                self.fg = None
+                self.bg = None
+            elif code == 39:
+                self.fg = None
+            elif code == 49:
+                self.bg = None
+            elif code in (38, 48):
+                target = "fg" if code == 38 else "bg"
+                if index + 1 < len(nums):
+                    mode = nums[index + 1]
+                    if mode == 2 and index + 4 < len(nums):
+                        setattr(
+                            self,
+                            target,
+                            (nums[index + 2], nums[index + 3], nums[index + 4]),
+                        )
+                        index += 4
+                    elif mode == 5 and index + 2 < len(nums):
+                        setattr(self, target, xterm256(nums[index + 2]))
+                        index += 2
+            elif 30 <= code <= 37:
+                self.fg = ANSI_BASE[code - 30]
+            elif 90 <= code <= 97:
+                self.fg = ANSI_BASE[code - 90 + 8]
+            elif 40 <= code <= 47:
+                self.bg = ANSI_BASE[code - 40]
+            elif 100 <= code <= 107:
+                self.bg = ANSI_BASE[code - 100 + 8]
+            index += 1
 
     def feed(self, data: bytes) -> None:
         text = self.pending + self.decoder.decode(data)
@@ -407,7 +516,7 @@ class PtyApp:
             stem = f"{self.width}x{self.height}_{name}"
             (directory / f"{stem}.txt").write_text(text + "\n")
             if save_png:
-                save_frame(text, directory / f"{stem}.png")
+                save_screen(self.screen, directory / f"{stem}.png")
         return text
 
     def stop(self) -> None:
@@ -428,7 +537,28 @@ class PtyApp:
             self.master = None
 
 
-def save_frame(text: str, path: Path) -> None:
+# Rasterisation constants. The verifier in capture_readme_screenshots.py reads
+# these so the size floor it enforces is derived from the actual renderer
+# rather than a hardcoded guess.
+FONT_SIZE = 14
+LINE_HEIGHT = 20
+PADDING = 12
+# Conservative average glyph advance for a 14pt monospace face, used only to
+# derive a lower bound on a plausible frame width.
+CELL_WIDTH_FLOOR = 7
+
+
+DEFAULT_FG = (226, 232, 240)
+DEFAULT_BG = (11, 11, 15)
+
+
+def save_screen(screen: Screen, path: Path) -> None:
+    """Rasterises the emulated cell grid, one paint operation per cell.
+
+    Every cell carries the foreground and background the application emitted, so
+    the resulting PNG shows the real theme colours (graphite surfaces, violet
+    accents, semantic status colours) rather than a single flat text fill.
+    """
     try:
         from PIL import Image, ImageDraw, ImageFont
     except ImportError:
@@ -436,16 +566,63 @@ def save_frame(text: str, path: Path) -> None:
     mono = find_mono_font()
     if mono is None:
         return
-    font = ImageFont.truetype(str(mono), 14)
+    font = ImageFont.truetype(str(mono), FONT_SIZE)
+    cell_w = max(1.0, font.getlength("M"))
+    pad2 = PADDING * 2
+    # The trailing slack keeps the final column's glyph from touching the edge:
+    # ``getlength`` reports the advance of one glyph, which can be a fraction of
+    # a pixel narrower than the cell the app actually used.
+    width = int(round(cell_w * screen.width)) + pad2 + 4
+    height = screen.height * LINE_HEIGHT + pad2
+    image = Image.new("RGB", (width, height), DEFAULT_BG)
+    draw = ImageDraw.Draw(image)
+    for row in range(screen.height):
+        top = PADDING + row * LINE_HEIGHT
+        for column in range(screen.width):
+            ch = screen.grid[row][column]
+            bg = screen.bg_grid[row][column] or DEFAULT_BG
+            if bg != DEFAULT_BG:
+                left = PADDING + int(round(column * cell_w))
+                draw.rectangle(
+                    [left, top, left + int(round(cell_w)) - 1, top + LINE_HEIGHT - 1],
+                    fill=bg,
+                )
+            if not ch or ch == " ":
+                continue
+            fg = screen.fg_grid[row][column] or DEFAULT_FG
+            draw.text(
+                (PADDING + int(round(column * cell_w)), top - 1),
+                ch,
+                font=font,
+                fill=fg,
+            )
+    image.save(path)
+
+
+def save_frame(text: str, path: Path) -> None:
+    """Rasterises plain text with no colour information (fallback path)."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return
+    mono = find_mono_font()
+    if mono is None:
+        return
+    font = ImageFont.truetype(str(mono), FONT_SIZE)
     lines = text.splitlines() or [""]
-    line_h = 18
+    pad2 = PADDING * 2
     probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
-    width = max(640, int(max(probe.textlength(line, font=font) for line in lines)) + 24)
-    height = max(200, len(lines) * line_h + 24)
-    image = Image.new("RGB", (width, height), (14, 16, 20))
+    width = max(640, int(max(probe.textlength(line, font=font) for line in lines)) + pad2)
+    height = max(200, len(lines) * LINE_HEIGHT + pad2)
+    image = Image.new("RGB", (width, height), DEFAULT_BG)
     draw = ImageDraw.Draw(image)
     for index, line in enumerate(lines):
-        draw.text((12, 12 + index * line_h), line, font=font, fill=(226, 232, 240))
+        draw.text(
+            (PADDING, PADDING + index * LINE_HEIGHT),
+            line,
+            font=font,
+            fill=DEFAULT_FG,
+        )
     image.save(path)
 
 

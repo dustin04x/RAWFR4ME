@@ -1,40 +1,40 @@
- RAWFRAME  |  Repeater         127.0.0.1:8080   demo session         ○ STOPPED  │  INTERCEPTION OFF  │  SCOPE deny all (no allowlist rules)
+ RAWFRAME  |  Repeater                                            PROXY STOPPED  |  INTERCEPTION OFF  |  SCOPE deny all (no allowlist rules)
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- WORKSPACES      ││◆ REPEATER   execute · inspect · compare                                                                    ENGINE READY
- PRIMARY         ││ SIM POST /v1/orders   SIM GET /v1/users?page=2                                                                      +
-    Proxy    ^1  ││ Send ^⏎    Cancel C    New ^N    Dup   Close ^W    Req→Dec B    Resp→Dec M                                 REDIRECTS OFF
-    History  ^2  ││DRAFT  https://api.rawframe.test/v1/orders  BODY NOT PERSISTED
-    WebSocket^7  ││╭ REQUEST · SIMULATED ORIGINAL ──────────────────────────────────────╮╭ RESPONSE ───────────────────────────────────────╮
-▌ ◆ Repeater ^3  │││ 1 │ POST https://api.rawframe.test/v1/orders HTTP/1.1              ││Draft not sent. Press Send or Ctrl+Enter.     ×  │
-    Intruder ^5  │││ 2 │ Host: api.rawframe.test                                        ││ Raw  Headers  Body  JSON  Hex  Compare          │
-    Decoder  ^6  │││ 3 │ User-Agent: rawframe-sim/0.1 (fixture)                         ││Draft not sent. Press Send or Ctrl+Enter.        │
-    Settings ^4  │││ 4 │ Accept: */*                                                    ││RAWFRAME never fabricates a response.            │
-    Findings ^8  │││ 5 │ Authorization: <redacted>                                      ││                                                 │
-                 │││ 6 │ Content-Type: application/json                                 ││                                                 │
-                 │││ 7 │ X-Request-Id: fixture-4c1d9e                                   ││                                                 │
-                 │││ 8 │                                                                ││                                                 │
-                 │││ 9 │ {"sku":"LAMP-01","quantity":1,"note":"fixture order"}          ││                                                 │
-                 │││                                                                    ││                                                 │
-                 │││                                                                    ││                                                 │
-                 │││                                                                    ││                                                 │
-                 │││                                                                    ││                                                 │
-                 │││                                                                    ││                                                 │
-                 │││                                                                    ││                                                 │
-                 │││                                                                    ││                                                 │
-                 │││                                                                    ││                                                 │
-                 │││                                                                    ││                                                 │
-                 │││                                                                    ││                                                 │
-                 │││                                                                    ││                                                 │
-                 │││                                                                    ││                                                 │
-                 │││                                                                    ││                                                 │
-                 │││                                                                    ││                                                 │
-                 │││                                                                    ││                                                 │
-                 │││                                                                    ││                                                 │
-                 │││                                                                    ││                                                 │
- STATUS          │││                                                                    ││                                                 │
- Engine stopped  │││                                                                    ││                                                 │
- Interception off│││                                                                    ││                                                 │
- No pending      │││                                                                    ││                                                 │
-                 ││╰────────────────────────────────────────────────────────────────────╯╰─────────────────────────────────────────────────╯
+ WORKSPACES        ││REPEATER  execute · inspect · compare                                                                      ENGINE READY
+ PRIMARY           ││ SIM POST /v1/orders   SIM GET /v1/users?page=2                                                                    +
+  Proxy         ^1 ││ Send ^↵    Cancel C    New ^N    Dup   Close ^W    Req→Dec B    Resp→Dec M                               REDIRECTS OFF
+  History       ^2 ││DRAFT  https://api.rawframe.test/v1/orders  BODY NOT PERSISTED
+  WebSocket     ^7 ││╭ REQUEST · SIMULATED ORIGINAL ─────────────────────────────────────╮╭ RESPONSE ──────────────────────────────────────╮
+▌ Repeater      ^3 │││ 1 │ POST https://api.rawframe.test/v1/orders HTTP/1.1             ││Draft not sent. Press Send or Ctrl+Enter.    ×  │
+  Intruder      ^5 │││ 2 │ Host: api.rawframe.test                                       ││ Raw  Headers  Body  JSON  Hex  Compare         │
+  Decoder       ^6 │││ 3 │ User-Agent: rawframe-sim/0.1 (fixture)                        ││Draft not sent. Press Send or Ctrl+Enter.       │
+  Settings      ^4 │││ 4 │ Accept: */*                                                   ││RAWFRAME never fabricates a response.           │
+                   │││ 5 │ Authorization: <redacted>                                     ││                                                │
+                   │││ 6 │ Content-Type: application/json                                ││                                                │
+                   │││ 7 │ X-Request-Id: fixture-4c1d9e                                  ││                                                │
+                   │││ 8 │                                                               ││                                                │
+                   │││ 9 │ {"sku":"LAMP-01","quantity":1,"note":"fixture order"}         ││                                                │
+                   │││                                                                   ││                                                │
+                   │││                                                                   ││                                                │
+                   │││                                                                   ││                                                │
+                   │││                                                                   ││                                                │
+                   │││                                                                   ││                                                │
+                   │││                                                                   ││                                                │
+                   │││                                                                   ││                                                │
+                   │││                                                                   ││                                                │
+                   │││                                                                   ││                                                │
+                   │││                                                                   ││                                                │
+                   │││                                                                   ││                                                │
+                   │││                                                                   ││                                                │
+                   │││                                                                   ││                                                │
+                   │││                                                                   ││                                                │
+                   │││                                                                   ││                                                │
+                   │││                                                                   ││                                                │
+                   │││                                                                   ││                                                │
+ STATUS            │││                                                                   ││                                                │
+ Engine stopped    │││                                                                   ││                                                │
+ Interception off  │││                                                                   ││                                                │
+ No pending        │││                                                                   ││                                                │
+                   ││╰───────────────────────────────────────────────────────────────────╯╰────────────────────────────────────────────────╯
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- NORMAL   ! Persistence is disabled (--no-persist): captures are kept in memory only and are lost on exit.   ^K commands   ? help   ^C quit
+ NORMAL   ! Persistence is disabled (--no-persist): captures are kept in memory only and are lost on exit.     ^K commands  ? help  ^C quit

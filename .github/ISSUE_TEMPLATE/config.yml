@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/dustin04x/RAWFR4ME/security/advisories/new
+    about: Report suspected vulnerabilities privately. Do not open a public issue.
+  - name: Documentation and known limitations
+    url: https://github.com/dustin04x/RAWFR4ME/blob/master/docs/roadmap.md
+    about: Check the documented scope and limitations before filing a request.

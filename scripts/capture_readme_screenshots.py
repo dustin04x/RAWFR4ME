@@ -38,7 +38,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from tui_tls_pty import PtyApp, find_mono_font  # noqa: E402
+from tui_tls_pty import (  # noqa: E402
+    CELL_WIDTH_FLOOR,
+    LINE_HEIGHT,
+    PADDING,
+    PtyApp,
+    find_mono_font,
+)
 
 REPO = Path(__file__).resolve().parent.parent
 GALLERY = REPO / "docs" / "screenshots" / "readme"
@@ -53,16 +59,19 @@ GALLERY_NAMES = (
     "intruder",
     "decoder",
     "websocket",
-    "security-findings",
 )
 
+# Exact RGB values from the TUI's violet theme palette
+# (crates/rawframe-tui/src/theme.rs). A capture that cannot show these pixels is
+# not a genuine render of the application's colours.
 EXPECTED_COLOURS = {
     "accent": (167, 139, 250),
     "success": (74, 222, 128),
     "warning": (251, 191, 36),
-    "danger": (251, 113, 133),
-    "info": (96, 165, 250),
+    "danger": (248, 113, 113),
 }
+
+GRAPHITE_BACKGROUNDS = ((11, 11, 15), (16, 16, 22), (22, 22, 30))
 
 
 class DemoHandler(http.server.BaseHTTPRequestHandler):
@@ -263,7 +272,20 @@ def source_png(directory: Path, stem: str) -> tuple[Path, Path]:
     return png, txt
 
 
-def verify_png(path: Path, markers: list[str], text: str) -> dict[str, object]:
+def minimum_frame_size(size: str) -> tuple[int, int]:
+    """Lower bounds derived from the renderer and the requested PTY grid.
+
+    Trailing blank rows are stripped by ``splitlines``, so the floor allows a
+    couple of missing rows rather than demanding an exact height.
+    """
+    cols, rows = (int(part) for part in size.split("x"))
+    pad2 = PADDING * 2
+    return (cols - 2) * CELL_WIDTH_FLOOR + pad2, (rows - 2) * LINE_HEIGHT + pad2
+
+
+def verify_png(
+    path: Path, markers: list[str], text: str, minimum: tuple[int, int]
+) -> dict[str, object]:
     try:
         from PIL import Image
     except ImportError as exc:  # pragma: no cover - environment failure
@@ -281,8 +303,11 @@ def verify_png(path: Path, markers: list[str], text: str) -> dict[str, object]:
         raise AssertionError(f"{path.name}: too many colours to verify")
     counts = {colour: count for count, colour in colour_counts}
     unique = len(counts)
-    if width < 1100 or height < 760:
-        raise AssertionError(f"{path.name}: suspiciously small image {width}x{height}")
+    if width < minimum[0] or height < minimum[1]:
+        raise AssertionError(
+            f"{path.name}: image {width}x{height} is smaller than the renderer "
+            f"minimum {minimum[0]}x{minimum[1]}"
+        )
     if unique < 120:
         raise AssertionError(f"{path.name}: only {unique} colours; likely blank or monochrome")
 
@@ -296,10 +321,7 @@ def verify_png(path: Path, markers: list[str], text: str) -> dict[str, object]:
             f"{path.name}: semantic colours missing (found {present}); "
             "the PNG may be a monochrome dump"
         )
-    graphite = sum(
-        counts.get(colour, 0)
-        for colour in ((11, 13, 18), (17, 20, 28), (19, 23, 32))
-    )
+    graphite = sum(counts.get(colour, 0) for colour in GRAPHITE_BACKGROUNDS)
     if graphite < (width * height) // 3:
         raise AssertionError(f"{path.name}: graphite background coverage is too low")
     return {
@@ -370,7 +392,6 @@ def main() -> int:
             ("decoder", "capture_decoder_pty.py"),
             ("websocket", "capture_websocket_pty.py"),
             ("intruder", "capture_intruder_pty.py"),
-            ("analysis", "capture_analysis_pty.py"),
         )
         for directory, script in jobs:
             print(f"Capturing {directory}…", flush=True)
@@ -410,11 +431,6 @@ def main() -> int:
                 "140x40_03_echo",
                 ["WEBSOCKET", "FRAMES", "echo:ping"],
             ),
-            "security-findings": (
-                work_root / "analysis",
-                "140x40_01_findings",
-                ["SECURITY FINDINGS", "PROJECT ANALYSIS COMPLETE", "http."],
-            ),
         }
 
         manifest: dict[str, object] = {
@@ -430,7 +446,7 @@ def main() -> int:
         for name, (directory, stem, markers) in plan.items():
             png, txt = source_png(directory, stem)
             text = txt.read_text(errors="replace")
-            checks = verify_png(png, markers, text)
+            checks = verify_png(png, markers, text, minimum_frame_size(SIZE))
             destination = copy_capture(png, txt, name)
             manifest["captures"].append(  # type: ignore[index]
                 {

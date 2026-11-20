@@ -1,5 +1,12 @@
 # Passive analysis rule inventory
 
+**Release status (v1.0.0):** this engine ships as the `rawframe-analysis` library.
+It is built and tested by the workspace but is **not** wired into the TUI or CLI,
+so no captures are analyzed at runtime and there is no Security Findings
+workspace. Findings are not persisted: the SQLite schema has no `findings`
+table. Treat this document as the rule contract for the library and as the
+specification the future Findings workspace must implement.
+
 Rules evaluate immutable captured HTTP/1.1, HTTP/2 shared-message, and WebSocket snapshots. They perform no network, DNS, URL, Repeater, or Intruder operation. IDs are stable; current ruleset version is `2`. Evidence stores references, field labels, fixed diagnostic markers, or category labels. Captured credential values and complete response/message bodies are never copied into findings.
 
 | Rule ID | Detection / applicability | Severity / confidence | Evidence | Known false positives | Actual coverage |
@@ -24,4 +31,4 @@ Rules evaluate immutable captured HTTP/1.1, HTTP/2 shared-message, and WebSocket
 
 ## Test inventory scope
 
-The tests listed above are actual unit tests. Cross-cutting tests cover HTTP/2 shared representation, repeated-evidence stability, sensitive value exclusion from JSON/Markdown, scheduler backpressure/cancellation/limits, and session persistence/restart. Tests do not claim full RFC cookie grammar support, request-smuggling detection, WebSocket origin-policy assessment, binary payload interpretation, certificate validation, or exploitability. Missing/redacted/truncated payloads are not reconstructed.
+The tests listed above are actual unit tests in `crates/rawframe-analysis`. Cross-cutting tests cover HTTP/2 shared representation, repeated-evidence stability, sensitive value exclusion from JSON/Markdown, and scheduler backpressure/cancellation/limits. No test covers findings persistence, findings lifecycle transitions against a database, or a Findings UI, because those paths do not exist in v1.0.0. Tests do not claim full RFC cookie grammar support, request-smuggling detection, WebSocket origin-policy assessment, binary payload interpretation, certificate validation, or exploitability. Missing/redacted/truncated payloads are not reconstructed.

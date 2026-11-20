@@ -1,40 +1,40 @@
- RAWFRAME  |  Intruder              127.0.0.1:44971   demo session              ● LISTENING  │  INTERCEPTION OFF  │  SCOPE 1 allowlist rule
+ RAWFRAME  |  Intruder                                                       PROXY LISTENING  |  INTERCEPTION OFF  |  SCOPE 1 allowlist rule
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- WORKSPACES      ││◆ INTRUDER   positions · payloads · bounded execution                                                       ENGINE READY
- PRIMARY         ││ SETUP   RESULTS                                                                             FINISHED · 8/8 · 8 REQUESTS
-    Proxy    ^1  ││ Pause P    Cancel X    To Repeater T    Baseline B    Sort S    Setup G
-    History  ^2  ││ 8/8 results · no filter · sort request ↑ · NO BASELINE                        / filter · F status · O outcome · U clear
-    WebSocket^7  ││    8/8    ███████████████████████████████████████████████████████████████████████████████████████ 100%  FINISHED
-    Repeater ^3  ││╭  RESULTS  ────────────────────────────────────────────────────────────╮╭  INSPECT · V cycles view  ───────────────────╮
-▌ ◆ Intruder ^5  │││  #  STAT OUTCOME        SIZE    TIME  PAYLOADS                        ││ Raw  Headers  Body  Payloads  Compare        │
-    Decoder  ^6  │││#1   200  RESPONSE        8 B    1 ms  1                               ││GET /search?q=1 HTTP/1.1                      │
-    Settings ^4  │││#2   200  RESPONSE        8 B    0 ms  2                               ││accept-encoding: identity                     │
-    Findings ^8  │││#3   200  RESPONSE       11 B    0 ms  test                            ││user-agent: rawframe-evidence                 │
-                 │││#4   500  RESPONSE       12 B    0 ms  example                         ││Host: 127.0.0.1:33403                         │
-                 │││#5   200  RESPONSE       11 B    2 ms  true                            ││                                              │
-                 │││#6   404  RESPONSE        9 B    0 ms  false                           ││HTTP/1.1 200 OK                               │
-                 │││#7   200  RESPONSE        8 B    0 ms  0                               ││server: BaseHTTP/0.6 Python/3.14.10           │
-                 │││#8   200  RESPONSE        7 B    1 ms                                  ││date: Thu, 19 Nov 2026 19:30:52 GMT           │
-                 │││                                                                       ││content-type: text/plain                      │
-                 │││                                                                       ││x-origin: local-lab                           │
-                 │││                                                                       ││content-length: 8                             │
-                 │││                                                                       ││                                              │
-                 │││                                                                       ││                                              │
-                 │││                                                                       ││                                              │
-                 │││                                                                       ││                                              │
-                 │││                                                                       ││                                              │
-                 │││                                                                       ││                                              │
-                 │││                                                                       ││                                              │
-                 │││                                                                       ││                                              │
-                 │││                                                                       ││                                              │
-                 │││                                                                       ││                                              │
-                 │││                                                                       ││                                              │
-                 │││                                                                       ││                                              │
-                 │││                                                                       ││                                              │
- STATUS          │││                                                                       ││                                              │
- Engine active   │││                                                                       ││                                              │
- Interception off││╰───────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────╯
- No pending      ││
-                 ││
+ WORKSPACES        ││INTRUDER  positions · payloads · bounded execution                                                         ENGINE READY
+ PRIMARY           ││ SETUP   RESULTS                                                                           FINISHED · 8/8 · 8 REQUESTS
+  Proxy         ^1 ││ Pause P    Cancel X    To Repeater T    Baseline B    Sort S    Setup G
+  History       ^2 ││ 8/8 results · no filter · sort request ↑ · NO BASELINE                      / filter · F status · O outcome · U clear
+  WebSocket     ^7 ││    8/8    █████████████████████████████████████████████████████████████████████████████████████ 100%  FINISHED
+  Repeater      ^3 ││╭  RESULTS  ──────────────────────────────────────────────────────────╮╭  INSPECT · V cycles view  ───────────────────╮
+▌ Intruder      ^5 │││  #  STAT OUTCOME        SIZE  PAYLOADS                              ││ Raw  Headers  Body  Payloads  Compare        │
+  Decoder       ^6 │││#1   200  RESPONSE        8 B  1                                     ││GET /search?q=1 HTTP/1.1                      │
+  Settings      ^4 │││#2   200  RESPONSE        8 B  2                                     ││accept-encoding: identity                     │
+                   │││#3   200  RESPONSE       11 B  test                                  ││user-agent: rawframe-evidence                 │
+                   │││#4   500  RESPONSE       12 B  example                               ││Host: 127.0.0.1:36905                         │
+                   │││#5   200  RESPONSE       11 B  true                                  ││                                              │
+                   │││#6   404  RESPONSE        9 B  false                                 ││HTTP/1.1 200 OK                               │
+                   │││#7   200  RESPONSE        8 B  0                                     ││server: BaseHTTP/0.6 Python/3.14.10           │
+                   │││#8   200  RESPONSE        7 B                                        ││date: Fri, 20 Nov 2026 19:28:59 GMT           │
+                   │││                                                                     ││content-type: text/plain                      │
+                   │││                                                                     ││x-origin: local-lab                           │
+                   │││                                                                     ││content-length: 8                             │
+                   │││                                                                     ││                                              │
+                   │││                                                                     ││                                              │
+                   │││                                                                     ││                                              │
+                   │││                                                                     ││                                              │
+                   │││                                                                     ││                                              │
+                   │││                                                                     ││                                              │
+                   │││                                                                     ││                                              │
+                   │││                                                                     ││                                              │
+                   │││                                                                     ││                                              │
+                   │││                                                                     ││                                              │
+                   │││                                                                     ││                                              │
+                   │││                                                                     ││                                              │
+                   │││                                                                     ││                                              │
+ STATUS            │││                                                                     ││                                              │
+ Engine active     │││                                                                     ││                                              │
+ Interception off  ││╰─────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────╯
+ No pending        ││
+                   ││
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- NORMAL   ✓ Intruder COMPLETE · 8 responded · 0 blocked · 0 timed out · 0 failed · 0 not sent · 3509 ms      ^K commands   ? help   ^C quit
+ NORMAL   ✓ Intruder COMPLETE · 8 responded · 0 blocked · 0 timed out · 0 failed · 0 not sent · 3509 ms        ^K commands  ? help  ^C quit

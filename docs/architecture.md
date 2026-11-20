@@ -1,6 +1,6 @@
 # RAWFRAME Architecture
 
-**Status:** Milestone 10 — WebSocket (0.2.0). HTTP/1.1 forwarding, opaque HTTPS
+**Status:** RAWFRAME v1.0.0 — Milestones 1–10. HTTP/1.1 forwarding, opaque HTTPS
 CONNECT tunnels, live pause/edit/forward/drop, opt-in TLS interception for
 HTTP/1.1 and HTTP/2 over negotiated ALPN, SQLite sessions/persistence, redacted
 export, live scope editing, real Repeater execution and comparison, a Decoder
@@ -1042,6 +1042,12 @@ the inspector and history, and real h2 integration tests and PTY evidence.
 frame-level RFC 6455 codec, bidirectional pause/forward/drop/modify, a dedicated
 workspace and inspector, schema-v4 binary-safe persistence, bounded resources,
 and an authored WebSocket Repeater over the shared scope/address/TLS policy.
-Next: traffic analysis, HTTP/3, RFC 8441, and release hardening.
+The `rawframe-analysis` crate adds a deterministic passive-analysis rule engine
+as a library. It is built and tested but is not wired into the TUI or CLI in
+v1.0.0, so there is no Security Findings workspace yet; see
+[analysis-rules.md](analysis-rules.md) for its inventory and status.
+
+Next: wiring the analysis engine into a Findings workspace, HTTP/3, RFC 8441,
+and release hardening.
 
 See [roadmap.md](roadmap.md) for acceptance criteria.

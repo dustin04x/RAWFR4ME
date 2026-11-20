@@ -1,0 +1,114 @@
+name: Release
+
+# Builds the release binary from the tagged source, verifies it, and attaches it
+# plus SHA-256 checksums to the GitHub Release for that tag. Existing release
+# notes are never overwritten.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)build release assets for
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  TARGET: x86_64-unknown-linux-gnu
+
+jobs:
+  build:
+    name: Build ${{ github.ref_name }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          echo "name=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.name }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary from tagged source
+        run: cargo build --release --locked --target "$TARGET" -p rawframe-cli
+
+      - name: Verify the binary reports the tag version
+        run: |
+          version="$("target/$TARGET/release/rawframe" --version | awk '{print $2}')"
+          echo "binary version: $version"
+          if [ "v$version" != "${{ steps.tag.outputs.name }}" ]; then
+            echo "version mismatch: binary reports $version, tag is ${{ steps.tag.outputs.name }}"
+            exit 1
+          fi
+
+      - name: Package artifacts
+        run: |
+          tag="${{ steps.tag.outputs.name }}"
+          name="rawframe-${tag}-${TARGET}"
+          install -d "dist"
+          install -m 755 "target/$TARGET/release/rawframe" "dist/rawframe"
+          cd dist
+          tar -czf "${name}.tar.gz" rawframe
+          sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          rm rawframe
+          sha256sum --check "${name}.tar.gz.sha256"
+          cat "${name}.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish assets
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          echo "name=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+
+      - name: Verify downloaded checksums independently
+        working-directory: dist
+        run: sha256sum --check ./*.sha256
+
+      - name: Create the release if it does not exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --title "RAWFRAME $TAG" \
+              --notes-from-tag \
+              --verify-tag
+          fi
+
+      - name: Upload assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
+        run: gh release upload "$TAG" dist/* --clobber

@@ -1,0 +1,83 @@
+name: Bug report
+description: Report a reproducible defect in RAWFRAME
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report suspected security vulnerabilities here. Follow
+        [SECURITY.md](https://github.com/dustin04x/RAWFR4ME/blob/master/SECURITY.md)
+        and use private reporting instead.
+
+        Remove credentials, cookies, tokens, and client data from anything you paste.
+
+  - type: input
+    id: version
+    attributes:
+      label: RAWFRAME version
+      description: Output of `rawframe --version`.
+      placeholder: rawframe 1.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS and kernel, terminal emulator, `rustc --version` if built from source.
+      placeholder: Arch Linux 6.x, kitty 0.4x, rustc 1.89.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: workspace
+    attributes:
+      label: Area
+      options:
+        - Proxy / forwarding
+        - Interception
+        - HTTPS TLS interception
+        - HTTP History / persistence
+        - Repeater
+        - Intruder
+        - Decoder
+        - WebSocket
+        - Settings / CLI
+        - Build or tests
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands, flags, and keys pressed.
+      placeholder: |
+        1. rawframe --scope http://127.0.0.1:8000 --allow-private-upstreams
+        2. Press P
+        3. curl --noproxy '' -x http://127.0.0.1:8080 http://127.0.0.1:8000/
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Include the footer status (for example `DB ERROR`) and any local log lines.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or terminal output
+      render: text
+    validations:
+      required: false
