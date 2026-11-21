@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- RAWFRAME Dark Logo -->
+<svg xmlns="http.org/2000/svg" width="120" height="40" viewBox="0 0 120 40" fill="none">
+  <rect width="120" height="40" rx="8" ry="8" fill="#1F2937"/>
+  <rect x="10" y="10" width="30" height="20" rx="4" ry="4" fill="#8B5CF6"/>
+  <rect x="50" y="10" width="30" height="20" rx="4" ry="4" fill#10B981"/>
+  <rect x="90" y="10" width="30" height="20" rx="4" ry="4" fill#EF4444"/>
+  <text x="60" y="30" font-family="Menlo, Consolas, monospace" font-size="14" font-weight="bold" fill="white" text-anchor="middle">RAWFRAME</text>
+</svg>
